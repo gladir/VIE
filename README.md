@@ -1,7 +1,7 @@
 # VIE
 Ce projet contient des commandes écrit en Pascal d'aide destiné à l'Intelligence artificielle (IA).
 
-Liste des fichiers
+<h2>Liste des fichiers</h2>
 
 Voici la liste des différents fichiers proposés dans VIE :
 
