@@ -12,6 +12,6 @@ Voici la liste des différents fichiers proposés dans VIE :
    </tr>
   <tr>
       <td><b>TRANSLAT.PAS</b></td>
-      <td>Cette commande permet de tranduire du texte anglais en français.</td>
+      <td>Cette commande permet de traduire du texte anglais en français.</td>
    </tr>
 </table>
