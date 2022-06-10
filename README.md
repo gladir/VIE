@@ -11,6 +11,10 @@ Voici la liste des différents fichiers proposés dans VIE :
     <th>Description</th>
    </tr>
   <tr>
+     <td><b>CLASSIFI.PAS</b></td>
+     <td>Cette commande permet de demander une classification d'un texte.</td>
+  </tr>
+  <tr>
      <td><b>DETECLNG.PAS</b></td>
      <td>Cette commande permet de détecter le langage humain (français, anglais,...) dans lequel un  texte est écrit.</td>
   </tr>
