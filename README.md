@@ -23,6 +23,9 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande permet de détecter les sentiments dans un texte.</td>
   </tr>  
   <tr>
+     <td><b>SKILLS.PAS</b></td>
+    <td>Cette commande permet de rechercher les compétences contenu dans un CV de format texte.</td>
+  <tr>
       <td><b>TRANSLAT.PAS</b></td>
       <td>Cette commande permet de traduire du texte anglais en français.</td>
    </tr>
