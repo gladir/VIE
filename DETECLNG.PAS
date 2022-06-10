@@ -148,7 +148,7 @@ BEGIN
  If(ParamStr(1)='/?')or(ParamStr(1)='--help')or(ParamStr(1)='-h')or
    (ParamStr(1)='/h')or(ParamStr(1)='/H')Then Begin
   WriteLn('DETECLNG : Cette commande permet de detecter le langage ',
-                      'humain dans lequel un texte est ecritl.');
+                      'humain dans lequel un texte est ecrit.');
   WriteLn;
   WriteLn('Syntaxe : DETECLNG "message"');
   WriteLn('          DETECLNG /FILE:fichier');
