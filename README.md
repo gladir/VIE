@@ -15,6 +15,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande permet de détecter le langage humain (français, anglais,...) dans lequel un  texte est écrit.</td>
   </tr>
   <tr>
+     <td><b>DETECSEN.PAS</b></td>
+     <td>Cette commande permet de détecter les sentiments dans un texte.</td>
+  </tr>  
+  <tr>
       <td><b>TRANSLAT.PAS</b></td>
       <td>Cette commande permet de traduire du texte anglais en français.</td>
    </tr>
