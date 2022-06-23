@@ -120,7 +120,7 @@ Var
 BEGIN
  If(ParamStr(1)='/?')or(ParamStr(1)='--help')or(ParamStr(1)='-h')or
    (ParamStr(1)='/h')or(ParamStr(1)='/H')Then Begin
-  WriteLn('LOREM : Cette commande permet de g‚n‚rer ',
+  WriteLn('LOREM : Cette commande permet de g‚n‚rer du ',
                       'texte al‚atoirement (Lorem Ipsum).');
   WriteLn;
   WriteLn('Syntaxe : LOREM longueur');
