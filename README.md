@@ -21,7 +21,11 @@ Voici la liste des différents fichiers proposés dans VIE :
   <tr>
      <td><b>DETECSEN.PAS</b></td>
      <td>Cette commande permet de détecter les sentiments dans un texte.</td>
-  </tr>  
+  </tr> 
+  <tr>
+     <td><b>LOREM.PAS</b></td>
+     <td>Cette commande permet de générer du texte aléatoirement (Lorem Ipsum).</td>
+  </tr>
   <tr>
      <td><b>SKILLS.PAS</b></td>
     <td>Cette commande permet de rechercher les compétences contenu dans un CV de format texte.</td>
