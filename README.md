@@ -12,7 +12,7 @@ Voici la liste des différents fichiers proposés dans VIE :
    </tr>
   <tr>
      <td><b>CHATBOT.PAS</b></td>
-     <td>Cette commande permet de lancer le Chatbot1.</td>
+     <td>Cette commande permet de lancer le Chatbot.</td>
   </tr>  
   <tr>
      <td><b>CLASSIFI.PAS</b></td>
