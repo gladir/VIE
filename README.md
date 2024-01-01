@@ -27,6 +27,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande permet de détecter les sentiments dans un texte.</td>
   </tr> 
   <tr>
+     <td><b>FINDANAG.PAS</b></td>
+     <td>Cette commande permet de rechercher les anagrammes du mot spécifié.</td>
+  </tr>
+  <tr>
      <td><b>LOREM.PAS</b></td>
      <td>Cette commande permet de générer du texte aléatoirement (Lorem Ipsum).</td>
   </tr>
