@@ -39,6 +39,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande permet de générer un fichier de données aléatoire selon la taille spécifié.</td>
   </tr>
   <tr>
+     <td><b>MAKEMAZE.PAS</b></td>
+     <td>Cette commande permet de générer un labyrinthe.</td>
+  </tr>
+  <tr>
      <td><b>SKILLS.PAS</b></td>
     <td>Cette commande permet de rechercher les compétences contenu dans un CV de format texte.</td>
   <tr>
