@@ -31,6 +31,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande permet de rechercher les anagrammes du mot spécifié.</td>
   </tr>
   <tr>
+	<td><b>GSODOKU.PAS</b></td>
+	<td>Cette commande permet de générer une matrice de nombre de 9 x 9 pour une solution possible dans une grille de jeu Sodoku.</td>
+  </tr>
+  <tr>
      <td><b>LOREM.PAS</b></td>
      <td>Cette commande permet de générer du texte aléatoirement (Lorem Ipsum).</td>
   </tr>
