@@ -9143,6 +9143,57 @@ Begin
  Utf8Length:=N;
 End;
 
+Function HelpToCP437(Const S:AnsiString):AnsiString;
+Var
+ I,Code:LongInt;
+ C1,C2:Byte;
+ R:RawByteString;
+Begin
+ R:='';I:=1;
+ While I<=Length(S)do Begin
+  Code:=0;
+  If I<Length(S)Then Begin
+   C1:=Ord(S[I]);C2:=Ord(S[I+1]);
+   If C1=$C3 Then Case C2 Of
+    $80:Code:=183; $82:Code:=182; $87:Code:=128; $88:Code:=212;
+    $89:Code:=144; $8A:Code:=210; $8B:Code:=211; $8E:Code:=215;
+    $8F:Code:=216; $94:Code:=226; $99:Code:=235; $9B:Code:=234;
+    $9C:Code:=154; $A0:Code:=133; $A2:Code:=131; $A7:Code:=135;
+    $A8:Code:=138; $A9:Code:=130; $AA:Code:=136; $AB:Code:=137;
+    $AE:Code:=140; $AF:Code:=139; $B4:Code:=147; $B9:Code:=151;
+    $BB:Code:=150; $BC:Code:=129;
+   End
+    Else If(C1=$C2)and(C2=$AB)Then Code:=174
+    Else If(C1=$C2)and(C2=$BB)Then Code:=175;
+   If Code<>0 Then Begin
+    R:=R+Chr(Code);Inc(I,2);Continue;
+   End;
+  End;
+  Case Ord(S[I])Of
+   $80:Code:=128; $81:Code:=129; $82:Code:=130; $83:Code:=131;
+   $84:Code:=132; $85:Code:=133; $87:Code:=135; $88:Code:=136;
+   $89:Code:=137; $8A:Code:=138; $8B:Code:=139; $8C:Code:=140;
+   $8E:Code:=142; $8F:Code:=143; $91:Code:=145; $92:Code:=146;
+   $93:Code:=147; $94:Code:=148; $96:Code:=150; $97:Code:=151;
+   $AB:Code:=174; $BB:Code:=175;
+   $C0:Code:=183; $C2:Code:=182; $C7:Code:=128; $C8:Code:=212;
+   $C9:Code:=144; $CA:Code:=210; $CB:Code:=211; $CE:Code:=215;
+   $CF:Code:=216; $D4:Code:=226; $D9:Code:=235; $DB:Code:=234;
+   $DC:Code:=154; $E0:Code:=133; $E2:Code:=131; $E7:Code:=135;
+   $E8:Code:=138; $E9:Code:=130; $EA:Code:=136; $EB:Code:=137;
+   $EE:Code:=140; $EF:Code:=139; $F4:Code:=147; $F9:Code:=151;
+   $FB:Code:=150; $FC:Code:=129;
+  Else Code:=0;
+  End;
+  If Code<>0 Then Begin R:=R+Chr(Code);Inc(I);Continue;End;
+  R:=R+S[I];Inc(I);
+ End;
+ {$IFDEF FPC}
+ SetCodePage(R,437,False);
+ {$ENDIF}
+ HelpToCP437:=R;
+End;
+
 Function OptToString(Const O:TOpt):AnsiString;
 Var
  SS:AnsiString;
@@ -9177,7 +9228,7 @@ Begin
   If I>0 Then SS:=SS+StrRepeat(' ',40);
   SS:=SS+Lines[I]+#10;
  End;
- OptToString:=SS;
+ OptToString:=HelpToCP437(SS);
 End;
 
 Procedure PrintUsage;
@@ -9185,15 +9236,19 @@ Var
  Sec,I:LongInt;
  Titles:Array[0..2]of AnsiString;
 Begin
- Titles[0]:='----- paramètres communs -----';
- Titles[1]:='----- paramètres d''échantillonnage -----';
- Titles[2]:='----- paramètres spécifiques à llama-cli -----';
- WriteLn('usage : llama-cli [options]');
+ {$IFDEF FPC}
+ SetTextCodePage(Output,437);
+ {$ENDIF}
+ Titles[0]:='----- param'+#138+'tres communs -----';
+ Titles[1]:='----- param'+#138+'tres d'''+#130+'chantillonnage -----';
+ Titles[2]:='----- param'+#138+'tres sp'+#130+'cifiques '+#133+' llama-cli -----';
+ WriteLn(HelpToCP437('LLAMA-CLI : Cette commande permet de lancer un chargement de mod'+#138+'le GGUF et de g'+#130+'n'+#130+'rer du texte ou de converser.'));
+ WriteLn('Syntaxe: llama-cli [options]');
  WriteLn;
  WriteLn('exemple : llama-cli -m modele.gguf -p "Explique-moi la gravitation" -n 512');
  WriteLn;
  For Sec:=0 to 2 do Begin
-  WriteLn(Titles[Sec]);
+  WriteLn(HelpToCP437(Titles[Sec]));
   WriteLn;
   For I:=0 to High(Opts)do
    If Opts[I].Sec=Sec Then Write(OptToString(Opts[I]));
