@@ -10121,7 +10121,7 @@ Begin
  Else If Prm.ConvMode=0 Then ConvMode:=HasTemplate;
  If ConvMode and not HasTemplate Then
   LogWrn('avertissement : aucun mod'+#138+'le de conversation disponible ; utilisation de « chatml » ; les r'+
-         #130+'ponses peuvent '+#136+'tre de moindre qualit'+#130++#10);
+         #130+'ponses peuvent '+#136+'tre de moindre qualit'+#130+#10);
  If ConvMode and(Prm.ConvMode=0)Then
   LogOut(4,'main : un mod'+#138+'le de conversation est disponible, le mode conversation est activ'+#130' (d'+#130+'sactivable avec -no-cnv)'+#10);
  AddBos:=Mdl.V.AddBOS;
