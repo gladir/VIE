@@ -8461,6 +8461,8 @@ Function InternetReadFile(H:Pointer;Buf:Pointer;ToRead:LongWord;Var Got:LongWord
 Function InternetCloseHandle(H:Pointer):LongInt;stdcall;external 'wininet.dll' name 'InternetCloseHandle';
 Function HttpQueryInfoA(H:Pointer;InfoLevel:LongWord;Buf:Pointer;Var BufLen:LongWord;Index:Pointer):LongInt;
  stdcall;external 'wininet.dll' name 'HttpQueryInfoA';
+Function InternetSetOptionA(H:Pointer;Opt:LongWord;Buf:Pointer;BufLen:LongWord):LongInt;
+ stdcall;external 'wininet.dll' name 'InternetSetOptionA';
 {$ELSE}
  {$IFDEF UNIX}
 Function c_isatty(Fd:LongInt):LongInt;cdecl;external 'c' name 'isatty';
@@ -8557,28 +8559,35 @@ Begin
 End;
 
 {$IFDEF WINDOWS}
-Function HttpOpen(Const Url,Token:AnsiString;Var Status:LongInt;Var ContentLen:Int64;Var Sess:Pointer):Pointer;
+Function HttpOpen(Const Url,Token:AnsiString;From:Int64;Var Status:LongInt;Var ContentLen:Int64;Var Sess:Pointer):Pointer;
 Var
  Hdr:AnsiString;
  Flags:LongWord;
  H:Pointer;
  Buf:LongWord;
- L:LongWord;
+ L,Tmo:LongWord;
+ SBuf:Array[0..63]of AnsiChar;
+ Code:LongInt;
 Begin
  HttpOpen:=Nil;
  Status:=0;ContentLen:=-1;
  Sess:=InternetOpenA('llama-cpp',0,Nil,Nil,0);
  If Sess=Nil Then Exit;
+ Tmo:=30000;
+ InternetSetOptionA(Sess,2,@Tmo,4);
+ InternetSetOptionA(Sess,6,@Tmo,4);
  Flags:=$80000000 or $04000000;
  If Copy(LoStr(Url),1,8)='https://' Then Flags:=Flags or $00800000;
  Hdr:='Accept: */*'#13#10;
  If Token<>'' Then Hdr:=Hdr+'Authorization: Bearer '+Token+#13#10;
+ If From>0 Then Hdr:=Hdr+'Range: bytes='+IStr(From)+'-'#13#10;
  H:=InternetOpenUrlA(Sess,PChar(Url),PChar(Hdr),LongWord(Length(Hdr)),Flags,0);
  If H=Nil Then Begin InternetCloseHandle(Sess);Sess:=Nil;Exit;End;
  L:=4;Buf:=0;
  If HttpQueryInfoA(H,19 or $20000000,@Buf,L,Nil)<>0 Then Status:=Buf;
- L:=4;Buf:=0;
- If HttpQueryInfoA(H,5 or $20000000,@Buf,L,Nil)<>0 Then ContentLen:=Buf;
+ FillChar(SBuf,SizeOf(SBuf),0);
+ L:=SizeOf(SBuf)-1;
+ If HttpQueryInfoA(H,5,@SBuf[0],L,Nil)<>0 Then Val(AnsiString(PChar(@SBuf[0])),ContentLen,Code);
  HttpOpen:=H;
 End;
 {$ENDIF}
@@ -8594,7 +8603,7 @@ Var
 Begin
  HttpGetString:=False;
  Body:='';
- H:=HttpOpen(Url,Token,Status,Cl,Sess);
+ H:=HttpOpen(Url,Token,0,Status,Cl,Sess);
  If H=Nil Then Exit;
  Repeat
   Got:=0;
@@ -8618,58 +8627,107 @@ End;
 
 Function HttpDownload(Const Url,Token,Dest:AnsiString;Var Err:AnsiString):Boolean;
 {$IFDEF WINDOWS}
+Const
+ MaxTries=10;
 Var
  H,Sess:Pointer;
  Status:LongInt;
- Cl,Done:Int64;
+ Cl,Done,Total:Int64;
  Got:LongWord;
  Buf:Array[0..65535]of Byte;
  F:File;
  Tmp:AnsiString;
- LastPc,Pc:LongInt;
+ LastPc,Pc,Try_,Wait:LongInt;
+ Fin,Fatal:Boolean;
 Begin
  HttpDownload:=False;
  Err:='';
- H:=HttpOpen(Url,Token,Status,Cl,Sess);
- If H=Nil Then Begin Err:='échec de la connexion à '+Url;Exit;End;
- If(Status<200)or(Status>=300)Then Begin
-  Err:='le serveur a répondu avec le code HTTP '+IStr(Status)+' pour '+Url;
-  InternetCloseHandle(H);InternetCloseHandle(Sess);
-  Exit;
- End;
  MakeDirs(PathDir(Dest));
  Tmp:=Dest+'.downloadInProgress';
+ Done:=0;Total:=-1;
+ { reprise d'un telechargement interrompu }
  Assign(F,Tmp);
- Rewrite(F,1);
- If IOResult<>0 Then Begin
-  Err:='impossible de créer '+Tmp;
-  InternetCloseHandle(H);InternetCloseHandle(Sess);
-  Exit;
+ {$I-}Reset(F,1);{$I+}
+ If IOResult=0 Then Begin
+  Done:=FileSize(F);
+  Close(F);
+  If Done>0 Then Write(StdErr,'reprise du téléchargement à '+HumanBytes(Done)+#10);
  End;
- Done:=0;LastPc:=-1;
- Repeat
-  Got:=0;
-  If InternetReadFile(H,@Buf[0],SizeOf(Buf),Got)=0 Then Begin Err:='erreur de lecture réseau';Break;End;
-  If Got>0 Then Begin
-   BlockWrite(F,Buf[0],Got);
-   Inc(Done,Got);
-   If Cl>0 Then Begin
-    Pc:=(Done*100)div Cl;
-    If Pc<>LastPc Then Begin
-     LastPc:=Pc;
-     Write(StdErr,#13'Téléchargement de '+PathLastPart(Dest)+' : '+IStr(Pc)+'% ('+HumanBytes(Done)+')');
-     Flush(StdErr);
+ Fin:=False;Fatal:=False;Try_:=0;
+ While(not Fin)and(not Fatal)and(Try_<MaxTries)do Begin
+  Inc(Try_);
+  If Try_>1 Then Begin
+   Wait:=Try_*2;
+   if Wait>20 Then Wait:=20;
+   Write(StdErr,#10'nouvelle tentative '+IStr(Try_)+'/'+IStr(MaxTries)+' dans '+IStr(Wait)+' s ('+Err+')'#10);
+   Flush(StdErr);
+   WinSleep(LongWord(Wait)*1000);
+  End;
+  Err:='';
+  H:=HttpOpen(Url,Token,Done,Status,Cl,Sess);
+  If H=Nil Then Begin Err:='échec de la connexion à '+Url;Continue;End;
+  If Status=416 Then Begin
+   { le fichier partiel est deja complet ou invalide }
+   InternetCloseHandle(H);InternetCloseHandle(Sess);
+   If Total>0 Then Fin:=(Done=Total) Else Begin Done:=0;Assign(F,Tmp);Erase(F);If IOResult<>0 Then;End;
+   If not Fin Then Err:='plage refusée par le serveur, redémarrage';
+   Continue;
+  End;
+  If(Status<200)or(Status>=300)Then Begin
+   Err:='le serveur a répondu avec le code HTTP '+IStr(Status)+' pour '+Url;
+   InternetCloseHandle(H);InternetCloseHandle(Sess);
+   { les erreurs 4xx (hors 408/429) ne se corrigent pas en reessayant }
+   If(Status>=400)and(Status<500)and(Status<>408)and(Status<>429)Then Fatal:=True;
+   Continue;
+  End;
+  Assign(F,Tmp);
+  If(Status=206)and(Done>0)Then Begin
+   {$I-}Reset(F,1);{$I+}
+   If IOResult=0 Then Seek(F,Done);
+   If Cl>0 Then Total:=Done+Cl;
+  End Else Begin
+   { le serveur renvoie tout le fichier : on repart de zero }
+   Done:=0;
+   Total:=Cl;
+   {$I-}Rewrite(F,1);{$I+}
+  End;
+  If IOResult<>0 Then Begin
+   Err:='impossible de créer '+Tmp;
+   InternetCloseHandle(H);InternetCloseHandle(Sess);
+   Fatal:=True;
+   Continue;
+  End;
+  LastPc:=-1;
+  Repeat
+   Got:=0;
+   If InternetReadFile(H,@Buf[0],SizeOf(Buf),Got)=0 Then Begin Err:='erreur de lecture réseau';Break;End;
+   If Got>0 Then Begin
+    BlockWrite(F,Buf[0],Got);
+    Inc(Done,Got);
+    If Total>0 Then Begin
+     Pc:=(Done*100)div Total;
+     If Pc<>LastPc Then Begin
+      LastPc:=Pc;
+      Write(StdErr,#13'Téléchargement de '+PathLastPart(Dest)+' : '+IStr(Pc)+'% ('+HumanBytes(Done)+')');
+      Flush(StdErr);
+     End;
     End;
    End;
+  Until Got=0;
+  Close(F);
+  If IOResult<>0 Then;
+  InternetCloseHandle(H);InternetCloseHandle(Sess);
+  If Err='' Then Begin
+   If(Total>0)and(Done<>Total)Then Err:='téléchargement incomplet'
+   Else Fin:=True;
   End;
- Until Got=0;
- Close(F);
- If IOResult<>0 Then;
- InternetCloseHandle(H);InternetCloseHandle(Sess);
+ End;
  Write(StdErr,#10);
- If Err<>'' Then Exit;
- If(Cl>0)and(Done<>Cl)Then Begin Err:='téléchargement incomplet';Exit;End;
- Erase(F);
+ If not Fin Then Begin
+  If Err='' Then Err:='échec du téléchargement';
+  Err:=Err+' ; relancez la même commande pour reprendre à '+HumanBytes(Done);
+  Exit;
+ End;
  If FileExistsP(Dest)Then Begin Assign(F,Dest);Erase(F);If IOResult<>0 Then;End;
  Assign(F,Tmp);
  Rename(F,Dest);
