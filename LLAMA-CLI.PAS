@@ -10,8 +10,9 @@
    - la seule unite utilisee est DOS (le reste vient de l'unite System);
    - les appels reseau (-hf, -mu) n'existent que sous Windows (WinInet),
      ils sont absents sous DOS et Linux;
-   - aucun support GPU : les options -ngl, -dev, etc. sont acceptees
-     mais ignorees;
+   - GPU (Windows seulement) : shaders de calcul Direct3D 11 (HLSL compile a
+     l'execution, aucune bibliotheque tierce) pour les produits matriciels
+     Q4_K, Q6_K et Q8_0 ; sans GPU detecte, le calcul reste sur le CPU;
    - le calcul est fait sur un seul fil d'execution (les options -t et -tb
      sont acceptees mais ne changent pas le comportement).
 
@@ -4127,12 +4128,763 @@ Begin
 End;
 
 { Y[t*M+r] = somme_k W[r][k] * X[t*K+k] ; W : M lignes de K elements (type Typ) }
+{ ------------------------------------------------------------------ }
+{ GPU : shaders de calcul Direct3D 11 (HLSL compile a l'execution).    }
+{ Windows seulement ; sans GPU le calcul reste sur le microprocesseur. }
+{ ------------------------------------------------------------------ }
+
+Type
+ TGpuDev=Record
+  Name:AnsiString;
+  Adapter:Pointer;
+  Vendor:LongWord;
+  VRam,Free,Ded:Int64;
+ End;
+ TGpuTensor=Record
+  Data:PByte;
+  Typ,K,M:LongInt;
+  SRV:Pointer;
+ End;
+
+Var
+ GpuDevs:Array of TGpuDev;
+ GpuEnumDone:Boolean=False;
+ GpuOn:Boolean=False;
+ GpuTensors:Array of TGpuTensor;
+ GpuNT:LongInt=0;
+ GpuLast:LongInt=0;
+ GpuTotalBytes:Int64=0;
+ GpuBatch:Boolean=False;
+ GpuPend:LongInt=0;
+ GpuPendY:Array[0..7]of PSingle;
+ GpuPendOff,GpuPendLen:Array[0..7]of LongInt;
+ GpuYOff:LongInt=0;
+ GpuXDone:Boolean=False;
+
+{$IFDEF WINDOWS}
+Const
+ GpuRowStride=32768;
+ GpuMaxIO=67108864;
+
+Type
+ TGuid4=Record
+  D1:LongWord;D2,D3:Word;D4:Array[0..7]of Byte;
+ End;
+ TVTab=Array[0..255]of Pointer;
+ PVTab=^TVTab;
+ TAdapterDesc=Record
+  Descr:Array[0..127]of Word;
+  Vendor,Device,SubSys,Rev:LongWord;
+  DedVid,DedSys,Shared:LongWord;
+  LuidLo:LongWord;LuidHi:LongInt;
+  Pad:Array[0..7]of LongWord;
+ End;
+ TVideoMemInfo=Record
+  Budget,CurrentUsage,AvailRes,CurrentRes:QWord;
+ End;
+ TMapped=Record
+  Data:Pointer;
+  RowPitch,DepthPitch:LongWord;
+ End;
+ TBufDesc=Record
+  ByteWidth,Usage,BindFlags,CPUAccess,Misc,Stride:LongWord;
+ End;
+ TViewDesc=Record
+  Format,Dim,First,Num,Flags:LongWord;
+  Pad:Array[0..11]of LongWord;
+ End;
+ TSubData=Record
+  Mem:Pointer;
+  Pitch,Slice:LongWord;
+ End;
+ TCBData=Record
+  K,M,NTok,Pad:LongWord;
+ End;
+
+ TFnCreateDev=Function(Adapter:Pointer;DrvType:LongWord;Soft:PtrUInt;Flags:LongWord;FL:Pointer;NFL:LongWord;
+  Sdk:LongWord;Var Dev:Pointer;Var FLOut:LongWord;Var Ctx:Pointer):LongInt;stdcall;
+ TFnCompile=Function(Src:Pointer;SrcLen:PtrUInt;Name:PChar;Defs,Inc:Pointer;Entry,Target:PChar;F1,F2:LongWord;
+  Var Code:Pointer;Var Err:Pointer):LongInt;stdcall;
+ TFnFactory=Function(Iid:Pointer;Var F:Pointer):LongInt;stdcall;
+ TMQuery=Function(Self,Iid:Pointer;Var Obj:Pointer):LongInt;stdcall;
+ TMRelease=Function(Self:Pointer):LongWord;stdcall;
+ TMEnumAdapters=Function(Self:Pointer;Idx:LongWord;Var Ad:Pointer):LongInt;stdcall;
+ TMGetDesc=Function(Self:Pointer;Var D:TAdapterDesc):LongInt;stdcall;
+ TMQueryMem=Function(Self:Pointer;Node,Seg:LongWord;Var Info:TVideoMemInfo):LongInt;stdcall;
+ TMCreateBuffer=Function(Self,Desc,Init:Pointer;Var Buf:Pointer):LongInt;stdcall;
+ TMCreateView=Function(Self,Res,Desc:Pointer;Var V:Pointer):LongInt;stdcall;
+ TMCreateCS=Function(Self,Code:Pointer;Len:PtrUInt;Link:Pointer;Var Sh:Pointer):LongInt;stdcall;
+ TMMap=Function(Self,Res:Pointer;Sub,MType,MFlags:LongWord;Var Mapped:TMapped):LongInt;stdcall;
+ TMUnmap=Procedure(Self,Res:Pointer;Sub:LongWord);stdcall;
+ TMDispatch=Procedure(Self:Pointer;X,Y,Z:LongWord);stdcall;
+ TMCopyRes=Procedure(Self,Dst,Src:Pointer);stdcall;
+ TMUpdate=Procedure(Self,Dst:Pointer;Sub:LongWord;Box,Data:Pointer;RP,DP:LongWord);stdcall;
+ TMSetSRV=Procedure(Self:Pointer;Start,Num:LongWord;Views:Pointer);stdcall;
+ TMSetUAV=Procedure(Self:Pointer;Start,Num:LongWord;Views,Counts:Pointer);stdcall;
+ TMSetShader=Procedure(Self,Sh,Inst:Pointer;N:LongWord);stdcall;
+ TMSetCB=Procedure(Self:Pointer;Start,Num:LongWord;Bufs:Pointer);stdcall;
+ TMBlobPtr=Function(Self:Pointer):Pointer;stdcall;
+ TMBlobSize=Function(Self:Pointer):PtrUInt;stdcall;
+
+Function LoadLibraryA(Name:PChar):PtrUInt;stdcall;external 'kernel32.dll' name 'LoadLibraryA';
+Function GetProcAddress(H:PtrUInt;Name:PChar):Pointer;stdcall;external 'kernel32.dll' name 'GetProcAddress';
+
+Var
+ GFactory:Pointer=Nil;
+ GDev,GCtx:Pointer;
+ GShQ4K,GShQ6K,GShQ80:Pointer;
+ GCB,GXBuf,GXSrv,GYBuf,GYUav,GYStage:Pointer;
+ GXCap,GYCap:LongInt;
+ GDevIdx:LongInt=-1;
+
+Function VTab(Obj:Pointer;I:LongInt):Pointer;
+Begin
+ VTab:=PVTab(PPointer(Obj)^)^[I];
+End;
+
+Procedure ComRelease(Obj:Pointer);
+Begin
+ If Obj<>Nil Then TMRelease(VTab(Obj,2))(Obj);
+End;
+
+Procedure GpuEnumDevices;
+Const
+ IID_Factory:TGuid4=(D1:$7b7166ec;D2:$21c7;D3:$44ae;D4:($b2,$1a,$c9,$ae,$32,$1a,$e3,$69));
+ IID_Adapter3:TGuid4=(D1:$645967A4;D2:$1392;D3:$4310;D4:($A7,$98,$80,$53,$CE,$3E,$93,$FD));
+Var
+ H:PtrUInt;
+ Fn:TFnFactory;
+ Ad,Ad3:Pointer;
+ I:LongInt;
+ D:TAdapterDesc;
+ Info:TVideoMemInfo;
+ N:LongInt;
+ S:AnsiString;
+ J:LongInt;
+Begin
+ If GpuEnumDone Then Exit;
+ GpuEnumDone:=True;
+ SetLength(GpuDevs,0);
+ H:=LoadLibraryA('dxgi.dll');
+ If H=0 Then Exit;
+ Fn:=TFnFactory(GetProcAddress(H,'CreateDXGIFactory'));
+ If not Assigned(Fn)Then Exit;
+ If Fn(@IID_Factory,GFactory)<0 Then Exit;
+ I:=0;
+ While TMEnumAdapters(VTab(GFactory,7))(GFactory,I,Ad)>=0 do Begin
+  FillChar(D,SizeOf(D),0);
+  If TMGetDesc(VTab(Ad,8))(Ad,D)>=0 Then Begin
+   If D.Vendor<>$1414 Then Begin
+    N:=Length(GpuDevs);
+    SetLength(GpuDevs,N+1);
+    S:='';
+    For J:=0 to 127 do Begin
+     If D.Descr[J]=0 Then Break;
+     If D.Descr[J]<128 Then S:=S+Chr(D.Descr[J]) Else S:=S+'?';
+    End;
+    GpuDevs[N].Name:=S;
+    GpuDevs[N].Adapter:=Ad;
+    GpuDevs[N].Vendor:=D.Vendor;
+    GpuDevs[N].VRam:=D.DedVid;
+    GpuDevs[N].Ded:=D.DedVid;
+    GpuDevs[N].Free:=D.DedVid;
+    Ad3:=Nil;
+    If TMQuery(VTab(Ad,0))(Ad,@IID_Adapter3,Ad3)>=0 Then Begin
+     FillChar(Info,SizeOf(Info),0);
+     If TMQueryMem(VTab(Ad3,14))(Ad3,0,0,Info)>=0 Then Begin
+      GpuDevs[N].Free:=Int64(Info.Budget)-Int64(Info.CurrentUsage);
+      If GpuDevs[N].Free<0 Then GpuDevs[N].Free:=0;
+      If Int64(Info.Budget)>GpuDevs[N].VRam Then GpuDevs[N].VRam:=Info.Budget;
+     End;
+     ComRelease(Ad3);
+    End;
+   End;
+  End;
+  Inc(I);
+ End;
+End;
+
+Function GpuMakeBuffer(ByteWidth,Usage,Bind,CPU,Misc:LongWord;Init:Pointer;Var Buf:Pointer):Boolean;
+Var
+ D:TBufDesc;
+ SD:TSubData;
+ P:Pointer;
+Begin
+ D.ByteWidth:=ByteWidth;D.Usage:=Usage;D.BindFlags:=Bind;D.CPUAccess:=CPU;D.Misc:=Misc;D.Stride:=0;
+ P:=Nil;
+ If Init<>Nil Then Begin
+  SD.Mem:=Init;SD.Pitch:=0;SD.Slice:=0;
+  P:=@SD;
+ End;
+ Buf:=Nil;
+ GpuMakeBuffer:=TMCreateBuffer(VTab(GDev,3))(GDev,@D,P,Buf)>=0;
+End;
+
+Function GpuMakeSRV(Buf:Pointer;NumDwords:LongWord;Var V:Pointer):Boolean;
+Var
+ D:TViewDesc;
+Begin
+ FillChar(D,SizeOf(D),0);
+ D.Format:=39;D.Dim:=11;D.First:=0;D.Num:=NumDwords;D.Flags:=1;
+ V:=Nil;
+ GpuMakeSRV:=TMCreateView(VTab(GDev,7))(GDev,Buf,@D,V)>=0;
+End;
+
+Function GpuMakeUAV(Buf:Pointer;NumDwords:LongWord;Var V:Pointer):Boolean;
+Var
+ D:TViewDesc;
+Begin
+ FillChar(D,SizeOf(D),0);
+ D.Format:=39;D.Dim:=1;D.First:=0;D.Num:=NumDwords;D.Flags:=1;
+ V:=Nil;
+ GpuMakeUAV:=TMCreateView(VTab(GDev,8))(GDev,Buf,@D,V)>=0;
+End;
+
+Function GpuCompile(Const Src,Entry:AnsiString;Var Sh:Pointer;Var Err:AnsiString):Boolean;
+Var
+ H:PtrUInt;
+ Fn:TFnCompile;
+ Code,EMsg:Pointer;
+ R:LongInt;
+Begin
+ GpuCompile:=False;
+ Sh:=Nil;
+ H:=LoadLibraryA('d3dcompiler_47.dll');
+ If H=0 Then Begin Err:='d3dcompiler_47.dll introuvable';Exit;End;
+ Fn:=TFnCompile(GetProcAddress(H,'D3DCompile'));
+ If not Assigned(Fn)Then Begin Err:='D3DCompile introuvable';Exit;End;
+ Code:=Nil;EMsg:=Nil;
+ R:=Fn(PChar(Src),Length(Src),'llama',Nil,Nil,PChar(Entry),'cs_5_0',1 shl 15,0,Code,EMsg);
+ If R<0 Then Begin
+  Err:='compilation du shader '+Entry+' impossible';
+  If EMsg<>Nil Then Err:=Err+' : '+PChar(TMBlobPtr(VTab(EMsg,3))(EMsg));
+  Exit;
+ End;
+ R:=TMCreateCS(VTab(GDev,18))(GDev,TMBlobPtr(VTab(Code,3))(Code),TMBlobSize(VTab(Code,4))(Code),Nil,Sh);
+ ComRelease(Code);
+ If R<0 Then Begin Err:='creation du shader '+Entry+' impossible';Exit;End;
+ GpuCompile:=True;
+End;
+
+Const
+ GpuShaderSrc=
+  'cbuffer C : register(b0) { uint K; uint M; uint NTok; uint Pad; };'#10
++  'ByteAddressBuffer W : register(t0);'#10
++  'ByteAddressBuffer X : register(t1);'#10
++  'RWByteAddressBuffer Y : register(u0);'#10
++  'groupshared float S[128];'#10
++  'void Reduce(uint tid, float v, uint row, uint t)'#10
++  '{'#10
++  '  S[tid] = v;'#10
++  '  GroupMemoryBarrierWithGroupSync();'#10
++  '  if (tid < 64) S[tid] += S[tid + 64];'#10
++  '  GroupMemoryBarrierWithGroupSync();'#10
++  '  if (tid < 32) S[tid] += S[tid + 32];'#10
++  '  GroupMemoryBarrierWithGroupSync();'#10
++  '  if (tid < 16) S[tid] += S[tid + 16];'#10
++  '  GroupMemoryBarrierWithGroupSync();'#10
++  '  if (tid < 8) S[tid] += S[tid + 8];'#10
++  '  GroupMemoryBarrierWithGroupSync();'#10
++  '  if (tid < 4) S[tid] += S[tid + 4];'#10
++  '  GroupMemoryBarrierWithGroupSync();'#10
++  '  if (tid < 2) S[tid] += S[tid + 2];'#10
++  '  GroupMemoryBarrierWithGroupSync();'#10
++  '  if (tid == 0) Y.Store(Pad + (t * M + row) * 4, asuint(S[0] + S[1]));'#10
++  '}'#10
++  'uint SB4(uint b, uint i)'#10
++  '{'#10
++  '  return (W.Load(b + 4 + (i & ~3u)) >> ((i & 3) * 8)) & 255;'#10
++  '}'#10
++  '[numthreads(128, 1, 1)]'#10
++  'void CSQ4K(uint3 gid : SV_GroupID, uint tid : SV_GroupIndex)'#10
++  '{'#10
++  '  uint row = gid.x + gid.y * 32768;'#10
++  '  uint t = gid.z;'#10
++  '  if (row >= M) return;'#10
++  '  uint nsb = K / 256;'#10
++  '  uint rowBase = row * nsb * 144;'#10
++  '  uint c = tid & 31;'#10
++  '  uint e0 = c * 8;'#10
++  '  uint g = e0 >> 6;'#10
++  '  uint hf = (e0 >> 5) & 1;'#10
++  '  uint l = e0 & 31;'#10
++  '  uint j = g * 2 + hf;'#10
++  '  uint sh = hf * 4;'#10
++  '  float acc = 0;'#10
++  '  for (uint sb = tid >> 5; sb < nsb; sb += 4)'#10
++  '  {'#10
++  '    uint b = rowBase + sb * 144;'#10
++  '    uint dw = W.Load(b);'#10
++  '    float d = f16tof32(dw & 0xFFFF);'#10
++  '    float dmin = f16tof32(dw >> 16);'#10
++  '    uint sc, m;'#10
++  '    if (j < 4) { sc = SB4(b, j) & 63; m = SB4(b, j + 4) & 63; }'#10
++  '    else'#10
++  '    {'#10
++  '      uint a = SB4(b, j + 4);'#10
++  '      sc = (a & 15) | ((SB4(b, j - 4) >> 6) << 4);'#10
++  '      m = (a >> 4) | ((SB4(b, j) >> 6) << 4);'#10
++  '    }'#10
++  '    uint2 qw = W.Load2(b + 16 + g * 32 + l);'#10
++  '    uint xa = (t * K + sb * 256 + e0) * 4;'#10
++  '    float4 x0 = asfloat(X.Load4(xa));'#10
++  '    float4 x1 = asfloat(X.Load4(xa + 16));'#10
++  '    float sq = 0, sx = 0;'#10
++  '    sq += float((qw.x >> (sh)) & 15) * x0.x;'#10
++  '    sq += float((qw.x >> (8 + sh)) & 15) * x0.y;'#10
++  '    sq += float((qw.x >> (16 + sh)) & 15) * x0.z;'#10
++  '    sq += float((qw.x >> (24 + sh)) & 15) * x0.w;'#10
++  '    sq += float((qw.y >> (sh)) & 15) * x1.x;'#10
++  '    sq += float((qw.y >> (8 + sh)) & 15) * x1.y;'#10
++  '    sq += float((qw.y >> (16 + sh)) & 15) * x1.z;'#10
++  '    sq += float((qw.y >> (24 + sh)) & 15) * x1.w;'#10
++  '    sx = x0.x + x0.y + x0.z + x0.w + x1.x + x1.y + x1.z + x1.w;'#10
++  '    acc += d * float(sc) * sq - dmin * float(m) * sx;'#10
++  '  }'#10
++  '  Reduce(tid, acc, row, t);'#10
++  '}'#10
++  '[numthreads(128, 1, 1)]'#10
++  'void CSQ6K(uint3 gid : SV_GroupID, uint tid : SV_GroupIndex)'#10
++  '{'#10
++  '  uint row = gid.x + gid.y * 32768;'#10
++  '  uint t = gid.z;'#10
++  '  if (row >= M) return;'#10
++  '  uint nsb = K / 256;'#10
++  '  uint rowBase = row * nsb * 212;'#10
++  '  uint c = tid & 31;'#10
++  '  uint e0 = c * 8;'#10
++  '  uint h = e0 >> 7;'#10
++  '  uint l = e0 & 127;'#10
++  '  uint quad = l >> 5;'#10
++  '  uint ll = l & 31;'#10
++  '  uint qlOff = h * 64 + (quad & 1) * 32 + ll;'#10
++  '  uint shL = (quad >> 1) * 4;'#10
++  '  uint qhOff = h * 32 + ll;'#10
++  '  uint shH = quad * 2;'#10
++  '  uint sidx = h * 8 + (ll >> 4) + quad * 2;'#10
++  '  float acc = 0;'#10
++  '  for (uint sb = tid >> 5; sb < nsb; sb += 4)'#10
++  '  {'#10
++  '    uint b = rowBase + sb * 212;'#10
++  '    float d = asfloat(W.Load(b + 208));'#10
++  '    int sc = int(((W.Load(b + 192 + (sidx & ~3u)) >> ((sidx & 3) * 8)) & 255) << 24) >> 24;'#10
++  '    uint2 ql = W.Load2(b + qlOff);'#10
++  '    uint2 qh = W.Load2(b + 128 + qhOff);'#10
++  '    uint xa = (t * K + sb * 256 + e0) * 4;'#10
++  '    float4 x0 = asfloat(X.Load4(xa));'#10
++  '    float4 x1 = asfloat(X.Load4(xa + 16));'#10
++  '    float xs[8] = { x0.x, x0.y, x0.z, x0.w, x1.x, x1.y, x1.z, x1.w };'#10
++  '    float s = 0;'#10
++  '    [unroll] for (uint n = 0; n < 8; n++)'#10
++  '    {'#10
++  '      uint w1 = (n < 4) ? ql.x : ql.y;'#10
++  '      uint w2 = (n < 4) ? qh.x : qh.y;'#10
++  '      uint sft = (n & 3) * 8;'#10
++  '      int q = int(((w1 >> (sft + shL)) & 15) | (((w2 >> (sft + shH)) & 3) << 4)) - 32;'#10
++  '      s += float(q) * xs[n];'#10
++  '    }'#10
++  '    acc += d * float(sc) * s;'#10
++  '  }'#10
++  '  Reduce(tid, acc, row, t);'#10
++  '}'#10
++  '[numthreads(128, 1, 1)]'#10
++  'void CSQ80(uint3 gid : SV_GroupID, uint tid : SV_GroupIndex)'#10
++  '{'#10
++  '  uint row = gid.x + gid.y * 32768;'#10
++  '  uint t = gid.z;'#10
++  '  if (row >= M) return;'#10
++  '  uint nb = K / 32;'#10
++  '  uint rowBase = row * nb * 36;'#10
++  '  uint part = tid & 7;'#10
++  '  float acc = 0;'#10
++  '  for (uint bi = tid >> 3; bi < nb; bi += 16)'#10
++  '  {'#10
++  '    uint b = rowBase + bi * 36;'#10
++  '    float d = asfloat(W.Load(b));'#10
++  '    uint w = W.Load(b + 4 + part * 4);'#10
++  '    float4 x = asfloat(X.Load4((t * K + bi * 32 + part * 4) * 4));'#10
++  '    float s = float(int(w << 24) >> 24) * x.x + float(int((w >> 8) << 24) >> 24) * x.y'#10
++  '            + float(int((w >> 16) << 24) >> 24) * x.z + float(int(w) >> 24) * x.w;'#10
++  '    acc += d * s;'#10
++  '  }'#10
++  '  Reduce(tid, acc, row, t);'#10
++  '}'#10;
+
+Function GpuInitDevice(Idx:LongInt;Var Err:AnsiString):Boolean;
+Var
+ H:PtrUInt;
+ Fn:TFnCreateDev;
+ FLv:LongWord;
+ FLs:LongWord;
+Begin
+ GpuInitDevice:=False;
+ H:=LoadLibraryA('d3d11.dll');
+ If H=0 Then Begin Err:='d3d11.dll introuvable';Exit;End;
+ Fn:=TFnCreateDev(GetProcAddress(H,'D3D11CreateDevice'));
+ If not Assigned(Fn)Then Begin Err:='D3D11CreateDevice introuvable';Exit;End;
+ FLv:=$B000;   { D3D_FEATURE_LEVEL_11_0 }
+ GDev:=Nil;GCtx:=Nil;
+ If Fn(GpuDevs[Idx].Adapter,0,0,0,@FLv,1,7,GDev,FLs,GCtx)<0 Then Begin
+  Err:='creation du peripherique Direct3D 11 impossible';Exit;
+ End;
+ If not GpuCompile(GpuShaderSrc,'CSQ4K',GShQ4K,Err)Then Exit;
+ If not GpuCompile(GpuShaderSrc,'CSQ6K',GShQ6K,Err)Then Exit;
+ If not GpuCompile(GpuShaderSrc,'CSQ80',GShQ80,Err)Then Exit;
+ If not GpuMakeBuffer(16,0,4,0,0,Nil,GCB)Then Begin Err:='creation du tampon constant impossible';Exit;End;
+ GXCap:=0;GYCap:=0;
+ GDevIdx:=Idx;
+ GpuInitDevice:=True;
+End;
+
+Function GpuEnsureIO(XBytes,YBytes:LongInt):Boolean;
+Begin
+ GpuEnsureIO:=False;
+ If XBytes>GXCap Then Begin
+  ComRelease(GXSrv);ComRelease(GXBuf);GXSrv:=Nil;GXBuf:=Nil;GXCap:=0;
+  XBytes:=(XBytes+65535)and(not 65535);
+  If not GpuMakeBuffer(XBytes,0,8,0,$20,Nil,GXBuf)Then Exit;
+  If not GpuMakeSRV(GXBuf,XBytes div 4,GXSrv)Then Exit;
+  GXCap:=XBytes;
+ End;
+ If YBytes>GYCap Then Begin
+  ComRelease(GYUav);ComRelease(GYBuf);ComRelease(GYStage);GYUav:=Nil;GYBuf:=Nil;GYStage:=Nil;GYCap:=0;
+  YBytes:=(YBytes+65535)and(not 65535);
+  If not GpuMakeBuffer(YBytes,0,$80,0,$20,Nil,GYBuf)Then Exit;
+  If not GpuMakeUAV(GYBuf,YBytes div 4,GYUav)Then Exit;
+  If not GpuMakeBuffer(YBytes,3,0,$20000,0,Nil,GYStage)Then Exit;
+  GYCap:=YBytes;
+ End;
+ GpuEnsureIO:=True;
+End;
+
+Function GpuTensorBytes(Typ:LongInt;NBytes:Int64):Int64;
+Begin
+ Case Typ of
+  TY_Q6_K:GpuTensorBytes:=NBytes div 210*212;
+  TY_Q8_0:GpuTensorBytes:=NBytes div 34*36;
+  Else GpuTensorBytes:=NBytes;
+ End;
+End;
+
+Function GpuEligible(Const T:TTensorInfo):Boolean;
+Begin
+ GpuEligible:=False;
+ If(T.Ne[2]*T.Ne[3])<>1 Then Exit;
+ If T.NBytes=0 Then Exit;
+ Case T.Typ of
+  TY_Q4_K,TY_Q6_K:GpuEligible:=(T.Ne[0]and 255)=0;
+  TY_Q8_0:GpuEligible:=(T.Ne[0]and 31)=0;
+ End;
+End;
+
+Function GpuUploadTensor(Var T:TTensorInfo):Boolean;
+Var
+ Src,Dst,Tmp:PByte;
+ NB,I:LongInt;
+ Buf,V:Pointer;
+ Sz:Int64;
+Begin
+ GpuUploadTensor:=False;
+ Sz:=GpuTensorBytes(T.Typ,T.NBytes);
+ If Sz>=2000000000 Then Exit;
+ Tmp:=Nil;
+ Src:=T.Data;
+ If T.Typ=TY_Q6_K Then Begin
+  NB:=T.NBytes div 210;
+  GetMem(Tmp,Sz);
+  For I:=0 to NB-1 do Begin
+   Dst:=Tmp+I*212;
+   Move((Src+I*210)^,Dst^,208);
+   PSingle(Dst+208)^:=F16Tab[PWord(Src+I*210+208)^];
+  End;
+  Src:=Tmp;
+ End
+  Else If T.Typ=TY_Q8_0 Then Begin
+   NB:=T.NBytes div 34;
+   GetMem(Tmp,Sz);
+   For I:=0 to NB-1 do Begin
+    Dst:=Tmp+I*36;
+    PSingle(Dst)^:=F16Tab[PWord(Src+I*34)^];
+    Move((Src+I*34+2)^,(Dst+4)^,32);
+   End;
+   Src:=Tmp;
+  End;
+ If GpuMakeBuffer(Sz,0,8,0,$20,Src,Buf)Then
+  If GpuMakeSRV(Buf,Sz div 4,V)Then Begin
+   If GpuNT>High(GpuTensors)Then SetLength(GpuTensors,GpuNT+64);
+   GpuTensors[GpuNT].Data:=T.Data;
+   GpuTensors[GpuNT].Typ:=T.Typ;
+   GpuTensors[GpuNT].K:=T.Ne[0];
+   GpuTensors[GpuNT].M:=T.Ne[1];
+   GpuTensors[GpuNT].SRV:=V;
+   Inc(GpuNT);
+   Inc(GpuTotalBytes,Sz);
+   GpuUploadTensor:=True;
+  End;
+ If Tmp<>Nil Then FreeMem(Tmp);
+End;
+
+{ recupere les resultats des produits matriciels en attente (un seul aller-retour GPU) }
+Procedure GpuFlush;
+Var
+ Mp:TMapped;
+ I:LongInt;
+Begin
+ If GpuPend=0 Then Exit;
+ TMCopyRes(VTab(GCtx,47))(GCtx,GYStage,GYBuf);
+ If TMMap(VTab(GCtx,14))(GCtx,GYStage,0,1,0,Mp)<0 Then Begin
+  GpuOn:=False;
+  GpuPend:=0;
+  Exit;
+ End;
+ For I:=0 to GpuPend-1 do Move((PByte(Mp.Data)+GpuPendOff[I])^,GpuPendY[I]^,GpuPendLen[I]);
+ TMUnmap(VTab(GCtx,15))(GCtx,GYStage,0);
+ GpuPend:=0;
+ GpuYOff:=0;
+End;
+
+{ regroupe des produits qui partagent le meme vecteur X (Q/K/V, gate/up) }
+Procedure GpuBatchBegin;
+Begin
+ If not GpuOn Then Exit;
+ GpuBatch:=True;
+ GpuXDone:=False;
+End;
+
+Procedure GpuBatchEnd;
+Begin
+ If not GpuOn Then Exit;
+ GpuBatch:=False;
+ GpuXDone:=False;
+ GpuFlush;
+End;
+
+Function GpuMatMul(Typ:LongInt;Data:PByte;K,M:LongInt;X,Y:PSingle;NTok:LongInt):Boolean;
+Var
+ I,F:LongInt;
+ CB:TCBData;
+ Sh,Views:Pointer;
+ XB,YB:Int64;
+ UA:Pointer;
+Begin
+ GpuMatMul:=False;
+ If not GpuOn Then Exit;
+ F:=-1;
+ If(GpuLast<GpuNT)and(GpuTensors[GpuLast].Data=Data)Then F:=GpuLast
+  Else For I:=0 to GpuNT-1 do If GpuTensors[I].Data=Data Then Begin F:=I;Break;End;
+ If F<0 Then Exit;
+ If(GpuTensors[F].K<>K)or(GpuTensors[F].M<>M)or(GpuTensors[F].Typ<>Typ)Then Exit;
+ GpuLast:=F;
+ XB:=Int64(NTok)*K*4;YB:=Int64(NTok)*M*4;
+ If(XB>GpuMaxIO)or(YB>GpuMaxIO)or(NTok>65535)Then Exit;
+ If GpuBatch Then Begin
+  If(GpuPend>=8)or(GpuYOff+YB>GYCap)Then GpuFlush;
+ End
+  Else GpuFlush;
+ If not GpuEnsureIO(XB,GpuYOff+YB)Then Exit;
+ Case Typ of
+  TY_Q4_K:Sh:=GShQ4K;
+  TY_Q6_K:Sh:=GShQ6K;
+  Else Sh:=GShQ80;
+ End;
+ CB.K:=K;CB.M:=M;CB.NTok:=NTok;CB.Pad:=GpuYOff;
+ TMUpdate(VTab(GCtx,48))(GCtx,GCB,0,Nil,@CB,0,0);
+ If not(GpuBatch and GpuXDone)Then TMUpdate(VTab(GCtx,48))(GCtx,GXBuf,0,Nil,X,0,0);
+ GpuXDone:=GpuBatch;
+ TMSetShader(VTab(GCtx,69))(GCtx,Sh,Nil,0);
+ TMSetCB(VTab(GCtx,71))(GCtx,0,1,@GCB);
+ Views:=GpuTensors[F].SRV;
+ TMSetSRV(VTab(GCtx,67))(GCtx,0,1,@Views);
+ TMSetSRV(VTab(GCtx,67))(GCtx,1,1,@GXSrv);
+ UA:=GYUav;
+ TMSetUAV(VTab(GCtx,68))(GCtx,0,1,@UA,Nil);
+ If M<GpuRowStride Then
+  TMDispatch(VTab(GCtx,41))(GCtx,M,1,NTok)
+ Else
+  TMDispatch(VTab(GCtx,41))(GCtx,GpuRowStride,(M+GpuRowStride-1)div GpuRowStride,NTok);
+ GpuPendY[GpuPend]:=Y;GpuPendOff[GpuPend]:=GpuYOff;GpuPendLen[GpuPend]:=YB;
+ Inc(GpuPend);
+ Inc(GpuYOff,YB);
+ If not GpuBatch Then GpuFlush;
+ GpuMatMul:=True;
+End;
+{$ELSE}
+Procedure GpuEnumDevices;
+Begin
+ GpuEnumDone:=True;
+End;
+
+Function GpuEligible(Const T:TTensorInfo):Boolean;
+Begin
+ GpuEligible:=False;
+End;
+
+Function GpuTensorBytes(Typ:LongInt;NBytes:Int64):Int64;
+Begin
+ GpuTensorBytes:=NBytes;
+End;
+
+Function GpuMatMul(Typ:LongInt;Data:PByte;K,M:LongInt;X,Y:PSingle;NTok:LongInt):Boolean;
+Begin
+ GpuMatMul:=False;
+End;
+
+Procedure GpuBatchBegin;
+Begin
+End;
+
+Procedure GpuBatchEnd;
+Begin
+End;
+{$ENDIF}
+
+Function GpuLayerOf(Const Name:AnsiString):LongInt;
+Var
+ I:LongInt;
+ V:LongInt;
+Begin
+ GpuLayerOf:=-1;
+ If Copy(Name,1,4)<>'blk.' Then Exit;
+ I:=5;V:=0;
+ While(I<=Length(Name))and(Name[I]in['0'..'9'])do Begin
+  V:=V*10+Ord(Name[I])-48;
+  Inc(I);
+ End;
+ GpuLayerOf:=V;
+End;
+
+{ Nom du tenseur de sortie (logits) : output.weight, sinon token_embd.weight (poids partages) }
+Function GpuOutputName(Const M:TModel):AnsiString;
+Var
+ I:LongInt;
+Begin
+ GpuOutputName:='token_embd.weight';
+ For I:=0 to High(M.G.T)do If M.G.T[I].Name='output.weight' Then GpuOutputName:='output.weight';
+End;
+
+{ taille GPU necessaire pour deporter NGL couches (llama.cpp : les dernieres couches, puis la sortie) }
+Function GpuBytesForNGL(Const M:TModel;NGL:LongInt;Const OutName:AnsiString):Int64;
+Var
+ I,L,Start:LongInt;
+ Tot:Int64;
+Begin
+ Tot:=0;
+ Start:=M.NLayer-NGL;
+ If Start<0 Then Start:=0;
+ For I:=0 to High(M.G.T)do Begin
+  If not GpuEligible(M.G.T[I])Then Continue;
+  L:=GpuLayerOf(M.G.T[I].Name);
+  If L>=0 Then Begin
+   If L>=Start Then Inc(Tot,GpuTensorBytes(M.G.T[I].Typ,M.G.T[I].NBytes));
+  End
+   Else If(M.G.T[I].Name=OutName)and(NGL>M.NLayer)Then Inc(Tot,GpuTensorBytes(M.G.T[I].Typ,M.G.T[I].NBytes));
+ End;
+ GpuBytesForNGL:=Tot;
+End;
+
+Function GpuDevName(I:LongInt):AnsiString;
+Begin
+ GpuDevName:='D3D'+IStr(I);
+End;
+
+Procedure GpuPrintDevices;
+Var
+ I:LongInt;
+Begin
+ GpuEnumDevices;
+ WriteLn('Available devices:');
+ If Length(GpuDevs)=0 Then WriteLn('  (aucun périphérique GPU Direct3D 11 détecté)');
+ For I:=0 to High(GpuDevs)do
+  WriteLn('  '+GpuDevName(I)+': '+GpuDevs[I].Name+' ('+IStr(GpuDevs[I].VRam shr 20)+' MiB, '+
+          IStr(GpuDevs[I].Free shr 20)+' MiB free)');
+End;
+
+{ choix du peripherique, envoi des poids en VRAM et activation du calcul GPU
+  NGL : -1 = automatique, 0 = aucun, N = nombre de couches ; ne fait rien sans GPU }
+Procedure GpuSetup(Var M:TModel;NGL:LongInt;Const DevStr:AnsiString;MainGpu:LongInt;Fit:Boolean);
+{$IFDEF WINDOWS}
+Var
+ I,L,Idx,Best,Start,Off,NL:LongInt;
+ Err,S,OutName:AnsiString;
+ Budget:Int64;
+ Parts:TStrArray;
+ V:Int64;
+Begin
+ If NGL=0 Then Exit;
+ If GetEnv('LLAMA_NO_GPU')<>'' Then Exit;
+ S:=LoStr(DevStr);
+ If(S='none')or(S='cpu')Then Exit;
+ GpuEnumDevices;
+ If Length(GpuDevs)=0 Then Exit;
+ Idx:=-1;
+ If S<>'' Then Begin
+  Parts:=SplitStr(S,',');
+  S:=Parts[0];
+  If StartsWith(S,'d3d')Then Delete(S,1,3);
+  If ParseInt(S,V)and(V>=0)and(V<Length(GpuDevs))Then Idx:=V
+   Else LogWrn('avertissement : périphérique inconnu : '+DevStr+#10);
+  If Length(Parts)>1 Then
+   LogWrn('avertissement : un seul GPU est utilisé, les autres périphériques sont ignorés'+#10);
+ End;
+ If(Idx<0)and(MainGpu>0)and(MainGpu<Length(GpuDevs))Then Idx:=MainGpu;
+ If Idx<0 Then Begin
+  Best:=0;
+  For I:=1 to High(GpuDevs)do If GpuDevs[I].Ded>GpuDevs[Best].Ded Then Best:=I;
+  Idx:=Best;
+ End;
+ Err:='';
+ If not GpuInitDevice(Idx,Err)Then Begin
+  LogInf('GPU non utilisé : '+Err+#10);
+  Exit;
+ End;
+ OutName:=GpuOutputName(M);
+ If NGL<0 Then Begin
+  If Fit Then Begin
+   Budget:=GpuDevs[Idx].Free-805306368;   { marge de 768 Mo pour le systeme et les tampons }
+   NL:=M.NLayer+1;
+   While(NL>0)and(GpuBytesForNGL(M,NL,OutName)>Budget)do Dec(NL);
+   NGL:=NL;
+  End
+   Else NGL:=M.NLayer+1;
+ End;
+ If NGL<=0 Then Begin
+  LogInf('GPU '+GpuDevs[Idx].Name+' : mémoire insuffisante, calcul sur le CPU'+#10);
+  Exit;
+ End;
+ Start:=M.NLayer-NGL;
+ If Start<0 Then Start:=0;
+ Off:=0;
+ For I:=0 to High(M.G.T)do Begin
+  If not GpuEligible(M.G.T[I])Then Continue;
+  L:=GpuLayerOf(M.G.T[I].Name);
+  If L>=0 Then Begin
+   If L<Start Then Continue;
+  End
+   Else If not((M.G.T[I].Name=OutName)and(NGL>M.NLayer))Then Continue;
+  If GpuUploadTensor(M.G.T[I])Then Inc(Off)
+   Else Begin
+    LogWrn('avertissement : envoi impossible en VRAM de '+M.G.T[I].Name+', suite du calcul sur le CPU'+#10);
+    Break;
+   End;
+ End;
+ If Off=0 Then Exit;
+ GpuOn:=True;
+ If NGL>M.NLayer Then NL:=M.NLayer+1 Else NL:=NGL;
+ LogInf('chargement GPU : '+IStr(NL)+'/'+IStr(M.NLayer+1)+' couches déportées sur '+GpuDevName(Idx)+' ('+
+        GpuDevs[Idx].Name+'), '+IStr(GpuTotalBytes shr 20)+' MiB en VRAM'+#10);
+End;
+{$ELSE}
+Begin
+End;
+{$ENDIF}
+
 Procedure MatMulPtr(Typ:LongInt;Data:PByte;K,M:LongInt;X,Y:PSingle;NTok:LongInt;Scratch:PSingle);
 Var
  J:TMMJob;
  Expect,T:LongInt;
  XS:Int64;
 Begin
+ If GpuOn Then If GpuMatMul(Typ,Data,K,M,X,Y,NTok)Then Exit;
  J.Typ:=Typ;J.Data:=Data;J.K:=K;J.M:=M;J.X:=X;J.Y:=Y;J.NTok:=NTok;
  J.IT:=IntDotType(Typ,K);J.XQ:=Nil;
  { prefill : produits entiers aussi (noyaux SIMD) }
@@ -4506,9 +5258,11 @@ Begin
    End;
   End
    Else Begin
+    GpuBatchBegin;
     MatMulT(M,Lay^.Wq,C.XN,C.Q,N,C);
     MatMulT(M,Lay^.Wk,C.XN,C.Kb,N,C);
     MatMulT(M,Lay^.Wv,C.XN,C.Vb,N,C);
+    GpuBatchEnd;
    End;
   AddBias(C.Q,Lay^.Bq,C.QD,N);
   AddBias(C.Kb,Lay^.Bk,C.KD,N);
@@ -4611,8 +5365,10 @@ Begin
    Else Begin
     FF:=M.G.T[Lay^.FfnDown].Ne[0];
     If Lay^.FfnGate>=0 Then Begin
+     GpuBatchBegin;
      MatMulT(M,Lay^.FfnGate,C.XN,C.FG,N,C);
      MatMulT(M,Lay^.FfnUp,C.XN,C.FU,N,C);
+     GpuBatchEnd;
      If M.GeluFFN Then
       For T:=0 to N*FF-1 do C.Hid[T]:=ActGelu(C.FG[T])*C.FU[T]
      Else
@@ -9160,7 +9916,7 @@ Begin
  Opt('-ub|--ubatch-size','N','','LLAMA_ARG_UBATCH',O_UBATCH,0,'taille physique maximale d''un lot (défaut : 512)');
  Opt('--keep','N','','',O_KEEP,0,'nombre de jetons à conserver du prompt initial (défaut : 0, -1 = tous)');
  Opt('--swa-full','','','',O_SWAFULL,0,'utilise un cache SWA de taille complète (ignoré)');
- Opt('-fa|--flash-attn','[on|off|auto]','','LLAMA_ARG_FLASH_ATTN',O_FA,0,'active Flash Attention (ignoré)');
+ Opt('-fa|--flash-attn','[on|off|auto]','','LLAMA_ARG_FLASH_ATTN',O_FA,0,'active Flash Attention (ignoré : l''attention est calculée sur le CPU)');
  Opt('-p|--prompt','PROMPT','','',O_PROMPT,0,'prompt de départ pour la génération ; pour un message système, utiliser -sys');
  Opt('--perf','','','',O_PERF,0,'active les mesures de performance internes (défaut : désactivé)');
  Opt('--no-perf','','','',O_NOPERF,0,'désactive les mesures de performance internes');
@@ -9177,7 +9933,7 @@ Begin
  Opt('--yarn-attn-factor','N','','LLAMA_ARG_YARN_ATTN_FACTOR',O_YARNATTN,0,'YaRN : échelle sqrt(t) ou amplitude de l''attention (défaut : -1,00)');
  Opt('--yarn-beta-slow','N','','LLAMA_ARG_YARN_BETA_SLOW',O_YARNSLOW,0,'YaRN : dimension de correction haute ou alpha (défaut : -1,00)');
  Opt('--yarn-beta-fast','N','','LLAMA_ARG_YARN_BETA_FAST',O_YARNFAST,0,'YaRN : dimension de correction basse ou bêta (défaut : -1,00)');
- Opt('-kvo|--kv-offload','','','',O_KVOFFLOAD,0,'déport du cache KV (sans effet : pas de GPU)');
+ Opt('-kvo|--kv-offload','','','',O_KVOFFLOAD,0,'déport du cache KV (sans effet : le cache KV reste en mémoire centrale)');
  Opt('-nkvo|--no-kv-offload','','','',O_NOKVOFFLOAD,0,'désactive le déport du cache KV (sans effet)');
  Opt('--repack','','','',O_REPACK,0,'réorganisation des poids (sans effet)');
  Opt('-nr|--no-repack','','','',O_NOREPACK,0,'désactive la réorganisation des poids (sans effet)');
@@ -9190,17 +9946,17 @@ Begin
  Opt('-lm|--load-mode','MODE','','LLAMA_ARG_LOAD_MODE',O_LOADMODE,0,'mode de chargement du modèle : auto, none, mmap, mlock, mmap+mlock, dio (ce clone charge toujours en mémoire)');
  Opt('-lzm|--lazy-mode','MODE','','LLAMA_ARG_LAZY_MODE',O_LAZYMODE,0,'lecture à la demande de certains tenseurs (ignoré)');
  Opt('--numa','TYPE','','LLAMA_ARG_NUMA',O_NUMA,0,'optimisations NUMA : distribute, isolate, numactl (ignoré)');
- Opt('-dev|--device','<dev1,dev2,..>','','LLAMA_ARG_DEVICE',O_DEVICE,0,'liste de périphériques de déport (aucun GPU : ignoré)');
+ Opt('-dev|--device','<dev1,dev2,..>','','LLAMA_ARG_DEVICE',O_DEVICE,0,'périphérique GPU utilisé (D3D0, D3D1, ... ; un seul GPU) ; none désactive le GPU ; voir --list-devices');
  Opt('--list-devices','','','',O_LISTDEVICES,0,'affiche la liste des périphériques disponibles et quitte');
  Opt('-ot|--override-tensor','<motif>=<tampon>,...','','LLAMA_ARG_OVERRIDE_TENSOR',O_OVERRIDETENSOR,0,'remplace le type de tampon d''un tenseur (ignoré)');
  Opt('-cmoe|--cpu-moe','','','',O_CPUMOE,0,'garde tous les poids MoE sur le CPU (toujours le cas ici)');
  Opt('-ncmoe|--n-cpu-moe','N','','',O_NCPUMOE,0,'garde les poids MoE des N premières couches sur le CPU (toujours le cas ici)');
  Opt('-ncffn|--n-cpu-ffn','N','','',O_NCPUFFN,0,'garde les poids FFN denses des N premières couches sur le CPU (toujours le cas ici)');
- Opt('-ngl|--gpu-layers|--n-gpu-layers','N','','LLAMA_ARG_N_GPU_LAYERS',O_NGL,0,'nombre de couches à placer en VRAM (aucun GPU : ignoré)');
- Opt('-sm|--split-mode','{none,layer,row,tensor}','','LLAMA_ARG_SPLIT_MODE',O_SM,0,'répartition du modèle sur plusieurs GPU (ignoré)');
- Opt('-ts|--tensor-split','N0,N1,N2,...','','LLAMA_ARG_TENSOR_SPLIT',O_TS,0,'fraction du modèle à placer sur chaque GPU (ignoré)');
- Opt('-mg|--main-gpu','INDEX','','LLAMA_ARG_MAIN_GPU',O_MG,0,'GPU principal (ignoré)');
- Opt('-fit|--fit','[on|off]','','LLAMA_ARG_FIT',O_FIT,0,'ajuste les arguments non définis à la mémoire disponible (ignoré)');
+ Opt('-ngl|--gpu-layers|--n-gpu-layers','N','','LLAMA_ARG_N_GPU_LAYERS',O_NGL,0,'nombre de couches à placer en VRAM : N, auto (défaut, selon la VRAM libre) ou all ; 0 désactive le GPU');
+ Opt('-sm|--split-mode','{none,layer,row,tensor}','','LLAMA_ARG_SPLIT_MODE',O_SM,0,'répartition du modèle sur plusieurs GPU (ignoré : un seul GPU est utilisé)');
+ Opt('-ts|--tensor-split','N0,N1,N2,...','','LLAMA_ARG_TENSOR_SPLIT',O_TS,0,'fraction du modèle à placer sur chaque GPU (ignoré : un seul GPU est utilisé)');
+ Opt('-mg|--main-gpu','INDEX','','LLAMA_ARG_MAIN_GPU',O_MG,0,'GPU principal : indice dans --list-devices (défaut : le GPU avec le plus de VRAM dédiée)');
+ Opt('-fit|--fit','[on|off]','','LLAMA_ARG_FIT',O_FIT,0,'ajuste le nombre de couches déportées (-ngl auto) à la VRAM libre ; off : toutes les couches');
  Opt('-fitt|--fit-target','MiB0,MiB1,...','','LLAMA_ARG_FIT_TARGET',O_FITT,0,'marge cible par périphérique pour --fit (ignoré)');
  Opt('-fitc|--fit-ctx','N','','LLAMA_ARG_FIT_CTX',O_FITC,0,'taille de contexte minimale pour --fit (ignoré)');
  Opt('--check-tensors','','','',O_CHECKTENSORS,0,'vérifie la validité des données des tenseurs');
@@ -9414,7 +10170,7 @@ Begin
   R:=R+S[I];Inc(I);
  End;
  {$IFDEF FPC}
- SetCodePage(R,437,False);
+ {SetCodePage(R,437,False);}
  {$ENDIF}
  HelpToCP437:=R;
 End;
@@ -9507,6 +10263,9 @@ Type
   Overrides:Array of TOverride;
   Offline:Boolean;
   HelpReq,VersionReq,CacheListReq,ListDevicesReq:Boolean;
+  NGL,MainGpu:LongInt;
+  DevStr:AnsiString;
+  Fit:Boolean;
   BinaryPrompt:Boolean;
   RepeatLastNSet,DryLastNSet:Boolean;
  End;
@@ -9536,6 +10295,7 @@ Begin
  P.OutputFile:='';
  SetLength(P.Overrides,0);
  P.Offline:=False;
+ P.NGL:=-1;P.MainGpu:=0;P.DevStr:='';P.Fit:=True;
  P.HelpReq:=False;P.VersionReq:=False;P.CacheListReq:=False;P.ListDevicesReq:=False;
  P.BinaryPrompt:=False;P.RepeatLastNSet:=False;P.DryLastNSet:=False;
 End;
@@ -9676,13 +10436,22 @@ Begin
   O_THREADS:Begin Prm.NThreads:=ArgInt(Arg,V1);End;
   O_THREADSB,O_CPUMASK,O_CPURANGE,O_CPUSTRICT,O_PRIO,O_POLL,O_CPUMASKB,O_CPURANGEB,O_CPUSTRICTB,
   O_PRIOB,O_POLLB,O_SWAFULL,O_FA,O_KVOFFLOAD,O_NOKVOFFLOAD,O_REPACK,O_NOREPACK,O_NOHOST,O_DEFRAG,
-  O_LOADMODE,O_LAZYMODE,O_NUMA,O_DEVICE,O_OVERRIDETENSOR,O_CPUMOE,O_NCPUMOE,O_NCPUFFN,O_NGL,O_SM,O_TS,
-  O_MG,O_FIT,O_FITT,O_FITC,O_CHECKTENSORS,O_OPOFFLOAD,O_NOOPOFFLOAD,O_BACKENDSAMPLING,O_CTXCP,O_CRAM,
+  O_LOADMODE,O_LAZYMODE,O_NUMA,O_OVERRIDETENSOR,O_CPUMOE,O_NCPUMOE,O_NCPUFFN,O_SM,O_TS,
+  O_FITT,O_FITC,O_CHECKTENSORS,O_OPOFFLOAD,O_NOOPOFFLOAD,O_BACKENDSAMPLING,O_CTXCP,O_CRAM,
   O_INFILE,O_LOGJSONL,O_NOLOGJSONL,O_LOGPREFIX,O_NOLOGPREFIX,O_LOGTS,O_NOLOGTS,O_SKIPCHATPARSING,
   O_NOSKIPCHATPARSING,O_REASONINGFMT,O_REASONINGEFFORT,O_REASONINGBUDGETMSG,O_REASONINGPRESERVE,
   O_NOREASONINGPRESERVE,O_LOGPROMPTSDIR,O_CVECRANGE:Begin
    { options acceptees mais sans effet dans ce clone }
   End;
+  O_NGL:Begin
+   T:=LoStr(V1);
+   If T='auto' Then Prm.NGL:=-1
+    Else If T='all' Then Prm.NGL:=100000
+    Else Prm.NGL:=ArgInt(Arg,V1);
+  End;
+  O_DEVICE:Prm.DevStr:=V1;
+  O_MG:Prm.MainGpu:=ArgInt(Arg,V1);
+  O_FIT:Prm.Fit:=LoStr(V1)<>'off';
   O_PARALLEL:Begin
    If ArgInt(Arg,V1)>1 Then LogWrn('avertissement : -np > 1 non supporté, une seule séquence est utilisée'+#10);
   End;
@@ -10205,6 +10974,7 @@ Begin
  LogOut(4,'llama_model_load: chargement du modèle '+ModelFile+#10);
  T0:=NowMsF;
  LoadModel(ModelFile,Mdl,LogLevel>=4);
+ GpuSetup(Mdl,Prm.NGL,Prm.DevStr,Prm.MainGpu,Prm.Fit);
  NCtxTrain:=Mdl.NCtxTrain;
  { --- taille du contexte --- }
  NCtx:=Prm.NCtx;
@@ -10630,8 +11400,7 @@ Begin
   Halt(0);
  End;
  If Prm.ListDevicesReq Then Begin
-  WriteLn('Available devices:');
-  WriteLn('  (aucun GPU : le calcul GPU n''est pas supporté dans ce clone)');
+  GpuPrintDevices;
   Halt(0);
  End;
  RunMain;
