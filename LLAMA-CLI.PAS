@@ -8907,7 +8907,7 @@ Const
 
 Procedure RegisterOptions;
 Begin
- Opt('-h|--help|--usage','','','',O_HELP,0,'affiche l''aide et quitte');
+ Opt('-h|--help|--usage|/?','','','',O_HELP,0,'affiche l''aide et quitte');
  Opt('--version','','','',O_VERSION,0,'affiche la version et les informations de compilation');
  Opt('-cl|--cache-list','','','',O_CACHELIST,0,'affiche la liste des modèles présents dans le cache');
  Opt('-t|--threads','N','','LLAMA_ARG_THREADS',O_THREADS,0,'nombre de threads CPU pour la génération (défaut : -1) ; ce clone calcule sur un seul fil');
