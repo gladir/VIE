@@ -9236,9 +9236,6 @@ Var
  Sec,I:LongInt;
  Titles:Array[0..2]of AnsiString;
 Begin
- {$IFDEF FPC}
- SetTextCodePage(Output,437);
- {$ENDIF}
  Titles[0]:='----- param'+#138+'tres communs -----';
  Titles[1]:='----- param'+#138+'tres d'''+#130+'chantillonnage -----';
  Titles[2]:='----- param'+#138+'tres sp'+#130+'cifiques '+#133+' llama-cli -----';
