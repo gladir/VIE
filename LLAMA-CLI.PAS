@@ -978,7 +978,7 @@ End;
 
 Procedure ReadKV(Var KV:TGKV;Keep:Boolean);
 Var
- I:Int64;
+ I:LongInt;
  Tmp:TGKV;
  ET:LongInt;
 Begin
@@ -992,7 +992,7 @@ Begin
   If not Keep Then Begin
    { on saute les valeurs }
    If ET=GT_STRING Then Begin
-    For I:=1 to KV.N do RSkip(RU64);
+    For I:=1 to LongInt(KV.N)do RSkip(RU64);
    End
     Else If GGUFTypeSize(ET)>0 Then RSkip(KV.N*GGUFTypeSize(ET))
     Else Fatal('tableau GGUF imbriqué non supporté');
@@ -1001,7 +1001,7 @@ Begin
   Case ET of
    GT_STRING:Begin
     SetLength(KV.SA,KV.N);
-    For I:=0 to KV.N-1 do KV.SA[I]:=RStr;
+    For I:=0 to LongInt(KV.N)-1 do KV.SA[I]:=RStr;
    End;
    GT_FLOAT32:Begin
     SetLength(KV.FA,KV.N);
@@ -1009,11 +1009,11 @@ Begin
    End;
    GT_FLOAT64:Begin
     SetLength(KV.FA,KV.N);
-    For I:=0 to KV.N-1 do KV.FA[I]:=RF64;
+    For I:=0 to LongInt(KV.N)-1 do KV.FA[I]:=RF64;
    End;
    GT_UINT8,GT_INT8,GT_UINT16,GT_INT16,GT_UINT32,GT_INT32,GT_BOOL,GT_UINT64,GT_INT64:Begin
     SetLength(KV.IA,KV.N);
-    For I:=0 to KV.N-1 do Begin
+    For I:=0 to LongInt(KV.N)-1 do Begin
      Tmp.I:=0;Tmp.F:=0;Tmp.S:='';
      ReadScalar(ET,Tmp);
      KV.IA[I]:=LongInt(Tmp.I);
@@ -1030,7 +1030,8 @@ Procedure ParseGGUFHeader(Const Name:AnsiString;FileIdx:LongInt;Var G:TGGUF;Keep
 Var
  Magic:LongWord;
  NT,NK:Int64;
- I,J,K0:Int64;
+ I,J:LongInt;
+ K0:Int64;
  KV:TGKV;
  TI:TTensorInfo;
  Pos0,Al,Ofs0:Int64;
@@ -1046,7 +1047,7 @@ Begin
  NK:=Int64(RU64);
  If(NT<0)or(NT>1000000)or(NK<0)or(NK>1000000)Then Fatal('en-tête GGUF corrompu');
  K0:=Length(G.KV);
- For I:=0 to NK-1 do Begin
+ For I:=0 to LongInt(NK)-1 do Begin
   ReadKV(KV,KeepKV);
   If KeepKV Then Begin
    SetLength(G.KV,K0+I+1);
@@ -1062,7 +1063,7 @@ Begin
  If G.Align<=0 Then G.Align:=32;
  K0:=Length(G.T);
  SetLength(G.T,K0+NT);
- For I:=0 to NT-1 do Begin
+ For I:=0 to LongInt(NT)-1 do Begin
   TI.Name:=RStr;
   TI.NDims:=LongInt(RU32);
   If(TI.NDims<1)or(TI.NDims>4)Then Fatal('tenseur '+TI.Name+' : nombre de dimensions invalide');
@@ -1587,6 +1588,12 @@ Begin
  End;
 End;
 
+{ appele depuis un fil de calcul : evite toute chaine temporaire (cadre d'exception) dans DequantRow }
+Procedure BadQuantType(T:LongInt);
+Begin
+ Fatal('type de quantification non supporté : '+TypeName(T));
+End;
+
 { Deplie une ligne de N elements du type T vers des flottants }
 Procedure DequantRow(T:LongInt;Src:PByte;Dst:PSingle;N:LongInt);
 Var
@@ -1609,7 +1616,7 @@ Begin
   TY_Q4_K:DeqQ4K(Src,Dst,N);
   TY_Q5_K:DeqQ5K(Src,Dst,N);
   TY_Q6_K:DeqQ6K(Src,Dst,N);
-  Else Fatal('type de quantification non supporté : '+TypeName(T));
+  Else BadQuantType(T);
  End;
 End;
 
@@ -6370,7 +6377,7 @@ Var
   NoMax_:Boolean;
   PrevRule,RecRule:TGRule;
   TotalRules:Int64;
-  I:Int64;
+  I:LongInt;
   LastRecRuleId,RecRuleId:LongInt;
   NOpt:Int64;
   J:LongInt;
@@ -6391,13 +6398,13 @@ Var
   End;
   If MinT=0 Then SetLength(Rule,LastSymStart)
   Else Begin
-   For I:=1 to MinT-1 do
+   For I:=1 to LongInt(MinT)-1 do
     For J:=0 to High(PrevRule)do GPush(Rule,PrevRule[J].T,PrevRule[J].V);
   End;
   LastRecRuleId:=0;
   If NoMax_ Then NOpt:=1 Else NOpt:=MaxT-MinT;
   RecRule:=Copy(PrevRule,0,Length(PrevRule));
-  For I:=0 to NOpt-1 do Begin
+  For I:=0 to LongInt(NOpt)-1 do Begin
    SetLength(RecRule,Length(PrevRule));
    RecRuleId:=GGenSymbolId(G,RuleName);
    If(I>0)or NoMax_ Then Begin
