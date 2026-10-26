@@ -3453,6 +3453,293 @@ Begin
 End;
 
 { ------------------------------------------------------------------ }
+{ Produits scalaires entiers (activations quantifiees Q8_0 / Q8_K,    }
+{ comme ggml_vec_dot_*_q8_*)                                          }
+{ ------------------------------------------------------------------ }
+
+Const
+ XQ0Stride=36;     { Single d + 32 x Int8 }
+ XQKStride=292;    { Single d + 256 x Int8 + 16 x Int16 (bsums) }
+
+Var
+ NoIntDot:Boolean=False;
+ XQBuf:PByte=Nil;
+ XQBufSize:Int64=0;
+
+Function XQRowBytes(IT,K:LongInt):Int64;
+Begin
+ If IT=1 Then XQRowBytes:=Int64(K shr 5)*XQ0Stride
+  Else XQRowBytes:=Int64(K shr 8)*XQKStride;
+End;
+
+Function IntDotType(T:LongInt;K:LongInt):LongInt;   { 0 = non, 1 = Q8_0, 2 = Q8_K }
+Begin
+ IntDotType:=0;
+ If NoIntDot Then Exit;
+ Case T of
+  TY_Q4_0,TY_Q5_0,TY_Q8_0:If(K and 31)=0 Then IntDotType:=1;
+  TY_Q4_K,TY_Q5_K,TY_Q6_K:If(K and 255)=0 Then IntDotType:=2;
+ End;
+End;
+
+Procedure QuantRowQ8_0(X:PSingle;Dst:PByte;K:LongInt);
+Var
+ NB,I,J:LongInt;
+ AMax,V,D,ID:Single;
+ Q:PShortInt;
+Begin
+ NB:=K shr 5;
+ For I:=0 to NB-1 do Begin
+  AMax:=0;
+  For J:=0 to 31 do Begin
+   V:=Abs(X[J]);
+   If V>AMax Then AMax:=V;
+  End;
+  D:=AMax/127.0;
+  If D<>0 Then ID:=1.0/D Else ID:=0;
+  PSingle(Dst)^:=D;
+  Q:=PShortInt(Dst+4);
+  For J:=0 to 31 do Q[J]:=Round(X[J]*ID);
+  Inc(X,32);Inc(Dst,XQ0Stride);
+ End;
+End;
+
+Procedure QuantRowQ8_K(X:PSingle;Dst:PByte;K:LongInt);
+Var
+ NB,I,J:LongInt;
+ AMax,Mx,V,ISc:Single;
+ Q:PShortInt;
+ BS:PSmallInt;
+ S,C:LongInt;
+Begin
+ NB:=K shr 8;
+ For I:=0 to NB-1 do Begin
+  AMax:=0;Mx:=0;
+  For J:=0 to 255 do Begin
+   V:=Abs(X[J]);
+   If V>AMax Then Begin AMax:=V;Mx:=X[J];End;
+  End;
+  Q:=PShortInt(Dst+4);
+  BS:=PSmallInt(Dst+260);
+  If AMax=0 Then Begin
+   PSingle(Dst)^:=0;
+   FillChar(Dst[4],288,0);
+  End
+   Else Begin
+    ISc:=-127.0/Mx;
+    For J:=0 to 255 do Begin
+     C:=Round(ISc*X[J]);
+     If C>127 Then C:=127;
+     If C<-128 Then C:=-128;
+     Q[J]:=C;
+    End;
+    For J:=0 to 15 do Begin
+     S:=0;
+     For C:=0 to 15 do Inc(S,Q[J*16+C]);
+     BS[J]:=S;
+    End;
+    PSingle(Dst)^:=1.0/ISc;
+   End;
+  Inc(X,256);Inc(Dst,XQKStride);
+ End;
+End;
+
+Function DotQ4_0Q8(W,Y:PByte;NB:LongInt):Single;
+Var
+ I,J,S0,S1:LongInt;
+ Q:PByte;
+ YQ:PShortInt;
+ SumF:Single;
+Begin
+ SumF:=0;
+ For I:=0 to NB-1 do Begin
+  Q:=W+2;
+  YQ:=PShortInt(Y+4);
+  S0:=0;S1:=0;
+  For J:=0 to 15 do Begin
+   Inc(S0,((Q[J]and $F)-8)*YQ[J]);
+   Inc(S1,((Q[J]shr 4)-8)*YQ[J+16]);
+  End;
+  SumF:=SumF+(S0+S1)*F16Tab[PWord(W)^]*PSingle(Y)^;
+  Inc(W,18);Inc(Y,XQ0Stride);
+ End;
+ DotQ4_0Q8:=SumF;
+End;
+
+Function DotQ5_0Q8(W,Y:PByte;NB:LongInt):Single;
+Var
+ I,J,S0,S1,X0,X1:LongInt;
+ QH:LongWord;
+ Q:PByte;
+ YQ:PShortInt;
+ SumF:Single;
+Begin
+ SumF:=0;
+ For I:=0 to NB-1 do Begin
+  QH:=PLongWord(W+2)^;
+  Q:=W+6;
+  YQ:=PShortInt(Y+4);
+  S0:=0;S1:=0;
+  For J:=0 to 15 do Begin
+   X0:=((Q[J]and $F)or(((QH shr J)and 1)shl 4))-16;
+   X1:=((Q[J]shr 4)or(((QH shr(J+12))and $10)))-16;
+   Inc(S0,X0*YQ[J]);
+   Inc(S1,X1*YQ[J+16]);
+  End;
+  SumF:=SumF+(S0+S1)*F16Tab[PWord(W)^]*PSingle(Y)^;
+  Inc(W,22);Inc(Y,XQ0Stride);
+ End;
+ DotQ5_0Q8:=SumF;
+End;
+
+Function DotQ8_0Q8(W,Y:PByte;NB:LongInt):Single;
+Var
+ I,J,S:LongInt;
+ Q,YQ:PShortInt;
+ SumF:Single;
+Begin
+ SumF:=0;
+ For I:=0 to NB-1 do Begin
+  Q:=PShortInt(W+2);
+  YQ:=PShortInt(Y+4);
+  S:=0;
+  For J:=0 to 31 do Inc(S,Q[J]*YQ[J]);
+  SumF:=SumF+S*F16Tab[PWord(W)^]*PSingle(Y)^;
+  Inc(W,34);Inc(Y,XQ0Stride);
+ End;
+ DotQ8_0Q8:=SumF;
+End;
+
+Function DotQ4_KQ8(W,Y:PByte;NB:LongInt):Single;
+Var
+ I,G,L,S0,S1,SumI,SumM,T:LongInt;
+ Sc,M:Byte;
+ Q:PByte;
+ YQ:PShortInt;
+ BS:PSmallInt;
+ Mins:Array[0..7]of LongInt;
+ Scl:Array[0..7]of LongInt;
+ YD,SumF:Single;
+Begin
+ SumF:=0;
+ For I:=0 to NB-1 do Begin
+  YD:=PSingle(Y)^;
+  YQ:=PShortInt(Y+4);
+  BS:=PSmallInt(Y+260);
+  For T:=0 to 7 do Begin
+   ScaleMinK4(T,W+4,Sc,M);
+   Scl[T]:=Sc;Mins[T]:=M;
+  End;
+  SumM:=0;
+  For T:=0 to 15 do Inc(SumM,BS[T]*Mins[T shr 1]);
+  Q:=W+16;
+  SumI:=0;
+  For G:=0 to 3 do Begin
+   S0:=0;S1:=0;
+   For L:=0 to 31 do Begin
+    Inc(S0,(Q[L]and $F)*YQ[L]);
+    Inc(S1,(Q[L]shr 4)*YQ[L+32]);
+   End;
+   Inc(SumI,Scl[2*G]*S0+Scl[2*G+1]*S1);
+   Inc(Q,32);Inc(YQ,64);
+  End;
+  SumF:=SumF+F16Tab[PWord(W)^]*YD*SumI-F16Tab[PWord(W+2)^]*YD*SumM;
+  Inc(W,144);Inc(Y,XQKStride);
+ End;
+ DotQ4_KQ8:=SumF;
+End;
+
+Function DotQ5_KQ8(W,Y:PByte;NB:LongInt):Single;
+Var
+ I,G,L,S0,S1,SumI,SumM,T,Mk:LongInt;
+ Sc,M:Byte;
+ Q,HM:PByte;
+ YQ:PShortInt;
+ BS:PSmallInt;
+ Mins:Array[0..7]of LongInt;
+ Scl:Array[0..7]of LongInt;
+ YD,SumF:Single;
+Begin
+ SumF:=0;
+ For I:=0 to NB-1 do Begin
+  YD:=PSingle(Y)^;
+  YQ:=PShortInt(Y+4);
+  BS:=PSmallInt(Y+260);
+  For T:=0 to 7 do Begin
+   ScaleMinK4(T,W+4,Sc,M);
+   Scl[T]:=Sc;Mins[T]:=M;
+  End;
+  SumM:=0;
+  For T:=0 to 15 do Inc(SumM,BS[T]*Mins[T shr 1]);
+  HM:=W+16;
+  Q:=W+48;
+  SumI:=0;
+  Mk:=0;
+  For G:=0 to 3 do Begin
+   S0:=0;S1:=0;
+   For L:=0 to 31 do Begin
+    Inc(S0,((Q[L]and $F)or(((HM[L]shr Mk)and 1)shl 4))*YQ[L]);
+    Inc(S1,((Q[L]shr 4)or(((HM[L]shr(Mk+1))and 1)shl 4))*YQ[L+32]);
+   End;
+   Inc(SumI,Scl[2*G]*S0+Scl[2*G+1]*S1);
+   Inc(Q,32);Inc(YQ,64);Inc(Mk,2);
+  End;
+  SumF:=SumF+F16Tab[PWord(W)^]*YD*SumI-F16Tab[PWord(W+2)^]*YD*SumM;
+  Inc(W,176);Inc(Y,XQKStride);
+ End;
+ DotQ5_KQ8:=SumF;
+End;
+
+Function DotQ6_KQ8(W,Y:PByte;NB:LongInt):Single;
+Var
+ I,CH,L,SumI,IS_:LongInt;
+ QL,QH:PByte;
+ SC:PShortInt;
+ YQ:PShortInt;
+ A0,A1,A2,A3,S0,S1,S2,S3:LongInt;
+ SumF:Single;
+Begin
+ SumF:=0;
+ For I:=0 to NB-1 do Begin
+  YQ:=PShortInt(Y+4);
+  QL:=W;QH:=W+128;SC:=PShortInt(W+192);
+  SumI:=0;
+  For CH:=0 to 1 do Begin
+   For IS_:=0 to 1 do Begin
+    S0:=0;S1:=0;S2:=0;S3:=0;
+    For L:=IS_*16 to IS_*16+15 do Begin
+     A0:=LongInt((QL[L]and $F)or(((QH[L])and 3)shl 4))-32;
+     A1:=LongInt((QL[L+32]and $F)or(((QH[L]shr 2)and 3)shl 4))-32;
+     A2:=LongInt((QL[L]shr 4)or(((QH[L]shr 4)and 3)shl 4))-32;
+     A3:=LongInt((QL[L+32]shr 4)or(((QH[L]shr 6)and 3)shl 4))-32;
+     Inc(S0,A0*YQ[L]);
+     Inc(S1,A1*YQ[L+32]);
+     Inc(S2,A2*YQ[L+64]);
+     Inc(S3,A3*YQ[L+96]);
+    End;
+    Inc(SumI,SC[IS_]*S0+SC[IS_+2]*S1+SC[IS_+4]*S2+SC[IS_+6]*S3);
+   End;
+   Inc(QL,64);Inc(QH,32);Inc(SC,8);Inc(YQ,128);
+  End;
+  SumF:=SumF+F16Tab[PWord(W+208)^]*PSingle(Y)^*SumI;
+  Inc(W,210);Inc(Y,XQKStride);
+ End;
+ DotQ6_KQ8:=SumF;
+End;
+
+Function DotInt(T:LongInt;W,Y:PByte;K:LongInt):Single;
+Begin
+ Case T of
+  TY_Q4_0:DotInt:=DotQ4_0Q8(W,Y,K shr 5);
+  TY_Q5_0:DotInt:=DotQ5_0Q8(W,Y,K shr 5);
+  TY_Q8_0:DotInt:=DotQ8_0Q8(W,Y,K shr 5);
+  TY_Q4_K:DotInt:=DotQ4_KQ8(W,Y,K shr 8);
+  TY_Q5_K:DotInt:=DotQ5_KQ8(W,Y,K shr 8);
+  Else DotInt:=DotQ6_KQ8(W,Y,K shr 8);
+ End;
+End;
+
+{ ------------------------------------------------------------------ }
 { Fils d'execution (Windows : CreateThread, Unix : pthread)           }
 { ------------------------------------------------------------------ }
 
@@ -3480,6 +3767,8 @@ Type
   K,M:LongInt;
   X,Y:PSingle;
   NTok:LongInt;
+  XQ:PByte;
+  IT:LongInt;
  End;
 
 Var
@@ -3525,13 +3814,20 @@ End;
 Procedure MatMulRows(Const J:TMMJob;R0,R1:LongInt;Scratch:PSingle);
 Var
  R,JJ,NR,T,K,M:LongInt;
- RB:Int64;
+ RB,XS:Int64;
  Wp:Array[0..3]of PSingle;
  Xp:PSingle;
  Tmp4:Array[0..3]of Single;
 Begin
  K:=J.K;M:=J.M;
  RB:=RowBytes(J.Typ,K);
+ If J.IT<>0 Then Begin
+  XS:=XQRowBytes(J.IT,K);
+  For R:=R0 to R1-1 do
+   For T:=0 to J.NTok-1 do
+    J.Y[T*M+R]:=DotInt(J.Typ,J.Data+R*RB,J.XQ+T*XS,K);
+  Exit;
+ End;
  R:=R0;
  While R<R1 do Begin
   NR:=R1-R;
@@ -3664,9 +3960,23 @@ End;
 Procedure MatMulPtr(Typ:LongInt;Data:PByte;K,M:LongInt;X,Y:PSingle;NTok:LongInt;Scratch:PSingle);
 Var
  J:TMMJob;
- Expect:LongInt;
+ Expect,T:LongInt;
+ XS:Int64;
 Begin
  J.Typ:=Typ;J.Data:=Data;J.K:=K;J.M:=M;J.X:=X;J.Y:=Y;J.NTok:=NTok;
+ J.IT:=IntDotType(Typ,K);J.XQ:=Nil;
+ If NTok>=8 Then J.IT:=0;   { prefill : deq. une fois + flottants }
+ If J.IT<>0 Then Begin
+  XS:=XQRowBytes(J.IT,K);
+  If XS*NTok>XQBufSize Then Begin
+   If XQBuf<>Nil Then FreeMem(XQBuf);
+   XQBufSize:=XS*NTok;
+   GetMem(XQBuf,XQBufSize);
+  End;
+  J.XQ:=XQBuf;
+  For T:=0 to NTok-1 do
+   If J.IT=1 Then QuantRowQ8_0(X+T*K,XQBuf+T*XS,K) Else QuantRowQ8_K(X+T*K,XQBuf+T*XS,K);
+ End;
  If(PoolN<=1)or(M<4*ChunkRows)or(Int64(M)*K*NTok<200000)Then Begin
   MatMulRows(J,0,M,Scratch);
   Exit;
@@ -3835,6 +4145,7 @@ Begin
  If MaxF>Wmax Then Wmax:=MaxF;
  If GNThreads<=0 Then GNThreads:=CpuCount;
  If GNThreads>16 Then GNThreads:=16;
+ NoIntDot:=GetEnv('LLAMA_NO_INTDOT')<>'';
  PoolInit(GNThreads,Wmax+M.NEmbd);
  C.NThreads:=PoolN;
  C.X:=AllocF(Int64(NBatch)*M.NEmbd);
