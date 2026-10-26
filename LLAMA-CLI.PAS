@@ -3602,6 +3602,143 @@ Begin
  DotQ5_0Q8:=SumF;
 End;
 
+{$IFDEF CPU386}
+{ noyaux SSSE3 (pmaddubsw) : produits scalaires entiers par blocs }
+{$ASMMODE INTEL}
+Type
+ TQ6A=Record
+  QL,QH,YQ:PByte;
+  S:PLongInt;
+ End;
+
+{ S[0]=somme((Q&15)*Y[0..31]) , S[1]=somme((Q>>4)*Y[32..63]) ; Q : 32 octets }
+Procedure Q4KGroup(Q,YQ:PByte;S:PLongInt);assembler;
+asm
+ movdqu xmm0,[eax]
+ movdqu xmm1,[eax+16]
+ pcmpeqb xmm7,xmm7
+ psrlw xmm7,12
+ movdqa xmm6,xmm7
+ psllw xmm6,8
+ por xmm7,xmm6
+ pcmpeqw xmm6,xmm6
+ psrlw xmm6,15
+ movdqa xmm2,xmm0
+ movdqa xmm3,xmm1
+ pand xmm2,xmm7
+ pand xmm3,xmm7
+ psrlw xmm0,4
+ psrlw xmm1,4
+ pand xmm0,xmm7
+ pand xmm1,xmm7
+ movdqu xmm4,[edx]
+ movdqu xmm5,[edx+16]
+ pmaddubsw xmm2,xmm4
+ pmaddubsw xmm3,xmm5
+ movdqu xmm4,[edx+32]
+ movdqu xmm5,[edx+48]
+ pmaddubsw xmm0,xmm4
+ pmaddubsw xmm1,xmm5
+ paddw xmm2,xmm3
+ paddw xmm0,xmm1
+ pmaddwd xmm2,xmm6
+ pmaddwd xmm0,xmm6
+ phaddd xmm2,xmm0
+ phaddd xmm2,xmm2
+ movdqu [ecx],xmm2
+end;
+
+{ 16 colonnes d'un bloc Q6_K : S[0..3] = somme((a_k-(-32 retire))*Y) avec a_k non signe (0..63) }
+Procedure Q6K16(Var A:TQ6A);assembler;
+asm
+ pcmpeqb xmm7,xmm7
+ psrlw xmm7,12
+ movdqa xmm6,xmm7
+ psllw xmm6,8
+ por xmm7,xmm6
+ pcmpeqb xmm5,xmm5
+ psrlw xmm5,14
+ movdqa xmm6,xmm5
+ psllw xmm6,8
+ por xmm5,xmm6
+ psllw xmm5,4
+ pcmpeqw xmm6,xmm6
+ psrlw xmm6,15
+ mov ecx,[eax]
+ movdqu xmm0,[ecx]
+ movdqu xmm1,[ecx+32]
+ mov edx,[eax+4]
+ movdqu xmm2,[edx]
+ mov ecx,[eax+8]
+ mov edx,[eax+12]
+ movdqa xmm3,xmm0
+ pand xmm3,xmm7
+ movdqa xmm4,xmm2
+ psllw xmm4,4
+ pand xmm4,xmm5
+ por xmm3,xmm4
+ movdqu xmm4,[ecx]
+ pmaddubsw xmm3,xmm4
+ pmaddwd xmm3,xmm6
+ movdqu [edx],xmm3
+ movdqa xmm3,xmm1
+ pand xmm3,xmm7
+ movdqa xmm4,xmm2
+ psllw xmm4,2
+ pand xmm4,xmm5
+ por xmm3,xmm4
+ movdqu xmm4,[ecx+32]
+ pmaddubsw xmm3,xmm4
+ pmaddwd xmm3,xmm6
+ movdqu [edx+16],xmm3
+ psrlw xmm0,4
+ pand xmm0,xmm7
+ movdqa xmm4,xmm2
+ pand xmm4,xmm5
+ por xmm0,xmm4
+ movdqu xmm4,[ecx+64]
+ pmaddubsw xmm0,xmm4
+ pmaddwd xmm0,xmm6
+ psrlw xmm1,4
+ pand xmm1,xmm7
+ psrlw xmm2,2
+ pand xmm2,xmm5
+ por xmm1,xmm2
+ movdqu xmm4,[ecx+96]
+ pmaddubsw xmm1,xmm4
+ pmaddwd xmm1,xmm6
+ movdqu xmm3,[edx]
+ movdqu xmm4,[edx+16]
+ phaddd xmm3,xmm4
+ phaddd xmm0,xmm1
+ phaddd xmm3,xmm0
+ movdqu [edx],xmm3
+end;
+
+{ produit scalaire de 32 octets signes }
+Function Dot32S8(W,Y:PByte):LongInt;assembler;
+asm
+ movdqu xmm0,[eax]
+ movdqu xmm1,[eax+16]
+ movdqu xmm2,[edx]
+ movdqu xmm3,[edx+16]
+ pabsb xmm4,xmm0
+ pabsb xmm5,xmm1
+ psignb xmm2,xmm0
+ psignb xmm3,xmm1
+ pmaddubsw xmm4,xmm2
+ pmaddubsw xmm5,xmm3
+ pcmpeqw xmm6,xmm6
+ psrlw xmm6,15
+ pmaddwd xmm4,xmm6
+ pmaddwd xmm5,xmm6
+ paddd xmm4,xmm5
+ phaddd xmm4,xmm4
+ phaddd xmm4,xmm4
+ movd eax,xmm4
+end;
+{$ENDIF}
+
 Function DotQ8_0Q8(W,Y:PByte;NB:LongInt):Single;
 Var
  I,J,S:LongInt;
@@ -3612,8 +3749,12 @@ Begin
  For I:=0 to NB-1 do Begin
   Q:=PShortInt(W+2);
   YQ:=PShortInt(Y+4);
+  {$IFDEF CPU386}
+  S:=Dot32S8(PByte(Q),PByte(YQ));
+  {$ELSE}
   S:=0;
   For J:=0 to 31 do Inc(S,Q[J]*YQ[J]);
+  {$ENDIF}
   SumF:=SumF+S*F16Tab[PWord(W)^]*PSingle(Y)^;
   Inc(W,34);Inc(Y,XQ0Stride);
  End;
@@ -3629,6 +3770,7 @@ Var
  BS:PSmallInt;
  Mins:Array[0..7]of LongInt;
  Scl:Array[0..7]of LongInt;
+ Gs:Array[0..3]of LongInt;
  YD,SumF:Single;
 Begin
  SumF:=0;
@@ -3645,11 +3787,16 @@ Begin
   Q:=W+16;
   SumI:=0;
   For G:=0 to 3 do Begin
+   {$IFDEF CPU386}
+   Q4KGroup(Q,PByte(YQ),@Gs[0]);
+   S0:=Gs[0];S1:=Gs[1];
+   {$ELSE}
    S0:=0;S1:=0;
    For L:=0 to 31 do Begin
     Inc(S0,(Q[L]and $F)*YQ[L]);
     Inc(S1,(Q[L]shr 4)*YQ[L+32]);
    End;
+   {$ENDIF}
    Inc(SumI,Scl[2*G]*S0+Scl[2*G+1]*S1);
    Inc(Q,32);Inc(YQ,64);
   End;
@@ -3707,6 +3854,9 @@ Var
  SC:PShortInt;
  YQ:PShortInt;
  A0,A1,A2,A3,S0,S1,S2,S3:LongInt;
+ BS:PSmallInt;
+ Gs:Array[0..3]of LongInt;
+ {$IFDEF CPU386}A6:TQ6A;{$ENDIF}
  SumF:Single;
 Begin
  SumF:=0;
@@ -3716,6 +3866,15 @@ Begin
   SumI:=0;
   For CH:=0 to 1 do Begin
    For IS_:=0 to 1 do Begin
+    {$IFDEF CPU386}
+    A6.QL:=QL+IS_*16;A6.QH:=QH+IS_*16;A6.YQ:=PByte(YQ)+IS_*16;A6.S:=@Gs[0];
+    Q6K16(A6);
+    BS:=PSmallInt(Y+260)+CH*8+IS_;
+    S0:=Gs[0]-32*(BS[0]);
+    S1:=Gs[1]-32*(BS[2]);
+    S2:=Gs[2]-32*(BS[4]);
+    S3:=Gs[3]-32*(BS[6]);
+    {$ELSE}
     S0:=0;S1:=0;S2:=0;S3:=0;
     For L:=IS_*16 to IS_*16+15 do Begin
      A0:=LongInt((QL[L]and $F)or(((QH[L])and 3)shl 4))-32;
@@ -3727,6 +3886,7 @@ Begin
      Inc(S2,A2*YQ[L+64]);
      Inc(S3,A3*YQ[L+96]);
     End;
+    {$ENDIF}
     Inc(SumI,SC[IS_]*S0+SC[IS_+2]*S1+SC[IS_+4]*S2+SC[IS_+6]*S3);
    End;
    Inc(QL,64);Inc(QH,32);Inc(SC,8);Inc(YQ,128);
@@ -3975,7 +4135,7 @@ Var
 Begin
  J.Typ:=Typ;J.Data:=Data;J.K:=K;J.M:=M;J.X:=X;J.Y:=Y;J.NTok:=NTok;
  J.IT:=IntDotType(Typ,K);J.XQ:=Nil;
- If NTok>=8 Then J.IT:=0;   { prefill : deq. une fois + flottants }
+ { prefill : produits entiers aussi (noyaux SIMD) }
  If J.IT<>0 Then Begin
   XS:=XQRowBytes(J.IT,K);
   If XS*NTok>XQBufSize Then Begin
@@ -4153,7 +4313,11 @@ Begin
  If C.QD>Wmax Then Wmax:=C.QD;
  If C.AOD>Wmax Then Wmax:=C.AOD;
  If MaxF>Wmax Then Wmax:=MaxF;
- If GNThreads<=0 Then GNThreads:=CpuCount;
+ If GNThreads<=0 Then Begin
+  GNThreads:=CpuCount;
+  { l'hyperthreading n'aide pas : un fil par coeur physique }
+  If GNThreads>=4 Then GNThreads:=GNThreads div 2;
+ End;
  If GNThreads>16 Then GNThreads:=16;
  NoIntDot:=GetEnv('LLAMA_NO_INTDOT')<>'';
  PoolInit(GNThreads,Wmax+M.NEmbd);
@@ -9304,6 +9468,7 @@ Begin
  WriteLn('Syntaxe: llama-cli [options]');
  WriteLn;
  WriteLn('exemple : llama-cli -m modele.gguf -p "Explique-moi la gravitation" -n 512');
+ WriteLn('Exemple : llama-cli -hf bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M -p "Explique-moi la gravitation" -n 512');
  WriteLn;
  For Sec:=0 to 2 do Begin
   WriteLn(HelpToCP437(Titles[Sec]));
