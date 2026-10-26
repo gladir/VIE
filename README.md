@@ -35,6 +35,10 @@ Voici la liste des différents fichiers proposés dans VIE :
 	<td>Cette commande permet de générer une matrice de nombre de 9 x 9 pour une solution possible dans une grille de jeu Sodoku.</td>
   </tr>
   <tr>
+     <td><b>LLAMA-CLI.PAS</b></td>
+     <td>Cette commande est un clone de llama-cli (llama.cpp) : elle charge un modèle GGUF et génère du texte ou converse (CPU seulement, Free Pascal requis, réseau Windows seulement).</td>
+  </tr>
+  <tr>
      <td><b>LOREM.PAS</b></td>
      <td>Cette commande permet de générer du texte aléatoirement (Lorem Ipsum).</td>
   </tr>
