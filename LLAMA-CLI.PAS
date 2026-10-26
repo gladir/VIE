@@ -28,6 +28,9 @@ Program LLAMA_CLI;
  {$MODE OBJFPC}
  {$H+}
  {$INLINE ON}
+ {$IFDEF WIN32}
+  {$SETPEFLAGS $20}
+ {$ENDIF}
  {$R-}
  {$Q-}
  {$IOCHECKS OFF}
@@ -9989,6 +9992,7 @@ Procedure RunMain;
 Var
  ModelFile:AnsiString;
  NCtx,NCtxTrain,I,J,K:LongInt;
+ KvMax:Double;
  SysText,PromptText:AnsiString;
  EmbdInp,Embd,Tmp,Toks:TIntArray;
  NConsumed,NRemain,NKeep,MaxEmbd,NLeft,NDiscard:LongInt;
@@ -10042,22 +10046,25 @@ Begin
  If NCtx=0 Then Begin
   NCtx:=NCtxTrain;
   If NCtx<=0 Then NCtx:=4096;
-  If KVBytesFor(Mdl,NCtx)>2147483648 Then Begin
+  If SizeOf(Pointer)<8 Then KvMax:=536870912.0 Else KvMax:=2147483648.0;
+  If KVBytesFor(Mdl,NCtx)>KvMax Then Begin
    K:=NCtx;
-   NCtx:=Trunc(2147483648.0/(KVBytesFor(Mdl,1)));
+   NCtx:=Trunc(KvMax/(KVBytesFor(Mdl,1)));
    NCtx:=(NCtx div 256)*256;
-   If NCtx<4096 Then NCtx:=4096;
+   If NCtx<2048 Then NCtx:=2048;
    If NCtx>K Then NCtx:=K;
-   LogWrn('avertissement : taille du contexte réduite à '+IStr(NCtx)+' (modèle entraîné pour '+IStr(K)+
-          ') pour limiter la mémoire du cache KV ; utilisez -c pour la modifier'+#10);
+   LogWrn('avertissement : taille du contexte r'+#130+'duite '+#133+' '+IStr(NCtx)+' (mod'+#138+
+          'le entra'+#140+'n'+#130+' pour '+IStr(K)+
+          ') pour limiter la m'+#130+'moire du cache KV ; utilisez -c pour la modifier'+#10);
   End;
  End;
  If NCtx<8 Then Begin
   LogWrn('avertissement : la taille minimale du contexte est 8, utilisation du minimum'+#10);
   NCtx:=8;
  End;
- If Prm.Rope.Base<>0 Then LogWrn('avertissement : changement de la base de fréquence RoPE à '+FStr(Prm.Rope.Base,1)+#10);
- If Prm.Rope.Scale<>0 Then LogWrn('avertissement : mise à l''échelle de la fréquence RoPE de '+FStr(Prm.Rope.Scale,4)+#10);
+ If Prm.Rope.Base<>0 Then LogWrn('avertissement : changement de la base de fr'+#130+'quence RoPE '+#133+' '+FStr(Prm.Rope.Base,1)+#10);
+ If Prm.Rope.Scale<>0 Then LogWrn('avertissement : mise '+#133+' l'''+#130+'chelle de la fr'+#130+
+                                  'quence RoPE de '+FStr(Prm.Rope.Scale,4)+#10);
  If(Prm.NBatch<=0)Then Prm.NBatch:=2048;
  If(Prm.NUBatch<=0)Then Prm.NUBatch:=512;
  UBatchSize:=Prm.NUBatch;
@@ -10071,7 +10078,8 @@ Begin
  TLoadMs:=NowMsF-T0;
  TStartMs:=NowMsF;
  If NCtx>NCtxTrain Then
-  LogWrn('avertissement : le modèle a été entraîné pour '+IStr(NCtxTrain)+' jetons de contexte seulement ('+IStr(NCtx)+' demandés)'+#10);
+  LogWrn('avertissement : le mod'+#138+'le a '+#130+'t'+#130+' entra'+#140+'n'+#130+
+               ' pour '+IStr(NCtxTrain)+' jetons de contexte seulement ('+IStr(NCtx)+' demand'+#130+'s)'+#10);
  { --- echantillonneur --- }
  SampParams:=Prm.Samp;
  If SampParams.PenaltyLastN<0 Then SampParams.PenaltyLastN:=NCtx;
@@ -10098,10 +10106,11 @@ Begin
   TplName:=ChatTemplateDetect(TplSource);
   If TplName='' Then Begin
    If Prm.ChatTemplate<>'' Then Begin
-    LogErr('erreur : le modèle de conversation fourni n''est pas supporté ; modèles intégrés : '+ChatTemplateList+#10);
+    LogErr('erreur : le mod'+#138+'le de conversation fourni n''est pas support'+#130+' ; mod'+#138+
+            'les int'+#130+'gr'+#130+'s : '+ChatTemplateList+#10);
     Halt(1);
    End;
-   LogWrn('avertissement : modèle de conversation du fichier non reconnu, utilisation de « chatml »'+#10);
+   LogWrn('avertissement : mod'+#138+'le de conversation du fichier non reconnu, utilisation de « chatml »'+#10);
    TplName:='chatml';
   End;
  End;
@@ -10111,9 +10120,10 @@ Begin
  If Prm.ConvMode=1 Then ConvMode:=True
  Else If Prm.ConvMode=0 Then ConvMode:=HasTemplate;
  If ConvMode and not HasTemplate Then
-  LogWrn('avertissement : aucun modèle de conversation disponible ; utilisation de « chatml » ; les réponses peuvent être de moindre qualité'+#10);
+  LogWrn('avertissement : aucun mod'+#138+'le de conversation disponible ; utilisation de « chatml » ; les r'+
+         #130+'ponses peuvent '+#136+'tre de moindre qualit'+#130++#10);
  If ConvMode and(Prm.ConvMode=0)Then
-  LogOut(4,'main : un modèle de conversation est disponible, le mode conversation est activé (désactivable avec -no-cnv)'+#10);
+  LogOut(4,'main : un mod'+#138+'le de conversation est disponible, le mode conversation est activ'+#130' (d'+#130+'sactivable avec -no-cnv)'+#10);
  AddBos:=Mdl.V.AddBOS;
  { --- warmup --- }
  If Prm.Warmup Then Begin
@@ -10138,7 +10148,7 @@ Begin
   Else WaitingFirst:=True;
   If(SysText<>'')or(Prompt<>'')Then
    PromptText:=RenderChat(ChatMsgs,Prompt<>'');
-  If(Prompt<>'')and(SysText='')Then LogOut(4,'main : le prompt utilisateur démarre la conversation'+#10);
+  If(Prompt<>'')and(SysText='')Then LogOut(4,'main : le prompt utilisateur d'+#130+'marre la conversation'+#10);
  End
   Else PromptText:=Prompt;
  If Prm.InteractiveFirst or(PromptText<>'')Then EmbdInp:=TokenizeText(PromptText,True,True)
@@ -10176,8 +10186,8 @@ Begin
  If Prm.Interactive Then Begin
   LogOut(4,'main : mode interactif activé.'+#10);
   For I:=0 to High(Prm.Antiprompt)do LogInf('Invite inverse : '''+Prm.Antiprompt[I]+''''+#10);
-  If Prm.InPrefixBos Then LogInf('Préfixe de saisie avec BOS'+#10);
-  If Prm.InPrefix<>'' Then LogInf('Préfixe de saisie : '''+Prm.InPrefix+''''+#10);
+  If Prm.InPrefixBos Then LogInf('Pr'+#130+'fixe de saisie avec BOS'+#10);
+  If Prm.InPrefix<>'' Then LogInf('Pr'+#130+'fixe de saisie : '''+Prm.InPrefix+''''+#10);
   If Prm.InSuffix<>'' Then LogInf('Suffixe de saisie : '''+Prm.InSuffix+''''+#10);
  End;
  LogOut(4,'generate: n_ctx = '+IStr(NCtx)+', n_batch = '+IStr(Prm.NBatch)+', n_predict = '+IStr(Prm.NPredict)+
