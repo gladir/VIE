@@ -10544,6 +10544,7 @@ Const
    O_NODISPLAYPROMPT=129; O_COLOR=130;
  O_CTXCP=131; O_CRAM=132; O_CONTEXTSHIFT=133; O_NOCONTEXTSHIFT=134;
    O_SYSPROMPT=135;
+ O_DATETIME=179; O_NODATETIME=180;
  O_SHOWTIMINGS=136; O_NOSHOWTIMINGS=137; O_SYSFILE=138; O_INFILE=139;
    O_PTC=140; O_PROMPTCACHE=141;
  O_PROMPTCACHEALL=142; O_PROMPTCACHERO=143; O_REVERSE=144; O_SPECIAL=145;
@@ -10899,6 +10900,8 @@ Begin
  Opt('--no-context-shift','','','',O_NOCONTEXTSHIFT,2,'ne d'+#130+
    'cale pas le contexte (le programme s''arr'+#136+
    'te quand le contexte est plein)');
+ Opt('--datetime','','','',O_DATETIME,2,'ajoute la date et l''heure actuelles aux questions qui les demandent (d'+#130+'faut : activ'+#130+')');
+ Opt('--no-datetime','','','',O_NODATETIME,2,'n''ajoute pas la date et l''heure aux questions');
  Opt('-sys|--system-prompt','PROMPT','','',O_SYSPROMPT,2,'prompt syst'+#138+
    'me '+#133+' utiliser avec le mod'+#138+'le (si le mod'+#138+
    'le de conversation le permet)');
@@ -11199,6 +11202,7 @@ Type
   Overrides:Array of TOverride;
   Offline:Boolean;
   HelpReq,VersionReq,CacheListReq,ListDevicesReq:Boolean;
+  DateTime:Boolean;
   NGL,MainGpu:LongInt;
   DevStr:AnsiString;
   Fit:Boolean;
@@ -11232,7 +11236,7 @@ Begin
  P.OutputFile:='';
  SetLength(P.Overrides,0);
  P.Offline:=False;
- P.NGL:=-1;P.MainGpu:=0;P.DevStr:='';P.Fit:=True;
+ P.DateTime:=True;P.NGL:=-1;P.MainGpu:=0;P.DevStr:='';P.Fit:=True;
  P.HelpReq:=False;P.VersionReq:=False;P.CacheListReq:=False;P.ListDevicesReq:=False;
  P.BinaryPrompt:=False;P.RepeatLastNSet:=False;P.DryLastNSet:=False;
 End;
@@ -11595,6 +11599,8 @@ Begin
   O_CONTEXTSHIFT:Prm.CtxShift:=True;
   O_NOCONTEXTSHIFT:Prm.CtxShift:=False;
   O_SYSPROMPT:Prm.SysPrompt:=V1;
+  O_DATETIME:Prm.DateTime:=True;
+  O_NODATETIME:Prm.DateTime:=False;
   O_SHOWTIMINGS:Prm.ShowTimings:=True;
   O_NOSHOWTIMINGS:Prm.ShowTimings:=False;
   O_SYSFILE:Begin
@@ -11784,20 +11790,80 @@ Begin
 End;
 
 { equivalent de common_chat_format_single + ajout du message a l'historique }
+{ date et heure du moment, en francais et en UTF-8 (texte destine au modele) }
+Function DateTimeText:AnsiString;
+Const
+ Jours:Array[0..6]of AnsiString=('dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi');
+Var
+ Y,Mo,D,Dw,H,Mi,S,S100:Word;
+ NomMois:AnsiString;
+Begin
+ GetDate(Y,Mo,D,Dw);
+ GetTime(H,Mi,S,S100);
+ Case Mo of
+  1:NomMois:='janvier';
+  2:NomMois:='f'+Chr($C3)+Chr($A9)+'vrier';
+  3:NomMois:='mars';
+  4:NomMois:='avril';
+  5:NomMois:='mai';
+  6:NomMois:='juin';
+  7:NomMois:='juillet';
+  8:NomMois:='ao'+Chr($C3)+Chr($BB)+'t';
+  9:NomMois:='septembre';
+  10:NomMois:='octobre';
+  11:NomMois:='novembre';
+  Else NomMois:='d'+Chr($C3)+Chr($A9)+'cembre';
+ End;
+ DateTimeText:='Nous sommes le '+Jours[Dw]+' '+IStr(D)+' '+NomMois+' '+IStr(Y)+
+  ' et il est '+IStr(H)+' h '+Chr(48+Mi div 10)+Chr(48+Mi mod 10)+
+  '. R'+Chr($C3)+Chr($A9)+'ponds en utilisant ces informations.';
+End;
+
+{ le message de l'utilisateur parle-t-il de la date ou de l'heure ? (mots entiers) }
+Function AsksDateTime(Const Msg:AnsiString):Boolean;
+Const
+ NW=24;
+ Mots:Array[1..NW]of AnsiString=('heure','heures','date','dates','aujourd','demain','hier',
+  'maintenant','mois','semaine','jour','jours','annee','time','today','tomorrow','yesterday',
+  'now','day','month','year','week','clock','journee');
+Var
+ I,J:LongInt;
+ W,L:AnsiString;
+Begin
+ AsksDateTime:=False;
+ L:=LoStr(Msg)+' ';
+ W:='';
+ For I:=1 to Length(L)do Begin
+  If L[I]in['a'..'z','0'..'9',#128..#255]Then W:=W+L[I]
+   Else Begin
+    If W<>'' Then Begin
+     If W=('ann'+Chr($C3)+Chr($A9)+'e')Then W:='annee';
+     For J:=1 to NW do If W=Mots[J]Then Begin AsksDateTime:=True;Exit;End;
+    End;
+    W:='';
+   End;
+ End;
+End;
+
+Var
+ DateTimeAuto:Boolean=True;
+
 Function ChatAddAndFormat(Const Role,Content:AnsiString):AnsiString;
 Var
  Past,All:TChatMsgs;
- FmtPast,Full,SS:AnsiString;
+ FmtPast,Full,SS,Msg:AnsiString;
  N:LongInt;
  AddAss:Boolean;
 Begin
  AddAss:=Role='user';
+ Msg:=Content;
+ If AddAss and DateTimeAuto and AsksDateTime(Content)Then Msg:='['+DateTimeText+']'+#10+Content;
  Past:=Copy(ChatMsgs,0,Length(ChatMsgs));
  FmtPast:='';
  If Length(Past)>0 Then FmtPast:=RenderChat(Past,False);
  N:=Length(ChatMsgs);
  SetLength(ChatMsgs,N+1);
- ChatMsgs[N].Role:=Role;ChatMsgs[N].Content:=Content;
+ ChatMsgs[N].Role:=Role;ChatMsgs[N].Content:=Msg;
  Full:=RenderChat(ChatMsgs,AddAss);
  SS:='';
  If AddAss and(FmtPast<>'')and(FmtPast[Length(FmtPast)]=#10)Then SS:=#10;
@@ -12084,6 +12150,7 @@ Begin
   Else Prompt:='';
  If(Prm.SysPrompt<>'')and Prm.Escape Then
    SysText:=ProcessEscapes(Prm.SysPrompt)Else SysText:=Prm.SysPrompt;
+ DateTimeAuto:=Prm.DateTime;
  SetLength(ChatMsgs,0);
  WaitingFirst:=False;
  PromptText:='';
