@@ -5352,16 +5352,23 @@ End;
 Const
  { genres de vetement }
  gkNone=0;gkTop=1;gkBottom=2;gkDress=3;gkFull=4;gkShoes=5;gkHat=6;gkGlasses=7;
- gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;
+ gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;gkHair=13;
  { natures de mots du lexique }
  lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
  lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;lkVAdd=14;
+ lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;
  { modificateurs }
  mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
  { motifs }
  pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
  { actions }
- eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;
+ { coiffures }
+ hsNone=0;hsLonger=1;hsShorter=2;hsCurly=3;hsBald=4;hsStraight=5;
+ { bijoux (indicateurs) }
+ jwNecklace=1;jwEarrings=2;jwBracelet=4;jwWatch=8;jwRing=16;
+ { styles d'image }
+ stNone=0;stComic=1;stCartoon=2;stSketch=3;stReal=4;
 
 Type
  TLex=Record
@@ -5384,6 +5391,8 @@ Type
   Color2Name:AnsiString;
   DstGarment:LongInt;       { genre de vetement cite comme resultat }
   Noun:AnsiString;          { mot designant le vetement vise }
+  HairStyle,Jewel,Style:LongInt;
+  Diamond,Apple:Boolean;
   Put:Boolean;              { ? mets un chapeau ? : ajout si l'objet est absent }
   Text:AnsiString;
  End;
@@ -5445,6 +5454,27 @@ Begin
  AddLex('ceinture belt',lkGarment,gkBelt,msBelt);
  AddLex('vetement habit tenue outfit clothes clothing ensemble costume',lkGarment,gkAll,msClothes);
  AddLex('tout tous toute toutes everything all',lkAll,0,0);
+ { cheveux et coiffures }
+ AddLex('cheveu cheveux chevelure coiffure hair hairstyle',lkGarment,gkHair,msHair);
+ AddLex('allonge allonger allongez rallonge rallonger long longs longue longues lengthen longer',lkHairStyle,hsLonger,0);
+ AddLex('court courts courte courtes raccourcis raccourcir raccourcit raccourci coupe couper coupez shorter shorten',lkHairStyle,hsShorter,0);
+ AddLex('frise frises frisee frisees friser curly curls wavy ondule ondules ondulee ondulees boucle boucles bouclee bouclees curl',lkHairStyle,hsCurly,0);
+ AddLex('chauve bald',lkHairStyle,hsBald,0);
+ AddLex('raide raides lisse lisses straight',lkHairStyle,hsStraight,0);
+ { bijoux }
+ AddLex('bijou bijoux jewelry jewellery jewel jewels parure',lkJewel,jwNecklace+jwEarrings+jwBracelet,0);
+ AddLex('collier colliers necklace pendentif pendant chaine chain',lkJewel,jwNecklace,0);
+ AddLex('oreille oreilles earring earrings',lkJewel,jwEarrings,0);
+ AddLex('bracelet bracelets bangle bangles',lkJewel,jwBracelet,0);
+ AddLex('montre montres watch watches',lkJewel,jwWatch,0);
+ AddLex('bague bagues ring rings',lkJewel,jwRing,0);
+ AddLex('diamant diamants diamond diamonds brillant brillants',lkJewelMod,1,0);
+ AddLex('apple',lkJewelMod,2,0);
+ { styles d'image }
+ AddLex('bd bande dessinee dessinees comic comics',lkStyle,stComic,0);
+ AddLex('cartoon cartoons dessin dessins anime animation animee',lkStyle,stCartoon,0);
+ AddLex('croquis sketch crayon',lkStyle,stSketch,0);
+ AddLex('reel reelle reels realiste realistes realistic real photo photographie photorealiste photorealistic',lkStyle,stReal,0);
  { couleurs }
  AddLex('rouge red',lkColor,0,RgbOf(200,30,40));
  AddLex('bleu bleue blue',lkColor,0,RgbOf(30,70,200));
@@ -5457,6 +5487,10 @@ Begin
  AddLex('beige tan',lkColor,0,RgbOf(225,205,170));
  AddLex('noir noire black',lkColor,0,RgbOf(22,22,25));
  AddLex('blanc blanche white',lkColor,0,RgbOf(245,245,245));
+ AddLex('blond blonde blondes blonds',lkColor,0,RgbOf(222,185,105));
+ AddLex('roux rousse rousses auburn',lkColor,0,RgbOf(168,70,28));
+ AddLex('chatain chatains chataine',lkColor,0,RgbOf(98,64,40));
+ AddLex('platine platinum',lkColor,0,RgbOf(232,228,210));
  AddLex('gris grise gray grey',lkColor,0,RgbOf(128,128,128));
  AddLex('turquoise teal',lkColor,0,RgbOf(40,185,185));
  AddLex('cyan',lkColor,0,RgbOf(0,190,230));
@@ -5738,6 +5772,8 @@ Var
  MdWord:LongInt;
  Gx:LongInt;
  HasPat:Boolean;
+ HStyle,Jw,Sty:LongInt;
+ HStrong,HairNoun,Dia,App:Boolean;
 Begin
  ParseClause:=False;
  ClearEdit(E);
@@ -5747,11 +5783,15 @@ Begin
  Remove:=False;Result_:=False;Recolor:=False;TryOn:=False;AllWord:=False;AddV:=False;
  FirstPrep:=-1;
  HasPat:=False;
+ HStyle:=0;Jw:=0;Sty:=0;HStrong:=False;Dia:=False;App:=False;
+ HairNoun:=False;
+ For I:=A to B do If LexFind(T[I],lkGarment)>=0 Then
+  If Lex[LexFind(T[I],lkGarment)].V1=gkHair Then HairNoun:=True;
  For I:=A to B do Begin
   If Consumed[I]Then Continue;
   { verbes }
   If LexFind(T[I],lkVRemove)>=0 Then Begin Remove:=True;HasVerb:=True;Continue;End;
-  If LexFind(T[I],lkVAdd)>=0 Then Begin AddV:=True;HasVerb:=True;Continue;End;
+  If(LexFind(T[I],lkVAdd)>=0)and not((I>A)and((T[I]='montre')or(T[I]='montres')))Then Begin AddV:=True;HasVerb:=True;Continue;End;
   If LexFind(T[I],lkVTryOn)>=0 Then Begin TryOn:=True;HasVerb:=True;Continue;End;
   If LexFind(T[I],lkVResult)>=0 Then Begin Result_:=True;HasVerb:=True;Continue;End;
   If LexFind(T[I],lkAll)>=0 Then Begin AllWord:=True;Continue;End;
@@ -5767,6 +5807,23 @@ Begin
     Inc(NCol);
    End;
    For K:=1 to Used-1 do Consumed[I+K]:=True;
+   Continue;
+  End;
+  { bijoux, styles d'image, coiffures }
+  K:=LexFind(T[I],lkJewel);
+  If K>=0 Then Begin Jw:=Jw or Lex[K].V1;Continue;End;
+  K:=LexFind(T[I],lkJewelMod);
+  If K>=0 Then Begin If Lex[K].V1=1 Then Dia:=True Else App:=True;Continue;End;
+  K:=LexFind(T[I],lkStyle);
+  If K>=0 Then Begin Sty:=Lex[K].V1;Continue;End;
+  If HairNoun and(T[I]='short')Then Begin HStyle:=hsShorter;Continue;End;
+  K:=LexFind(T[I],lkHairStyle);
+  If K>=0 Then Begin
+   { ? boucles ? seul est ambigu (boucles d'oreilles) : il faut le mot cheveux }
+   If(Lex[K].V1<>hsCurly)or HairNoun or(Pos('boucle',T[I])=0)Then Begin
+    HStyle:=Lex[K].V1;
+    If HairNoun Then HStrong:=True Else If Lex[K].V1 in[hsBald,hsLonger,hsShorter]Then HStrong:=True;
+   End;
    Continue;
   End;
   { motifs }
@@ -5856,12 +5913,23 @@ Begin
  End;
  { action }
  E.Put:=Result_ or TryOn;
+ { coiffure : valable avec le mot cheveux, ou sans autre vetement cite }
+ If(HStyle<>0)and(HairNoun or(NG=0))Then Begin
+  E.HairStyle:=HStyle;E.Target:=E.Target or msHair;E.Kind:=gkHair;
+ End;
+ If Sty<>0 Then E.Style:=Sty;
+ If Dia and(Jw=0)and(NG=0)Then Jw:=jwNecklace+jwEarrings+jwBracelet;
+ E.Jewel:=Jw;E.Diamond:=Dia;E.Apple:=App;
+ If App and(Jw=0)Then E.Jewel:=jwWatch;
  If Remove Then E.Action:=eaRemove
+ Else If(E.Jewel<>0)and(AddV or Result_ or TryOn)Then E.Action:=eaAdd
+ Else If E.HairStyle<>0 Then E.Action:=eaHair
+ Else If E.Style<>0 Then E.Action:=eaStyle
  Else If AddV Then E.Action:=eaAdd
  Else If E.HasDst or(E.Pattern<>pkNone)or(Abs(E.LGain-1)>0.01)or(Abs(E.CGain-1)>0.01)Then E.Action:=eaRecolor
  Else If TryOn Then E.Action:=eaTryOn;
- HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd];
- ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0);
+ HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle];
+ ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0)or(E.Jewel<>0);
 End;
 
 { interprete la demande complete ; renvoie la liste des retouches }
@@ -5917,7 +5985,17 @@ Begin
   If A>B Then Continue;
   If not ParseClause(T,A,B,E,HasChange,HasVerb)Then Continue;
   { clause sans changement mais avec un vetement : cible reportee sur la clause suivante }
-  If(not HasChange)and(E.Target<>0)and(E.Action=eaNone)Then Begin
+  If(not HasChange)and(E.Jewel<>0)and(E.Action=eaNone)and(not HasVerb)and(Length(Edits)>0)and
+    (Edits[High(Edits)].Action=eaAdd)and(Edits[High(Edits)].Jewel<>0)Then Begin
+   { ? ajoute un collier et un bracelet ? }
+   SetLength(Edits,Length(Edits)+1);
+   Edits[High(Edits)]:=Edits[High(Edits)-1];
+   Edits[High(Edits)].Jewel:=E.Jewel;
+   If E.Diamond Then Edits[High(Edits)].Diamond:=True;
+   If E.Apple Then Edits[High(Edits)].Apple:=True;
+   Continue;
+  End;
+  If(not HasChange)and(E.Jewel=0)and(E.Target<>0)and(E.Action=eaNone)Then Begin
    { ? enleve le chapeau et les lunettes ? : la retouche precedente s'applique aussi }
    If(not HasVerb)and(Length(Edits)>0)and(Edits[High(Edits)].Action in[eaRemove,eaAdd])Then Begin
     SetLength(Edits,Length(Edits)+1);
@@ -5993,10 +6071,13 @@ Begin
   eaRecolor:R:='recolorer';
   eaRemove:R:='retirer';
   eaAdd:R:='ajouter';
+  eaHair:R:='coiffure';
+  eaStyle:R:='style de l''image';
   eaTryOn:R:='essayer';
   Else R:='?';
  End;
- If E.Target<>0 Then R:=R+' '+MaskName(E.Target)Else R:=R+' (cible '#133' d'#130'terminer)';
+ If E.Target<>0 Then R:=R+' '+MaskName(E.Target)
+ Else If(E.Jewel=0)and(E.Style=0)Then R:=R+' (cible '#133' d'#130'terminer)';
  If E.HasSrc Then R:=R+', de '+E.SrcName;
  If E.HasDst Then R:=R+', vers '+E.DstName+' '+ColorHex(E.DstRGB);
  Case E.Pattern of
@@ -6006,6 +6087,9 @@ Begin
   pkPlain:R:=R+', uni';
  End;
  If E.HasColor2 Then R:=R+' + '+E.Color2Name;
+ If E.HairStyle<>0 Then R:=R+', coiffure '+IStr(E.HairStyle);
+ If E.Jewel<>0 Then R:=R+', bijoux '+IStr(E.Jewel);
+ If E.Style<>0 Then R:=R+', style '+IStr(E.Style);
  If Abs(E.LGain-1)>0.01 Then R:=R+', luminosit'#130' x'+FStr(E.LGain,2);
  If Abs(E.CGain-1)>0.01 Then R:=R+', saturation x'+FStr(E.CGain,2);
  DescribeEdit:=R;
@@ -6276,6 +6360,8 @@ Begin
  P.Vertical:=Vertical;
 End;
 
+Function ApplyHair(Var S:TScene;Style:LongInt;Const E:TEdit;Var Msg:AnsiString):Boolean;forward;
+
 { applique une retouche de recoloration / de retrait sur la scene }
 Function ApplyEdit(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
 Var
@@ -6302,6 +6388,11 @@ Begin
    Else Begin Msg:='la demande ne pr'#130'cise pas quel v'#136'tement modifier';Exit;End;
  End;
  If E.Action=eaRemove Then Begin
+  If(Mask and msHair)<>0 Then Begin
+   ApplyEdit:=ApplyHair(S,hsBald,E,Msg);
+   If Msg='' Then Info('  cheveux retir'#130's');
+   Exit;
+  End;
   If(Mask and(msTop or msPants or msSkirt or msDress))<>0 Then Begin
    Msg:='le retrait d''un v'#136'tement principal ('+MaskName(Mask)+') n''est pas pris en charge : indiquez plut'#147't un v'#136'tement '#133' essayer';
    Exit;
@@ -7639,6 +7730,1001 @@ Begin
 End;
 
 { ------------------------------------------------------------------ }
+{ Cheveux : couleur, longueur, boucles, calvitie                      }
+{ ------------------------------------------------------------------ }
+
+Function Hash2(X,Y:LongInt):Single;
+Var
+ H:Int64;
+Begin
+ H:=(Int64(X)*374761393+Int64(Y)*668265263)and $FFFFFFFF;
+ H:=((H xor(H shr 13))*1274126177)and $FFFFFFFF;
+ H:=H xor(H shr 16);
+ Hash2:=(H and $FFFFFF)/16777216.0;
+End;
+
+{ bruit de valeur lisse dans [0,1] }
+Function VNoise(X,Y:Single):Single;
+Var
+ X0,Y0:LongInt;
+ Fx,Fy,A,B,C,D:Single;
+Begin
+ X0:=FloorI(X);Y0:=FloorI(Y);
+ Fx:=X-X0;Fy:=Y-Y0;
+ Fx:=Fx*Fx*(3-2*Fx);Fy:=Fy*Fy*(3-2*Fy);
+ A:=Hash2(X0,Y0);B:=Hash2(X0+1,Y0);C:=Hash2(X0,Y0+1);D:=Hash2(X0+1,Y0+1);
+ VNoise:=(A*(1-Fx)+B*Fx)*(1-Fy)+(C*(1-Fx)+D*Fx)*Fy;
+End;
+
+Type
+ THeadInfo=Record
+  Fx0,Fy0,Fx1,Fy1:LongInt;
+  Cx,Fw,Fh:Single;
+  HairR,HairG,HairB:Single;
+  HasHair:Boolean;
+ End;
+
+{ visage et couleur moyenne des cheveux }
+Function HeadInfo(Const S:TScene;Var H:THeadInfo):Boolean;
+Var
+ N,K,Cnt:Int64;
+ M:PSingle;
+ Sr,Sg,Sb:Double;
+Begin
+ HeadInfo:=False;
+ If not CatBBox(S,msFace,H.Fx0,H.Fy0,H.Fx1,H.Fy1)Then Exit;
+ H.Fw:=H.Fx1-H.Fx0+1;H.Fh:=H.Fy1-H.Fy0+1;
+ H.Cx:=(H.Fx0+H.Fx1+1)/2;
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ CatMask(S,msHair,M);
+ Sr:=0;Sg:=0;Sb:=0;Cnt:=0;
+ For K:=0 to N-1 do If M[K]>=0.8 Then Begin
+  Sr:=Sr+S.Pix[K*3];Sg:=Sg+S.Pix[K*3+1];Sb:=Sb+S.Pix[K*3+2];Inc(Cnt);
+ End;
+ FreeMem(M);
+ H.HasHair:=Cnt>=N div 4000;
+ If H.HasHair Then Begin H.HairR:=Sr/Cnt;H.HairG:=Sg/Cnt;H.HairB:=Sb/Cnt;End
+ Else Begin H.HairR:=60;H.HairG:=40;H.HairB:=30;End;
+ HeadInfo:=True;
+End;
+
+{ remplace les pixels ponderes par Rm (retrait) : la partie SkinW devient de la peau
+  (prolongement du visage), le reste du fond (propagation) }
+Procedure FillRemoved(Var S:TScene;Rm,SkinW:PSingle;Const H:THeadInfo);
+Var
+ N,K:Int64;
+ Known1,Known2,F:PSingle;
+ T1,T2:PSingle;
+ W1,W2:Single;
+ C,Mv:LongInt;
+Begin
+ N:=Int64(S.W)*S.H;
+ Known1:=AllocF(N);Known2:=AllocF(N);F:=AllocF(N);
+ T1:=AllocF(N*3);T2:=AllocF(N*3);
+ Move(S.Pix^,T1^,N*12);Move(S.Pix^,T2^,N*12);
+ CatMask(S,msFace,F);
+ For K:=0 to N-1 do Begin
+  Known1[K]:=1-Rm[K];
+  If(F[K]>=0.9)and(Rm[K]<0.1)Then Known2[K]:=1;
+ End;
+ PushPullFill(T1,Known1,S.W,S.H);
+ PushPullFill(T2,Known2,S.W,S.H);
+ For K:=0 to N-1 do If Rm[K]>0.02 Then Begin
+  W2:=Rm[K]*SkinW[K];
+  W1:=Rm[K]-W2;
+  For C:=0 to 2 do
+   S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Rm[K])+(T1[K*3+C]+RngGauss*1.5)*W1+(T2[K*3+C]+RngGauss*1.2)*W2;
+  If Rm[K]>0.5 Then Begin
+   For C:=0 to NumCat-1 do S.Cat[C][K]:=0;
+   If SkinW[K]>=0.5 Then S.Cat[cFace][K]:=255 Else S.Cat[cBg][K]:=255;
+  End;
+ End;
+ FreeMem(Known1);FreeMem(Known2);FreeMem(F);FreeMem(T1);FreeMem(T2);
+ { le reste du visage n'a pas change }
+End;
+
+{ crane : ellipse au-dessus du visage }
+Function DomeCover(Const H:THeadInfo;X,Y:Single;Scale:Single):Single;
+Var
+ Cy,Rx,Ry:Single;
+Begin
+ Cy:=H.Fy0+0.25*H.Fh;
+ Rx:=0.5*H.Fw*Scale;
+ Ry:=Cy-(H.Fy0-0.33*H.Fh);
+ DomeCover:=CoverD(EllipseD(X,Y,H.Cx,Cy,Rx,Ry*Scale));
+End;
+
+Function HairBald(Var S:TScene;Const H:THeadInfo;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ Rm,Sk,Hm:PSingle;
+ B:PByte;
+ X,Y:LongInt;
+ Cnt:Int64;
+Begin
+ HairBald:=False;
+ N:=Int64(S.W)*S.H;
+ Hm:=AllocF(N);Rm:=AllocF(N);Sk:=AllocF(N);
+ CatMask(S,msHair,Hm);
+ B:=PByte(AllocBytes(N));
+ Cnt:=0;
+ For K:=0 to N-1 do If Hm[K]>=0.3 Then Begin B[K]:=255;Inc(Cnt);End;
+ If Cnt=0 Then Begin
+  Msg:='aucun cheveu d'#130'tect'#130' sur la photo';
+  FreeMem(Hm);FreeMem(Rm);FreeMem(Sk);FreeMem(B);Exit;
+ End;
+ MorphMask(B,S.W,S.H,2,False);
+ For K:=0 to N-1 do Rm[K]:=B[K]/255.0;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If Rm[K]>0 Then Sk[K]:=DomeCover(H,X+0.5,Y+0.5,1.0);
+  End;
+ FillRemoved(S,Rm,Sk,H);
+ FreeMem(Hm);FreeMem(Rm);FreeMem(Sk);FreeMem(B);
+ HairBald:=True;
+End;
+
+Function HairShorter(Var S:TScene;Const H:THeadInfo;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ Hm,Rm,Sk:PSingle;
+ X,Y:LongInt;
+ Keep,D,Cy,Rx,Ry,YEar,NeckW:Single;
+ Cnt:Int64;
+ Hy0,Hy1,Hx0,Hx1:LongInt;
+Begin
+ HairShorter:=False;
+ N:=Int64(S.W)*S.H;
+ If not CatBBox(S,msHair,Hx0,Hy0,Hx1,Hy1)Then Begin Msg:='aucun cheveu d'#130'tect'#130' sur la photo';Exit;End;
+ Hm:=AllocF(N);Rm:=AllocF(N);Sk:=AllocF(N);
+ CatMask(S,msHair,Hm);
+ Cy:=H.Fy0+0.2*H.Fh;
+ Rx:=0.5*H.Fw*1.22;
+ Ry:=FMin(Cy-Hy0+1,0.8*H.Fh);
+ YEar:=H.Fy0+0.6*H.Fh;
+ NeckW:=0.36*H.Fw;
+ Cnt:=0;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If Hm[K]<0.05 Then Continue;
+   { zone conservee : dome elargi + cotes jusqu'aux oreilles }
+   Keep:=CoverD(EllipseD(X+0.5,Y+0.5,H.Cx,Cy,Rx,Ry));
+   If(Y<=YEar)and(X>=H.Fx0-0.16*H.Fw)and(X<=H.Fx1+0.16*H.Fw)Then Begin
+    D:=CoverD(Y-YEar);
+    If D>Keep Then Keep:=D;
+   End;
+   Rm[K]:=Hm[K]*(1-Keep);
+   If Rm[K]>0.3 Then Inc(Cnt);
+   { le cou apparait sous le menton a la place des cheveux retires }
+   If(Abs(X-H.Cx)<NeckW)and(Y>=H.Fy1-0.05*H.Fh)and(Y<=H.Fy1+0.9*H.Fh)Then Sk[K]:=1;
+  End;
+ If Cnt<20 Then Begin
+  Msg:='les cheveux sont d'#130'j'#133' courts';
+  FreeMem(Hm);FreeMem(Rm);FreeMem(Sk);Exit;
+ End;
+ FillRemoved(S,Rm,Sk,H);
+ FreeMem(Hm);FreeMem(Rm);FreeMem(Sk);
+ HairShorter:=True;
+End;
+
+Function HairLonger(Var S:TScene;Const H:THeadInfo;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ Hm,Fm:PSingle;
+ X,Y,Side,Hx0,Hy0,Hx1,Hy1,C:LongInt;
+ YEar,YEnd,T,Xin,Xout,Wd,Cov,D,Cyf,Ex,Strand,Shade,Tip,Edge,Cs,Mid,Hw:Single;
+ YbSide,XbaseL,XbaseR,Xb:Single;
+ Sg:Array[0..1]of Single;
+ R,G,B,V,V2,Sx:Single;
+ Mv:LongInt;
+Begin
+ HairLonger:=False;
+ If not H.HasHair Then Begin Msg:='aucun cheveu d'#130'tect'#130' sur la photo';Exit;End;
+ N:=Int64(S.W)*S.H;
+ Hm:=AllocF(N);Fm:=AllocF(N);
+ CatMask(S,msHair,Hm);CatMask(S,msFace,Fm);
+ CatBBox(S,msHair,Hx0,Hy0,Hx1,Hy1);
+ YEar:=H.Fy0+0.55*H.Fh;
+ Cyf:=(H.Fy0+H.Fy1)/2;
+ { rangee la plus basse des cheveux de chaque cote }
+ Sg[0]:=YEar;Sg[1]:=YEar;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do If Hm[Int64(Y)*S.W+X]>=0.5 Then Begin
+   If X<H.Cx Then Begin If Y>Sg[0]Then Sg[0]:=Y;End
+   Else Begin If Y>Sg[1]Then Sg[1]:=Y;End;
+  End;
+ For Side:=0 to 1 do Begin
+  YbSide:=Sg[Side];
+  YEnd:=FMax(YbSide,H.Fy1+0.2*H.Fh)+0.9*H.Fh;
+  If YEnd>S.H-2 Then YEnd:=S.H-2;
+  { bord exterieur des cheveux existants a hauteur des oreilles }
+  XbaseL:=H.Fx0-0.22*H.Fw;XbaseR:=H.Fx1+0.22*H.Fw;
+  Xb:=-1;
+  For Y:=Trunc(YEar-0.1*H.Fh)to Trunc(YEar+0.1*H.Fh)do
+   For X:=0 to S.W-1 do If Hm[Int64(Y)*S.W+X]>=0.5 Then Begin
+    If(Side=0)and(X<H.Cx)and((Xb<0)or(X<Xb))Then Xb:=X;
+    If(Side=1)and(X>H.Cx)and(X>Xb)Then Xb:=X;
+   End;
+  If Xb>=0 Then Begin
+   If Side=0 Then XbaseL:=FMin(Xb,H.Fx0-0.05*H.Fw)Else XbaseR:=FMax(Xb,H.Fx1+0.05*H.Fw);
+  End;
+  For Y:=Trunc(YEar-0.25*H.Fh)to Trunc(YEnd)do Begin
+   T:=(Y-YEar)/(YEnd-YEar);
+   If T<0 Then T:=0;
+   If Y<H.Fy1 Then Begin
+    Ex:=(Y-Cyf)/(H.Fh/2);
+    If Abs(Ex)>1 Then Ex:=1;
+    Xin:=0.5*H.Fw*Sqrt(1-Ex*Ex)-0.02*H.Fw;
+   End
+    Else Xin:=0.34*H.Fw;
+   Wd:=0.12*H.Fw*SmoothStep(0.0,0.8,T);
+   For X:=0 to S.W-1 do Begin
+    If Side=0 Then Begin
+     Xout:=XbaseL-Wd;Cs:=H.Cx-Xin;
+     D:=FMax(Xout-X,X-Cs);
+    End
+     Else Begin
+      Xout:=XbaseR+Wd;Cs:=H.Cx+Xin;
+      D:=FMax(Cs-X,X-Xout);
+     End;
+    Cov:=CoverD(D);
+    If Cov<=0 Then Continue;
+    K:=Int64(Y)*S.W+X;
+    { l'ensemble s'effile en bas : bord interieur rabattu vers l'exterieur }
+    Tip:=1-SmoothStep(0.78+0.14*VNoise(X*0.35,3.0),1.0,T);
+    Cov:=Cov*Tip;
+    If Y<YEar Then Cov:=Cov*SmoothStep(YEar-0.25*H.Fh,YEar,Y);
+    Cov:=Cov*(1-SmoothStep(0.2,0.8,Fm[K]));
+    If Cov<=0.01 Then Continue;
+    Mid:=(Xout+Cs)/2;Hw:=Abs(Xout-Cs)/2+0.001;
+    Edge:=(X-Mid)/Hw;
+    Strand:=0.78+0.44*VNoise(X*0.75,Y*0.045+Side*7);
+    Shade:=(0.78+0.3*(1-Edge*Edge))*(1-0.22*T);
+    V:=Strand*Shade;
+    R:=H.HairR*V;G:=H.HairG*V;B:=H.HairB*V;
+    S.Pix[K*3]:=S.Pix[K*3]*(1-Cov)+R*Cov;
+    S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Cov)+G*Cov;
+    S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Cov)+B*Cov;
+    Mv:=Trunc(Cov*255+0.5);
+    For C:=0 to NumCat-1 do S.Cat[C][K]:=Trunc(S.Cat[C][K]*(1-Cov)+0.5);
+    Mv:=Mv+S.Cat[cHair][K];
+    If Mv>255 Then Mv:=255;
+    S.Cat[cHair][K]:=Mv;
+   End;
+  End;
+ End;
+ FreeMem(Hm);FreeMem(Fm);
+ HairLonger:=True;
+End;
+
+Function HairCurly(Var S:TScene;Const H:THeadInfo;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ Hm,Bl,Fm:PSingle;
+ X,Y,C,Mv:LongInt;
+ Rr,Nz,Ex,Cov,Kk,Tx,F,V:Single;
+ R,G,B,Pr,Pg,Pb:Single;
+Begin
+ HairCurly:=False;
+ If not H.HasHair Then Begin Msg:='aucun cheveu d'#130'tect'#130' sur la photo';Exit;End;
+ N:=Int64(S.W)*S.H;
+ Hm:=AllocF(N);Bl:=AllocF(N);Fm:=AllocF(N);
+ CatMask(S,msHair,Hm);CatMask(S,msFace,Fm);
+ Move(Hm^,Bl^,N*4);
+ Rr:=0.16*H.Fw;
+ BlurPlane(Bl,S.W,S.H,Rr);
+ Kk:=2*Pi/(0.13*H.Fw);
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(Bl[K]<0.02)and(Hm[K]<0.02)Then Continue;
+   { silhouette gonflee et festonnee }
+   Nz:=VNoise(X/(0.10*H.Fw),Y/(0.10*H.Fw))*1.3+VNoise(X/(0.05*H.Fw)+9,Y/(0.05*H.Fw)+4)*0.7-1.0;
+   Ex:=SmoothStep(0.24,0.32,Bl[K]+0.16*Nz);
+   Cov:=FMax(Hm[K],Ex);
+   Cov:=Cov*(1-SmoothStep(0.2,0.8,Fm[K]));
+   If Cov<=0.01 Then Continue;
+   { boucles : anneaux de lumiere et d'ombre }
+   Tx:=0.5+0.5*Sin(Kk*(X+2.4*Sin(Kk*Y*0.7)))*Cos(Kk*(Y+2.4*Sin(Kk*X*0.7)));
+   F:=0.62+0.62*Tx;
+   If Hm[K]>=0.5 Then Begin
+    S.Pix[K*3]:=S.Pix[K*3]*(0.45+0.55*F)*1.04;
+    S.Pix[K*3+1]:=S.Pix[K*3+1]*(0.45+0.55*F)*1.04;
+    S.Pix[K*3+2]:=S.Pix[K*3+2]*(0.45+0.55*F)*1.04;
+   End
+    Else Begin
+     V:=F*(0.85+0.3*VNoise(X*0.5,Y*0.5));
+     R:=H.HairR*V;G:=H.HairG*V;B:=H.HairB*V;
+     S.Pix[K*3]:=S.Pix[K*3]*(1-Cov)+R*Cov;
+     S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Cov)+G*Cov;
+     S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Cov)+B*Cov;
+     If Cov>0.3 Then Begin
+      Mv:=Trunc(Cov*255+0.5);
+      For C:=0 to NumCat-1 do S.Cat[C][K]:=Trunc(S.Cat[C][K]*(1-Cov)+0.5);
+      Mv:=Mv+S.Cat[cHair][K];
+      If Mv>255 Then Mv:=255;
+      S.Cat[cHair][K]:=Mv;
+     End;
+    End;
+  End;
+ FreeMem(Hm);FreeMem(Bl);FreeMem(Fm);
+ HairCurly:=True;
+End;
+
+{ applique une retouche de coiffure (et la couleur eventuelle) }
+Function ApplyHair(Var S:TScene;Style:LongInt;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ Ok:Boolean;
+ M:PSingle;
+ P:TRecolor;
+ X0,Y0,X1,Y1:LongInt;
+ N:Int64;
+Begin
+ ApplyHair:=False;
+ Msg:='';
+ If not HeadInfo(S,H)Then Begin
+  Msg:='aucun visage d'#130'tect'#130' : impossible de modifier la coiffure';
+  Exit;
+ End;
+ Ok:=True;
+ Case Style of
+  hsBald:Ok:=HairBald(S,H,Msg);
+  hsShorter:Ok:=HairShorter(S,H,Msg);
+  hsLonger:Ok:=HairLonger(S,H,Msg);
+  hsCurly:Ok:=HairCurly(S,H,Msg);
+  hsStraight:Begin Msg:='les cheveux lisses ne sont pas pris en charge';Ok:=False;End;
+ End;
+ If not Ok Then Exit;
+ { couleur demandee en plus du style }
+ If(E.HasDst or(E.Pattern<>pkNone))and(Style<>hsBald)Then Begin
+  N:=Int64(S.W)*S.H;
+  M:=AllocF(N);
+  CatMask(S,msHair,M);
+  SharpenAlpha(M,N);
+  If CatBBox(S,msHair,X0,Y0,X1,Y1)Then Begin
+   BuildRecolor(E,P,X0,Y0,X1-X0+1,Y1-Y0+1,False);
+   RecolorRegion(S.Pix,S.W,S.H,M,P);
+  End;
+  FreeMem(M);
+ End;
+ ApplyHair:=True;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Bijoux : collier, boucles d'oreilles, bracelet, montre, diamants      }
+{ (dessines par le programme, poses selon le visage et les poignets)    }
+{ ------------------------------------------------------------------ }
+
+Function ATan2F(Y,X:Single):Single;
+Begin
+ If X>0 Then ATan2F:=ArcTan(Y/X)
+ Else If X<0 Then Begin
+  If Y>=0 Then ATan2F:=ArcTan(Y/X)+Pi Else ATan2F:=ArcTan(Y/X)-Pi;
+ End
+  Else Begin
+   If Y>0 Then ATan2F:=Pi/2 Else If Y<0 Then ATan2F:=-Pi/2 Else ATan2F:=0;
+  End;
+End;
+
+{ ombrage d'un metal : T de 0 a 1 en travers de la piece }
+Function MetalV(T:Single):Single;
+Var
+ A,B:Single;
+Begin
+ A:=(T-0.30)/0.16;B:=(T-0.78)/0.09;
+ MetalV:=0.52+0.62*Exp(-A*A)+0.32*Exp(-B*B)+0.10*Sin(T*Pi);
+End;
+
+Procedure PutJewel(Var S:TScene;X,Y:LongInt;Cov,R,G,B:Single;Prot:PSingle);
+Var
+ K:Int64;
+ P:Single;
+Begin
+ If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Exit;
+ K:=Int64(Y)*S.W+X;
+ If Prot<>Nil Then Begin
+  P:=Prot[K];
+  If P>0.15 Then Cov:=Cov*(1-SmoothStep(0.15,0.85,P));
+ End;
+ If Cov<=0.004 Then Exit;
+ If R>255 Then R:=255;If G>255 Then G:=255;If B>255 Then B:=255;
+ S.Pix[K*3]:=S.Pix[K*3]*(1-Cov)+R*Cov;
+ S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Cov)+G*Cov;
+ S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Cov)+B*Cov;
+End;
+
+{ pierre taillee en brillant : facettes, table et eclats }
+Procedure DrawGem(Var S:TScene;Cx,Cy,R:Single;Metal:LongWord;Tint:LongWord;Prot:PSingle);
+Var
+ X,Y,X0,X1,Y0,Y1,Sec:LongInt;
+ Dx,Dy,Dp,A,Rr,Cov,V,Br,Sp,Mr,Mg,Mb,Rd,Gr,Bl,Ring:Single;
+Begin
+ If R<1.2 Then R:=1.2;
+ X0:=Trunc(Cx-R*2.4);X1:=Trunc(Cx+R*2.4)+1;Y0:=Trunc(Cy-R*2.4);Y1:=Trunc(Cy+R*2.4)+1;
+ Mr:=(Metal shr 16)and $FF;Mg:=(Metal shr 8)and $FF;Mb:=Metal and $FF;
+ For Y:=Y0 to Y1 do
+  For X:=X0 to X1 do Begin
+   Dx:=X+0.5-Cx;Dy:=Y+0.5-Cy;
+   Dp:=FMax(Abs(Dx),FMax(Abs(Dy),(Abs(Dx)+Abs(Dy))*0.7071));
+   { monture }
+   Ring:=CoverD(Dp-1.22*R);
+   If Ring>0 Then Begin
+    V:=MetalV(Clamp(0.5+(Dy/(2.4*R)),0,1));
+    PutJewel(S,X,Y,Ring,Mr*V,Mg*V,Mb*V,Prot);
+   End;
+   Cov:=CoverD(Dp-0.93*R);
+   If Cov>0 Then Begin
+    A:=ATan2F(Dy,Dx);
+    Sec:=FloorI((A+Pi)/(Pi/4));
+    Rr:=Sqrt(Dx*Dx+Dy*Dy)/R;
+    If Rr<0.46 Then Br:=0.97
+    Else Br:=0.58+0.42*(((Sec*3+Ord(Rr>0.75))mod 4)/3.0);
+    Br:=Br*(0.9+0.1*Cos(A*2-0.6));
+    Rd:=((Tint shr 16)and $FF)*Br;Gr:=((Tint shr 8)and $FF)*Br;Bl:=(Tint and $FF)*Br;
+    PutJewel(S,X,Y,Cov,Rd,Gr,Bl,Prot);
+   End;
+   { eclat en croix }
+   Sp:=Exp(-Abs(Dx)/(0.10*R+0.3))*Exp(-Abs(Dy)/(1.9*R))+Exp(-Abs(Dy)/(0.10*R+0.3))*Exp(-Abs(Dx)/(1.9*R));
+   Sp:=Sp*0.55;
+   If Sp>0.03 Then PutJewel(S,X,Y,FMin(Sp,0.8),255,255,255,Prot);
+  End;
+End;
+
+Procedure DrawNecklace(Var S:TScene;Const H:THeadInfo;Metal,Tint:LongWord;Diamond:Boolean;Prot:PSingle);
+Var
+ X,Y,X0,X1,Y0,Y1:LongInt;
+ YA,YB,Half,Wc,T,Yc,Slope,D,Cov,V,Lk,Mr,Mg,Mb,Rg:Single;
+Begin
+ YA:=H.Fy1+0.02*H.Fh;
+ YB:=H.Fy1+0.72*H.Fh;
+ Half:=0.30*H.Fw;
+ Wc:=FMax(1.7,0.032*H.Fw);
+ Mr:=(Metal shr 16)and $FF;Mg:=(Metal shr 8)and $FF;Mb:=Metal and $FF;
+ X0:=Trunc(H.Cx-Half)-2;X1:=Trunc(H.Cx+Half)+2;
+ Y0:=Trunc(YA)-3;Y1:=Trunc(YB)+3;
+ For Y:=Y0 to Y1 do
+  For X:=X0 to X1 do Begin
+   T:=(X+0.5-H.Cx)/Half;
+   If Abs(T)>1.04 Then Continue;
+   Yc:=YA+(YB-YA)*(1-T*T);
+   Slope:=-2*T*(YB-YA)/Half;
+   D:=Abs(Y+0.5-Yc)/Sqrt(1+Slope*Slope);
+   Cov:=CoverD(D-Wc/2);
+   If Cov>0 Then Begin
+    Lk:=0.72+0.28*Sin((X+0.5)*Sqrt(1+Slope*Slope)*2*Pi/(1.8*Wc));
+    V:=MetalV(Clamp(0.5+(Y+0.5-Yc)/Wc/1.3,0,1))*Lk;
+    PutJewel(S,X,Y,Cov,Mr*V,Mg*V,Mb*V,Prot);
+   End;
+  End;
+ { pendentif }
+ Rg:=0.062*H.Fw;
+ If Diamond Then DrawGem(S,H.Cx,YB+Rg*1.7,Rg,Metal,RgbOf(232,242,255),Prot)
+ Else DrawGem(S,H.Cx,YB+Rg*1.6,Rg*0.8,Metal,Metal,Prot);
+End;
+
+Procedure DrawEarrings(Var S:TScene;Const H:THeadInfo;Metal:LongWord;Diamond:Boolean;Prot:PSingle);
+Var
+ Side:LongInt;
+ Ex,Ey,Rg,Y:Single;
+ X,YY:LongInt;
+ Cov,V,Mr,Mg,Mb:Single;
+Begin
+ Mr:=(Metal shr 16)and $FF;Mg:=(Metal shr 8)and $FF;Mb:=Metal and $FF;
+ Rg:=0.040*H.Fw;
+ For Side:=-1 to 1 do Begin
+  If Side=0 Then Continue;
+  If Side<0 Then Ex:=H.Fx0-0.035*H.Fw Else Ex:=H.Fx1+0.035*H.Fw;
+  Ey:=H.Fy0+0.62*H.Fh;
+  { petite tige et pierre qui pend }
+  For YY:=Trunc(Ey)to Trunc(Ey+0.14*H.Fh)do
+   For X:=Trunc(Ex)-2 to Trunc(Ex)+2 do Begin
+    Cov:=CoverD(Abs(X+0.5-Ex)-0.7);
+    If Cov>0 Then PutJewel(S,X,YY,Cov,Mr*0.9,Mg*0.9,Mb*0.9,Nil);
+   End;
+  If Diamond Then DrawGem(S,Ex,Ey+0.14*H.Fh+Rg*1.3,Rg,Metal,RgbOf(232,242,255),Nil)
+  Else DrawGem(S,Ex,Ey+0.14*H.Fh+Rg*1.2,Rg*0.85,Metal,Metal,Nil);
+ End;
+End;
+
+Type
+ TWrist=Record
+  X,Y,Ax,Ay,W:Single;     { centre, direction vers la main, largeur du poignet }
+ End;
+
+{ poignets : composantes connexes de la categorie bras, extremite cote main }
+Function FindWrists(Const S:TScene;Var Wr:Array of TWrist):LongInt;
+Var
+ N:Int64;
+ B:PByte;
+ Lab:PIntArr;
+ Areas:TIntArray;
+ NC,I,J,Cnt,X,Y,Best:LongInt;
+ P:Int64;
+ Mx,My,Sxx,Sxy,Syy,Cs,Sn,Th,Ax,Ay,Pj,Pmin,Pmax,Vend,Pw,Uc,Umin,Umax,Sx,Sy,Cn,L,Px,Py:Double;
+ Take:Boolean;
+Begin
+ FindWrists:=0;
+ N:=Int64(S.W)*S.H;
+ B:=PByte(AllocBytes(N));
+ For P:=0 to N-1 do If S.Cat[cArms][P]>=128 Then B[P]:=255;
+ Lab:=PIntArr(AllocBytes(N*4));
+ NC:=Components(B,S.W,S.H,Lab,Areas);
+ Cnt:=0;
+ For I:=1 to NC do Begin
+  If(Areas[I]<N div 7000)or(Cnt>High(Wr))Then Continue;
+  { axe principal }
+  Mx:=0;My:=0;
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do If Lab[Int64(Y)*S.W+X]=I Then Begin Mx:=Mx+X;My:=My+Y;End;
+  Mx:=Mx/Areas[I];My:=My/Areas[I];
+  Sxx:=0;Sxy:=0;Syy:=0;
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do If Lab[Int64(Y)*S.W+X]=I Then Begin
+   Sxx:=Sxx+(X-Mx)*(X-Mx);Sxy:=Sxy+(X-Mx)*(Y-My);Syy:=Syy+(Y-My)*(Y-My);
+  End;
+  Th:=0.5*ATan2F(2*Sxy,Sxx-Syy);
+  Ax:=Cos(Th);Ay:=Sin(Th);
+  If Ay<0 Then Begin Ax:=-Ax;Ay:=-Ay;End;     { vers le bas : cote main }
+  Pmin:=1.0e9;Pmax:=-1.0e9;
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do If Lab[Int64(Y)*S.W+X]=I Then Begin
+   Pj:=(X-Mx)*Ax+(Y-My)*Ay;
+   If Pj<Pmin Then Pmin:=Pj;
+   If Pj>Pmax Then Pmax:=Pj;
+  End;
+  L:=Pmax-Pmin;
+  If L<12 Then Continue;
+  Pw:=Pmax-0.22*L;
+  { largeur et centre du poignet }
+  Umin:=1.0e9;Umax:=-1.0e9;Sx:=0;Sy:=0;Cn:=0;
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do If Lab[Int64(Y)*S.W+X]=I Then Begin
+   Pj:=(X-Mx)*Ax+(Y-My)*Ay;
+   If Abs(Pj-Pw)<=1.6 Then Begin
+    Uc:=-(X-Mx)*Ay+(Y-My)*Ax;
+    If Uc<Umin Then Umin:=Uc;
+    If Uc>Umax Then Umax:=Uc;
+    Sx:=Sx+X;Sy:=Sy+Y;Cn:=Cn+1;
+   End;
+  End;
+  If(Cn<2)or(Umax-Umin<5)Then Continue;
+  Wr[Cnt].X:=Sx/Cn+0.5;Wr[Cnt].Y:=Sy/Cn+0.5;
+  Wr[Cnt].Ax:=Ax;Wr[Cnt].Ay:=Ay;Wr[Cnt].W:=Umax-Umin+1;
+  Inc(Cnt);
+ End;
+ FreeMem(B);FreeMem(Lab);
+ FindWrists:=Cnt;
+End;
+
+{ bracelet ou bracelet de montre autour d'un poignet }
+Procedure DrawBand(Var S:TScene;Const Wr:TWrist;Thick:Single;Colr:LongWord;Metallic,Diamond:Boolean;Prot:PSingle);
+Var
+ X,Y,X0,X1,Y0,Y1,I:LongInt;
+ Dx,Dy,V,U,Vc,Hw,Hl,D,Cov,Sh,Mr,Mg,Mb,Gc:Single;
+Begin
+ Hw:=0.60*Wr.W;Hl:=Thick*Wr.W/2;
+ X0:=Trunc(Wr.X-Wr.W*1.6);X1:=Trunc(Wr.X+Wr.W*1.6);Y0:=Trunc(Wr.Y-Wr.W*1.6);Y1:=Trunc(Wr.Y+Wr.W*1.6);
+ Mr:=(Colr shr 16)and $FF;Mg:=(Colr shr 8)and $FF;Mb:=Colr and $FF;
+ For Y:=Y0 to Y1 do
+  For X:=X0 to X1 do Begin
+   Dx:=X+0.5-Wr.X;Dy:=Y+0.5-Wr.Y;
+   V:=Dx*Wr.Ax+Dy*Wr.Ay;
+   U:=-Dx*Wr.Ay+Dy*Wr.Ax;
+   Vc:=V-0.10*Wr.W*Sqr(U/Hw);
+   D:=RoundRectD(U,Vc,0,0,Hw,Hl,Hl*0.9);
+   Cov:=CoverD(D);
+   If Cov>0 Then Begin
+    If Metallic Then Sh:=MetalV(Clamp(0.5+Vc/(2*Hl),0,1))*(1-0.25*Sqr(U/Hw))
+    Else Sh:=0.7+0.3*Sin(Pi*Clamp(0.5+Vc/(2*Hl),0,1))-0.15*Sqr(U/Hw);
+    PutJewel(S,X,Y,Cov,Mr*Sh,Mg*Sh,Mb*Sh,Prot);
+   End;
+  End;
+ If Diamond Then
+  For I:=-2 to 2 do Begin
+   Gc:=I*0.22*Wr.W;
+   DrawGem(S,Wr.X-Gc*Wr.Ay+(0.10*Wr.W*Sqr(Gc/Hw))*Wr.Ax,Wr.Y+Gc*Wr.Ax+(0.10*Wr.W*Sqr(Gc/Hw))*Wr.Ay,0.075*Wr.W,Colr,RgbOf(232,242,255),Prot);
+  End;
+End;
+
+Procedure DrawWatch(Var S:TScene;Const Wr:TWrist;Const E:TEdit;Metal:LongWord;Prot:PSingle);
+Var
+ X,Y,X0,X1,Y0,Y1:LongInt;
+ Dx,Dy,V,U,Cov,Cu,Cv,R,G,B,Rr,Ang,Hh,Mm,D1,D2,Ln:Single;
+ BandC:LongWord;
+ Hw,Hh2:Single;
+Begin
+ If E.HasDst Then BandC:=E.DstRGB Else BandC:=RgbOf(28,28,32);
+ DrawBand(S,Wr,0.50,BandC,False,False,Prot);
+ X0:=Trunc(Wr.X-Wr.W);X1:=Trunc(Wr.X+Wr.W);Y0:=Trunc(Wr.Y-Wr.W);Y1:=Trunc(Wr.Y+Wr.W);
+ For Y:=Y0 to Y1 do
+  For X:=X0 to X1 do Begin
+   Dx:=X+0.5-Wr.X;Dy:=Y+0.5-Wr.Y;
+   V:=Dx*Wr.Ax+Dy*Wr.Ay;
+   U:=-Dx*Wr.Ay+Dy*Wr.Ax;
+   If E.Apple Then Begin
+    { boitier carre arrondi, ecran noir, anneaux d'activite, couronne }
+    Hw:=0.40*Wr.W;Hh2:=0.46*Wr.W;
+    Cov:=CoverD(RoundRectD(U,V,0,0,Hw,Hh2,0.17*Wr.W));
+    If Cov>0 Then Begin
+     R:=185;G:=186;B:=192;
+     Rr:=MetalV(Clamp(0.5+V/(2*Hh2),0,1));R:=R*Rr;G:=G*Rr;B:=B*Rr;
+     PutJewel(S,X,Y,Cov,R,G,B,Prot);
+    End;
+    Cov:=CoverD(RoundRectD(U,V,0,0,Hw*0.88,Hh2*0.88,0.14*Wr.W));
+    If Cov>0 Then Begin
+     R:=6;G:=6;B:=9;
+     Rr:=Sqrt(U*U+V*V)/Wr.W;
+     { trois anneaux concentriques }
+     Ang:=ATan2F(V,U);
+     If(Abs(Rr-0.24)<0.032)and(Ang>-2.2)Then Begin R:=255;G:=45;B:=85;End;
+     If(Abs(Rr-0.17)<0.032)and(Ang>-1.5)Then Begin R:=165;G:=255;B:=0;End;
+     If(Abs(Rr-0.10)<0.032)and(Ang>-0.8)Then Begin R:=0;G:=225;B:=255;End;
+     { reflet de la vitre }
+     Rr:=Clamp((U+V)/(2*Wr.W)+0.1,-0.5,0.5);
+     If Rr>0 Then Begin R:=R+30*Rr;G:=G+30*Rr;B:=B+34*Rr;End;
+     PutJewel(S,X,Y,Cov,R,G,B,Prot);
+    End;
+    Cov:=CoverD(RoundRectD(U-Hw-0.03*Wr.W,V+0.12*Wr.W,0,0,0.05*Wr.W,0.12*Wr.W,0.03*Wr.W));
+    If Cov>0 Then PutJewel(S,X,Y,Cov,175,176,182,Prot);
+   End
+    Else Begin
+     { montre ronde : boitier metal, cadran clair, aiguilles }
+     Rr:=Sqrt(U*U+V*V);
+     Cov:=CoverD(Rr-0.43*Wr.W);
+     If Cov>0 Then Begin
+      Cu:=((Metal shr 16)and $FF)*MetalV(Clamp(0.5+V/(0.86*Wr.W),0,1));
+      Cv:=((Metal shr 8)and $FF)*MetalV(Clamp(0.5+V/(0.86*Wr.W),0,1));
+      R:=((Metal and $FF))*MetalV(Clamp(0.5+V/(0.86*Wr.W),0,1));
+      PutJewel(S,X,Y,Cov,Cu,Cv,R,Prot);
+     End;
+     Cov:=CoverD(Rr-0.36*Wr.W);
+     If Cov>0 Then Begin
+      R:=242;G:=240;B:=232;
+      Ang:=ATan2F(V,U);
+      Mm:=Abs(Sin(Ang*6));
+      If(Rr>0.30*Wr.W)and(Mm>0.97)Then Begin R:=40;G:=40;B:=44;End;
+      { aiguilles : 10 h 10 }
+      D1:=Abs(-U*Cos(-1.0)+V*Sin(-1.0));Ln:=U*Sin(-1.0)*(-1)+V*Cos(-1.0);
+      If(D1<0.012*Wr.W+0.4)and(U*Cos(-1.0)+V*Sin(-1.0)>0)and(Rr<0.22*Wr.W)Then Begin R:=30;G:=30;B:=34;End;
+      D2:=Abs(-U*Cos(-2.2)+V*Sin(-2.2));
+      If(D2<0.010*Wr.W+0.4)and(U*Cos(-2.2)+V*Sin(-2.2)>0)and(Rr<0.30*Wr.W)Then Begin R:=30;G:=30;B:=34;End;
+      If Rr<0.025*Wr.W Then Begin R:=30;G:=30;B:=34;End;
+      PutJewel(S,X,Y,Cov,R,G,B,Prot);
+     End;
+    End;
+  End;
+End;
+
+{ ajoute les bijoux demandes ; renvoie faux si rien n'a pu etre pose }
+Function AddJewelry(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ Metal,Tint:LongWord;
+ Prot,Fm,Hm,Am:PSingle;
+ N:Int64;
+ Wr:Array[0..3]of TWrist;
+ NW,I,WatchIdx:LongInt;
+ Done:Boolean;
+ Note:AnsiString;
+ B:PByte;
+ K:Int64;
+Begin
+ AddJewelry:=False;
+ Msg:='';Note:='';
+ Done:=False;
+ N:=Int64(S.W)*S.H;
+ If E.HasDst Then Metal:=E.DstRGB
+ Else If E.Diamond Then Metal:=RgbOf(196,196,205)
+ Else Metal:=RgbOf(212,175,55);
+ Tint:=RgbOf(232,242,255);
+ Fm:=AllocF(N);Hm:=AllocF(N);Prot:=AllocF(N);
+ CatMask(S,msFace,Fm);CatMask(S,msHair,Hm);
+ For K:=0 to N-1 do Prot[K]:=FMax(Fm[K],Hm[K]);
+ If(E.Jewel and(jwNecklace or jwEarrings))<>0 Then Begin
+  If HeadInfo(S,H)Then Begin
+   If(E.Jewel and jwNecklace)<>0 Then Begin DrawNecklace(S,H,Metal,Tint,E.Diamond,Prot);Done:=True;End;
+   If(E.Jewel and jwEarrings)<>0 Then Begin DrawEarrings(S,H,Metal,E.Diamond,Fm);Done:=True;End;
+  End
+   Else Note:='aucun visage d'#130'tect'#130' : collier et boucles d''oreilles non ajout'#130's';
+ End;
+ If(E.Jewel and(jwBracelet or jwWatch))<>0 Then Begin
+  NW:=FindWrists(S,Wr);
+  If NW=0 Then Begin
+   If Note<>'' Then Note:=Note+' ; ';
+   Note:=Note+'aucun poignet visible : bracelet et montre non ajout'#130's';
+  End
+   Else Begin
+    { masque des bras legerement dilate : le bijou ne deborde pas sur le fond }
+    B:=PByte(AllocBytes(N));
+    For K:=0 to N-1 do If S.Cat[cArms][K]>=64 Then B[K]:=255;
+    MorphMask(B,S.W,S.H,2,False);
+    Am:=AllocF(N);
+    For K:=0 to N-1 do Am[K]:=1-B[K]/255.0;
+    FreeMem(B);
+    { montre sur le poignet le plus a droite de l'image (poignet gauche de la personne) }
+    WatchIdx:=0;
+    For I:=1 to NW-1 do If Wr[I].X>Wr[WatchIdx].X Then WatchIdx:=I;
+    For I:=0 to NW-1 do Begin
+     If((E.Jewel and jwWatch)<>0)and(I=WatchIdx)Then Begin DrawWatch(S,Wr[I],E,Metal,Am);Done:=True;End
+     Else If(E.Jewel and jwBracelet)<>0 Then Begin DrawBand(S,Wr[I],0.28,Metal,True,E.Diamond,Am);Done:=True;End;
+    End;
+    FreeMem(Am);
+   End;
+ End;
+ If(E.Jewel and jwRing)<>0 Then Begin
+  If Note<>'' Then Note:=Note+' ; ';
+  Note:=Note+'les bagues ne sont pas prises en charge (doigts trop petits)';
+ End;
+ FreeMem(Fm);FreeMem(Hm);FreeMem(Prot);
+ If Note<>'' Then Begin
+  If Done Then Warn(Note) Else Msg:=Note;
+ End;
+ AddJewelry:=Done;
+ If Done Then Info('  bijoux ajout'#130's');
+End;
+
+{ ------------------------------------------------------------------ }
+{ Styles d'image : photo -> BD / dessin anime / croquis,              }
+{ et dessin -> rendu ? realiste ? approximatif                         }
+{ ------------------------------------------------------------------ }
+
+{ lisse l'image en gardant les contours (filtre guide applique a chaque canal) }
+Procedure EdgeSmooth(Pix:PSingle;W,H,Rad:LongInt;Eps:Single);
+Var
+ G:TGuide;
+ P,Q:PSingle;
+ N,K:Int64;
+ C:LongInt;
+Begin
+ N:=Int64(W)*H;
+ GuideInit(G,Pix,W,H,Rad,Eps);
+ P:=AllocF(N);Q:=AllocF(N);
+ For C:=0 to 2 do Begin
+  For K:=0 to N-1 do P[K]:=Pix[K*3+C]/255.0;
+  GuideApply(G,P,Q);
+  For K:=0 to N-1 do Pix[K*3+C]:=Q[K]*255.0;
+ End;
+ GuideFree(G);
+ FreeMem(P);FreeMem(Q);
+End;
+
+{ categorie dominante de chaque pixel }
+Procedure DominantMap(Const S:TScene;D:PByte);
+Var
+ K:Int64;
+ C,Best,Bv:LongInt;
+Begin
+ For K:=0 to Int64(S.W)*S.H-1 do Begin
+  Best:=0;Bv:=-1;
+  For C:=0 to NumCat-1 do If S.Cat[C][K]>Bv Then Begin Bv:=S.Cat[C][K];Best:=C;End;
+  D[K]:=Best;
+ End;
+End;
+
+{ contours : gradient de luminosite et frontieres entre categories ; renvoie un plan 0..1 }
+Procedure InkLines(Const S:TScene;Lines:PSingle;Strong:Single;Width:LongInt);
+Var
+ N,K:Int64;
+ X,Y:LongInt;
+ Yl:PSingle;
+ Dom,Bd:PByte;
+ Gx,Gy,Gm,T0,T1:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ Yl:=AllocF(N);
+ For K:=0 to N-1 do Yl[K]:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2])/255.0;
+ BlurPlane(Yl,S.W,S.H,1.1);
+ T0:=0.05/Strong;T1:=0.20/Strong;
+ For Y:=1 to S.H-2 do
+  For X:=1 to S.W-2 do Begin
+   K:=Int64(Y)*S.W+X;
+   Gx:=(Yl[K+1]-Yl[K-1])*2+(Yl[K+1-S.W]-Yl[K-1-S.W])+(Yl[K+1+S.W]-Yl[K-1+S.W]);
+   Gy:=(Yl[K+S.W]-Yl[K-S.W])*2+(Yl[K+S.W-1]-Yl[K-S.W-1])+(Yl[K+S.W+1]-Yl[K-S.W+1]);
+   Gm:=Sqrt(Gx*Gx+Gy*Gy)/4.0;
+   If S.Cat[cFace][K]>=128 Then Lines[K]:=0.75*SmoothStep(T0*1.0,T1*1.25,Gm)
+   Else Lines[K]:=SmoothStep(T0,T1,Gm);
+  End;
+ FreeMem(Yl);
+ { frontieres entre categories }
+ Dom:=PByte(AllocBytes(N));Bd:=PByte(AllocBytes(N));
+ DominantMap(S,Dom);
+ For Y:=0 to S.H-2 do
+  For X:=0 to S.W-2 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(Dom[K]<>Dom[K+1])or(Dom[K]<>Dom[K+S.W])Then Bd[K]:=255;
+  End;
+ If Width>1 Then MorphMask(Bd,S.W,S.H,Width-1,False);
+ For K:=0 to N-1 do If Bd[K]<>0 Then Lines[K]:=1;
+ FreeMem(Dom);FreeMem(Bd);
+ BlurPlane(Lines,S.W,S.H,0.9);
+ For K:=0 to N-1 do Begin
+  Lines[K]:=Lines[K]*1.7;
+  If Lines[K]>1 Then Lines[K]:=1;
+ End;
+End;
+
+{ BD (Comic=True : encre epaisse et trames) ou dessin anime }
+Procedure StyleCartoon(Var S:TScene;Comic:Boolean);
+Var
+ N,K:Int64;
+ X,Y:LongInt;
+ Md,Lv,Wd:LongInt;
+ L,A,B,Step,T,F,Lq,R,G,Bl,Ln,Pitch,Rd,Dx,Dy,U,V,Dist:Single;
+ Lines,FaceKeep,Fm:PSingle;
+ C:LongInt;
+Begin
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ Md:=IMin(S.W,S.H);
+ Lines:=AllocF(N);
+ { contours calcules sur l'image d'origine (legerement lissee) }
+ If Comic Then Begin Wd:=IMax(2,Md div 380);InkLines(S,Lines,0.8,Wd);End
+ Else Begin Wd:=IMax(1,Md div 600);InkLines(S,Lines,1.15,Wd);End;
+ { aplats : lissage fort puis quantification de la luminosite }
+ FaceKeep:=AllocF(N*3);
+ Move(S.Pix^,FaceKeep^,N*12);
+ EdgeSmooth(FaceKeep,S.W,S.H,IMax(2,Md div 300),0.004);
+ EdgeSmooth(S.Pix,S.W,S.H,IMax(3,Md div 110),0.03);
+ EdgeSmooth(S.Pix,S.W,S.H,IMax(2,Md div 220),0.015);
+ Fm:=AllocF(N);
+ CatMask(S,msFace,Fm);
+ BlurPlane(Fm,S.W,S.H,2.0);
+ For K:=0 to N-1 do If Fm[K]>0.01 Then
+  For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Fm[K])+FaceKeep[K*3+C]*Fm[K];
+ FreeMem(FaceKeep);FreeMem(Fm);
+ If Comic Then Lv:=5 Else Lv:=7;
+ Step:=100.0/Lv;
+ Pitch:=FMax(4,Md/170.0);
+ For K:=0 to N-1 do Begin
+  RgbToLab(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2],L,A,B);
+  T:=L/Step;
+  F:=T-Trunc(T);
+  Lq:=(Trunc(T)+SmoothStep(0.40,0.60,F))*Step;
+  If Comic Then Lq:=Lq*0.96;
+  A:=A*1.22;B:=B*1.22;
+  LabToRgb(Lq,A,B,R,G,Bl);
+  { trame de points dans les ombres (BD) }
+  If Comic and(L<34)Then Begin
+   Y:=K div S.W;X:=K mod S.W;
+   U:=(X+Y)/1.4142;V:=(X-Y)/1.4142;
+   Dx:=U-Trunc(U/Pitch)*Pitch-Pitch/2;
+   Dy:=V-Trunc(V/Pitch)*Pitch-Pitch/2;
+   Dist:=Sqrt(Dx*Dx+Dy*Dy);
+   Rd:=0.5*Pitch*Sqrt(Clamp((34-L)/34.0,0,1));
+   If Dist<Rd Then Begin R:=R*0.62;G:=G*0.62;Bl:=Bl*0.62;End;
+  End;
+  Ln:=Lines[K];
+  S.Pix[K*3]:=R*(1-Ln)+18*Ln;
+  S.Pix[K*3+1]:=G*(1-Ln)+16*Ln;
+  S.Pix[K*3+2]:=Bl*(1-Ln)+22*Ln;
+ End;
+ FreeMem(Lines);
+End;
+
+{ croquis au crayon }
+Procedure StyleSketch(Var S:TScene);
+Var
+ N,K:Int64;
+ Gray,Inv:PSingle;
+ Md:LongInt;
+ V,Pp:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ Md:=IMin(S.W,S.H);
+ Gray:=AllocF(N);Inv:=AllocF(N);
+ For K:=0 to N-1 do Begin
+  Gray[K]:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+  Inv[K]:=255-Gray[K];
+ End;
+ BlurPlane(Inv,S.W,S.H,FMax(3,Md/90.0));
+ For K:=0 to N-1 do Begin
+  V:=Gray[K]*255.0/(255.0-Inv[K]+4.0);
+  If V>255 Then V:=255;
+  V:=255*FPow(V/255.0,1.7);
+  { grain du papier }
+  Pp:=VNoise((K mod S.W)*0.8,(K div S.W)*0.8)*10-5+RngGauss*1.3;
+  V:=Clamp(V*0.97+Pp+5,0,255);
+  S.Pix[K*3]:=V;S.Pix[K*3+1]:=V*0.995;S.Pix[K*3+2]:=V*0.97;
+ End;
+ FreeMem(Gray);FreeMem(Inv);
+End;
+
+{ dessin -> rendu realiste (approximation : suppression de l'encre, lumiere,
+  textures de peau, de tissu et de cheveux, grain) ; ce n'est pas une photo }
+Procedure StyleReal(Var S:TScene);
+Var
+ N,K:Int64;
+ X,Y,C,R0:LongInt;
+ Yl,Dk,Op,Known:PSingle;
+ Bd,Bo:PByte;
+ Md:LongInt;
+ L,A,B,Gr,Sk,Fb,Hr,Bg,Light,Vig,Tex,Nz,Dx,Dy,Wv:Single;
+ Gm,Mn:Single;
+Begin
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ Md:=IMin(S.W,S.H);
+ { 1. encre : pixels sombres et fins, retires puis remplis par propagation }
+ Yl:=AllocF(N);Known:=AllocF(N);
+ Bd:=PByte(AllocBytes(N));Bo:=PByte(AllocBytes(N));
+ For K:=0 to N-1 do Begin
+  Yl[K]:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+  If Yl[K]<75 Then Begin Bd[K]:=255;Bo[K]:=255;End;
+ End;
+ R0:=IMax(1,Md div 300);
+ MorphMask(Bo,S.W,S.H,R0,True);
+ MorphMask(Bo,S.W,S.H,R0,False);
+ For K:=0 to N-1 do Begin
+  If(Bd[K]<>0)and(Bo[K]=0)Then Bd[K]:=255 Else Bd[K]:=0;
+ End;
+ MorphMask(Bd,S.W,S.H,1,False);
+ For K:=0 to N-1 do If Bd[K]=0 Then Known[K]:=1;
+ PushPullFill(S.Pix,Known,S.W,S.H);
+ FreeMem(Yl);FreeMem(Known);FreeMem(Bd);FreeMem(Bo);
+ { 2. aplats -> degrades doux }
+ EdgeSmooth(S.Pix,S.W,S.H,IMax(2,Md div 160),0.004);
+ { 3. lumiere, textures par region, grain }
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   Sk:=(S.Cat[cFace][K]+S.Cat[cArms][K]+S.Cat[cLegs][K]+S.Cat[cSkin][K])/255.0;
+   Hr:=S.Cat[cHair][K]/255.0;
+   Bg:=S.Cat[cBg][K]/255.0;
+   Fb:=1-Sk-Hr-Bg;
+   If Fb<0 Then Fb:=0;
+   RgbToLab(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2],L,A,B);
+   { eclairage doux venant du haut a gauche et vignettage }
+   Dx:=X/S.W-0.35;Dy:=Y/S.H-0.25;
+   Light:=1.06-0.16*Sqrt(Dx*Dx+Dy*Dy);
+   Vig:=1-0.20*Sqr(Sqrt(Sqr(X/S.W-0.5)+Sqr(Y/S.H-0.5))*1.4);
+   L:=L*Light*Vig;
+   { desaturation naturelle }
+   A:=A*0.84;B:=B*0.84;
+   { peau : pores, rougeurs, leger eclat }
+   If Sk>0.02 Then Begin
+    Nz:=VNoise(X*1.15,Y*1.15)-0.5;
+    L:=L+Sk*(Nz*7.0+(VNoise(X/(0.02*S.W+1),Y/(0.02*S.W+1))-0.5)*3.0);
+    A:=A+Sk*(VNoise(X/(0.035*S.W+1),Y/(0.035*S.W+1))-0.5)*5.0;
+   End;
+   { cheveux : meches fines }
+   If Hr>0.02 Then Begin
+    Nz:=VNoise(X*0.9,Y*0.06)-0.5;
+    L:=L+Hr*(Nz*22.0+(VNoise(X*0.3,Y*0.02)-0.5)*10.0);
+   End;
+   { tissu : trame }
+   If Fb>0.02 Then Begin
+    Wv:=Sin(X*1.7)*Sin(Y*1.7);
+    L:=L+Fb*(Wv*2.2+(VNoise(X*0.45,Y*0.45)-0.5)*5.0);
+   End;
+   { fond : flou de profondeur simule par un leger bruit }
+   If Bg>0.02 Then L:=L+Bg*(VNoise(X*0.05,Y*0.05)-0.5)*5.0;
+   L:=L+RngGauss*1.7;
+   If L<0 Then L:=0 Else If L>100 Then L:=100;
+   LabToRgb(L,A,B,Gm,Mn,Light);
+   S.Pix[K*3]:=Gm;S.Pix[K*3+1]:=Mn;S.Pix[K*3+2]:=Light;
+  End;
+ { 4. adoucit legerement les aretes vectorielles }
+ EdgeSmooth(S.Pix,S.W,S.H,1,0.002);
+End;
+
+{ applique un changement de style sur toute l'image }
+Function ApplyStyle(Var S:TScene;Style:LongInt;Var Msg:AnsiString):Boolean;
+Begin
+ ApplyStyle:=True;
+ Msg:='';
+ Case Style of
+  stComic:Begin StyleCartoon(S,True);Info('  style BD appliqu'#130);End;
+  stCartoon:Begin StyleCartoon(S,False);Info('  style dessin anim'#130' appliqu'#130);End;
+  stSketch:Begin StyleSketch(S);Info('  style croquis appliqu'#130);End;
+  stReal:Begin
+    StyleReal(S);
+    Info('  rendu r'#130'aliste approximatif appliqu'#130' (ce n''est pas une photo : un vrai passage dessin -> photo demande un mod'#138'le g'#130'n'#130'ratif)');
+   End;
+  Else Begin Msg:='style inconnu';ApplyStyle:=False;End;
+ End;
+End;
+
+{ ------------------------------------------------------------------ }
 { Couche systeme : console, repertoires, telechargement (Windows)      }
 { ------------------------------------------------------------------ }
 
@@ -8049,6 +9135,10 @@ Begin
  WriteLn('  "Mets le pantalon en noir et la veste en vert"');
  WriteLn('  "Make the shirt striped blue and white" "Enl'#138've le chapeau et les lunettes"');
  WriteLn('  "Change le chandail rouge en bleu, ajouter un foulard"   "mettre un chapeau de paille"');
+ WriteLn('  "cheveux longs et blonds"  "cheveux fris'#130's"  "cheveux plus courts"  "enl'#138've les cheveux"');
+ WriteLn('  "ajoute un collier en or"  "ajoute des diamants"  "ajoute une montre apple"  "ajoute un bracelet"');
+ WriteLn('  "transforme cette personne en BD" (ou dessin anim'#130', croquis)');
+ WriteLn('  "transforme ce personnage de BD en r'#130'el" (approximatif : ce n''est pas une photo)');
  WriteLn('  (plusieurs instructions possibles, s'#130'par'#130'es par des virgules ou "et" ;');
  WriteLn('   ajouts support'#130's sans photo : foulard, chapeau, bonnet, casquette, lunettes, ceinture,');
  WriteLn('   pantalon, jupe, souliers ; si le corps est coup'#130' par le cadre, l''image est prolong'#130'e vers le bas :');
@@ -8438,13 +9528,32 @@ Begin
   If(Edits[I].Action=eaRecolor)and Edits[I].Put and((Edits[I].Target and(msHat or msScarf or msGlasses or msBelt))<>0)and
     (CatArea(Scene,Edits[I].Target)<Int64(Scene.W)*Scene.H div 2000)Then Edits[I].Action:=eaAdd;
   Info('Retouche : '+DescribeEdit(Edits[I]));
-  If Edits[I].Action=eaAdd Then Begin
+  If(Edits[I].Action=eaRemove)and(Edits[I].Jewel<>0)Then Begin
+   Warn('le retrait de bijoux n''est pas pris en charge');Inc(NFail);Continue;
+  End;
+  If(Edits[I].Action=eaAdd)and(Edits[I].Jewel<>0)Then Begin
+   Info('Ajout de bijoux ...');
+   If AddJewelry(Scene,Edits[I],Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+   Continue;
+  End;
+  If Edits[I].Action=eaStyle Then Continue;
+  If Edits[I].Action=eaHair Then Begin
+   If ApplyHair(Scene,Edits[I].HairStyle,Edits[I],Msg)Then Begin Info('  coiffure modifi'#130'e');Inc(NOk);End
+   Else Begin Warn(Msg);Inc(NFail);End;
+  End
+  Else If Edits[I].Action=eaAdd Then Begin
    If AddAccessory(Scene,Edits[I],OptQuality,Msg)Then Begin Info('  '+Msg);Inc(NOk);End
    Else Begin Warn(Msg);Inc(NFail);End;
   End
   Else If ApplyEdit(Scene,Edits[I],Msg)Then Inc(NOk)
   Else Begin Warn(Msg);Inc(NFail);End;
  End;
+ { le style de l'image s'applique en dernier, sur le resultat des autres retouches }
+ For I:=0 to High(Edits)do
+  If Edits[I].Action=eaStyle Then Begin
+   Info('Style : '+DescribeEdit(Edits[I]));
+   If ApplyStyle(Scene,Edits[I].Style,Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+  End;
  If NOk=0 Then Begin
   Write(StdErr,'erreur : aucune retouche n''a pu '#136'tre appliqu'#130'e, aucun fichier '#130'crit',#10);
   Halt(2);
