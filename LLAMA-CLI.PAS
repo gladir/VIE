@@ -288,8 +288,10 @@ Begin
  If(T<>'')and(T[1]='-')Then Begin Neg:=True;Delete(T,1,1);End;
  If T='' Then Begin ParseFloat:=False;Exit;End;
  If T[1]='.' Then T:='0'+T;
- If LoStr(T)='inf' Then Begin V:=3.0e38;If Neg Then V:=-V;ParseFloat:=True;Exit;End;
- If LoStr(T)='infinity' Then Begin V:=3.0e38;If Neg Then V:=-V;ParseFloat:=True;Exit;End;
+ If LoStr(T)='inf' Then Begin V:=3.0e38;If Neg Then
+   V:=-V;ParseFloat:=True;Exit;End;
+ If LoStr(T)='infinity' Then Begin V:=3.0e38;If Neg Then
+   V:=-V;ParseFloat:=True;Exit;End;
  Val(T,V,Code);
  If Neg Then V:=-V;
  ParseFloat:=Code=0;
@@ -331,7 +333,8 @@ Function CpToUtf8(Cp:LongWord):AnsiString;
 Begin
  If Cp<$80 Then CpToUtf8:=Chr(Cp)
  Else If Cp<$800 Then CpToUtf8:=Chr($C0 or(Cp shr 6))+Chr($80 or(Cp and $3F))
- Else If Cp<$10000 Then CpToUtf8:=Chr($E0 or(Cp shr 12))+Chr($80 or((Cp shr 6)and $3F))+
+ Else If Cp<$10000 Then CpToUtf8:=Chr($E0 or(Cp shr 12))+Chr($80 or((Cp shr
+   6)and $3F))+
                                    Chr($80 or(Cp and $3F))
  Else CpToUtf8:=Chr($F0 or(Cp shr 18))+Chr($80 or((Cp shr 12)and $3F))+
                 Chr($80 or((Cp shr 6)and $3F))+Chr($80 or(Cp and $3F));
@@ -388,8 +391,10 @@ Var
  DayOfs:Int64;
 
 {$IFDEF WINDOWS}
-Function QueryPerformanceCounter(Var C:Int64):LongInt;stdcall;external 'kernel32.dll' name 'QueryPerformanceCounter';
-Function QueryPerformanceFrequency(Var F:Int64):LongInt;stdcall;external 'kernel32.dll' name 'QueryPerformanceFrequency';
+Function QueryPerformanceCounter(Var C:Int64):LongInt;stdcall;external
+  'kernel32.dll' name 'QueryPerformanceCounter';
+Function QueryPerformanceFrequency(Var F:Int64):LongInt;stdcall;external
+  'kernel32.dll' name 'QueryPerformanceFrequency';
 {$ELSE}
  {$IFDEF UNIX}
 Type
@@ -397,7 +402,8 @@ Type
   Sec:PtrInt;
   NSec:PtrInt;
  End;
-Function clock_gettime(Id:LongInt;Var T:TTimeSpec):LongInt;cdecl;external 'c' name 'clock_gettime';
+Function clock_gettime(Id:LongInt;Var T:TTimeSpec):LongInt;cdecl;external 'c'
+  name 'clock_gettime';
  {$ENDIF}
 {$ENDIF}
 
@@ -511,7 +517,8 @@ Var
 Begin
  GetTime(H,M,S,S100);
  GetDate(Y,Mo,D,Dw);
- MakeSeed:=LongWord(((Int64(H)*60+M)*60+S)*100+S100)xor(LongWord(D)*2654435761)xor
+ MakeSeed:=LongWord(((Int64(H)*60+M)*60+S)*100+
+   S100)xor(LongWord(D)*2654435761)xor
            (LongWord(Mo)*40503)xor(LongWord(Y)*65599);
 End;
 
@@ -611,7 +618,8 @@ Begin
  Ex:=LongInt((B shr 23)and $FF)-127+15;
  Mn:=B and $7FFFFF;
  If((B shr 23)and $FF)=$FF Then Begin
-  If Mn<>0 Then FloatToHalf:=Word(Sg or $7E00)Else FloatToHalf:=Word(Sg or $7C00);
+  If Mn<>0 Then FloatToHalf:=Word(Sg or $7E00)Else FloatToHalf:=Word(Sg or
+    $7C00);
   Exit;
  End;
  If Ex>=31 Then FloatToHalf:=Word(Sg or $7C00)
@@ -638,12 +646,130 @@ End;
 { ------------------------------------------------------------------ }
 
 Var
- LogLevel:LongInt;        { 0 = rien, 1 = erreurs, 2 = avertissements, 3 = infos, 4+ = debug }
+ LogLevel:LongInt;
+   { 0 = rien, 1 = erreurs, 2 = avertissements, 3 = infos, 4+ = debug }
  LogDisabled:Boolean;
  LogFileOn:Boolean;
  LogFile:Text;
  UseColor:Boolean;
  SimpleIO:Boolean;
+
+{ ------------------------------------------------------------------ }
+{ Textes du programme en CP437 (#130, #138, ...) ; la console est en      }
+{ UTF-8 : chaque Write/WriteLn est converti a la volee de CP437 en UTF-8. }
+{ Le texte du modele (deja UTF-8) passe par OutModel sans conversion.    }
+{ ------------------------------------------------------------------ }
+
+Const
+ Cp437Tab:Array[128..255]of Word=(
+  $00C7,$00FC,$00E9,$00E2,$00E4,$00E0,$00E5,$00E7,
+  $00EA,$00EB,$00E8,$00EF,$00EE,$00EC,$00C4,$00C5,
+  $00C9,$00E6,$00C6,$00F4,$00F6,$00F2,$00FB,$00F9,
+  $00FF,$00D6,$00DC,$00A2,$00A3,$00A5,$20A7,$0192,
+  $00E1,$00ED,$00F3,$00FA,$00F1,$00D1,$00AA,$00BA,
+  $00BF,$2310,$00AC,$00BD,$00BC,$00A1,$00AB,$00BB,
+  $2591,$2592,$2593,$2502,$2524,$2561,$2562,$2556,
+  $2555,$2563,$2551,$2557,$255D,$255C,$255B,$2510,
+  $2514,$2534,$252C,$251C,$2500,$253C,$255E,$255F,
+  $255A,$2554,$2569,$2566,$2560,$2550,$256C,$2567,
+  $2568,$2564,$2565,$2559,$2558,$2552,$2553,$256B,
+  $256A,$2518,$250C,$2588,$2584,$258C,$2590,$2580,
+  $03B1,$00DF,$0393,$03C0,$03A3,$03C3,$00B5,$03C4,
+  $03A6,$0398,$03A9,$03B4,$221E,$03C6,$03B5,$2229,
+  $2261,$00B1,$2265,$2264,$2320,$2321,$00F7,$2248,
+  $00B0,$2219,$00B7,$221A,$207F,$00B2,$25A0,$00A0
+ );
+
+Type
+ TTextFn=Function(Var F:TextRec):LongInt;
+
+Var
+ RawOut:Boolean=False;
+ OrigOutFn,OrigErrFn:TTextFn;
+
+Function Cp437ToUtf8(Const S:AnsiString):AnsiString;
+Var
+ I,J,N,W:LongInt;
+ R:AnsiString;
+Begin
+ N:=Length(S);
+ SetLength(R,N*3);
+ J:=0;
+ For I:=1 to N do Begin
+  W:=Ord(S[I]);
+  If W<128 Then Begin
+   Inc(J);R[J]:=S[I];
+  End
+   Else Begin
+    W:=Cp437Tab[W];
+    If W<$800 Then Begin
+     Inc(J);R[J]:=Chr($C0 or(W shr 6));
+     Inc(J);R[J]:=Chr($80 or(W and $3F));
+    End
+     Else Begin
+      Inc(J);R[J]:=Chr($E0 or(W shr 12));
+      Inc(J);R[J]:=Chr($80 or((W shr 6)and $3F));
+      Inc(J);R[J]:=Chr($80 or(W and $3F));
+     End;
+   End;
+ End;
+ SetLength(R,J);
+ Cp437ToUtf8:=R;
+End;
+
+Function ConvOutput(Var F:TextRec;Orig:TTextFn):LongInt;
+Var
+ Raw,Conv:AnsiString;
+ P,L:LongInt;
+Begin
+ If RawOut Then Begin ConvOutput:=Orig(F);Exit;End;
+ ConvOutput:=0;
+ SetLength(Raw,F.BufPos);
+ If F.BufPos>0 Then Move(F.BufPtr^,Raw[1],F.BufPos);
+ Conv:=Cp437ToUtf8(Raw);
+ If Conv='' Then Begin F.BufPos:=0;Exit;End;
+ P:=1;
+ While P<=Length(Conv)do Begin
+  L:=Length(Conv)-P+1;
+  If L>F.BufSize Then L:=F.BufSize;
+  Move(Conv[P],F.BufPtr^,L);
+  F.BufPos:=L;
+  ConvOutput:=Orig(F);
+  Inc(P,L);
+ End;
+End;
+
+Function OutFn(Var F:TextRec):LongInt;
+Begin
+ OutFn:=ConvOutput(F,OrigOutFn);
+End;
+
+Function ErrFn(Var F:TextRec):LongInt;
+Begin
+ ErrFn:=ConvOutput(F,OrigErrFn);
+End;
+
+Procedure InstallUtf8Output;
+Begin
+ SetTextCodePage(Output,DefaultSystemCodePage);
+ SetTextCodePage(StdErr,DefaultSystemCodePage);
+ OrigOutFn:=TTextFn(TextRec(Output).InOutFunc);
+ TextRec(Output).InOutFunc:=@OutFn;
+ TextRec(Output).FlushFunc:=@OutFn;
+ OrigErrFn:=TTextFn(TextRec(StdErr).InOutFunc);
+ TextRec(StdErr).InOutFunc:=@ErrFn;
+ TextRec(StdErr).FlushFunc:=@ErrFn;
+End;
+
+{ texte genere par le modele ou saisi par l'utilisateur : deja en UTF-8 }
+Procedure OutModel(Const S:AnsiString);
+Begin
+ Flush(Output);
+ RawOut:=True;
+ Write(S);
+ Flush(Output);
+ RawOut:=False;
+End;
 
 Procedure LogOut(Level:LongInt;Const S:AnsiString);
 Begin
@@ -651,7 +777,7 @@ Begin
  If Level>LogLevel Then Exit;
  Write(StdErr,S);
  Flush(StdErr);
- If LogFileOn Then Begin Write(LogFile,S);Flush(LogFile);End;
+ If LogFileOn Then Begin Write(LogFile,Cp437ToUtf8(S));Flush(LogFile);End;
 End;
 
 Procedure LogErr(Const S:AnsiString);Begin LogOut(1,S);End;
@@ -789,7 +915,8 @@ Var
 Begin
  Cur:='';
  For I:=1 to Length(Path)do Begin
-  If(Path[I]in['/','\'])and(Cur<>'')and not(Cur[Length(Cur)]in[':','/','\'])Then Begin
+  If(Path[I]in['/','\'])and(Cur<>'')and not(Cur[Length(Cur)]in[':','/',
+    '\'])Then Begin
    If not DirExistsP(Cur)Then Begin
     MkDir(Cur);
     If IOResult<>0 Then;
@@ -877,7 +1004,8 @@ Begin
  RName:=Name;
  Assign(RF,Name);
  Reset(RF,1);
- If IOResult<>0 Then Fatal('impossible d''ouvrir le fichier modèle : '+Name);
+ If IOResult<>0 Then Fatal('impossible d''ouvrir le fichier mod'+#138+'le : '+
+   Name);
  If RBuf=Nil Then GetMem(RBuf,RBufSize);
  RFileOfs:=0;RLen:=0;RPos:=0;
  RFill;
@@ -941,7 +1069,8 @@ Var
  S:AnsiString;
 Begin
  L:=RU64;
- If L>(1 shl 30)Then Fatal('chaîne GGUF invalide (longueur '+IStr(L)+')');
+ If L>(1 shl 30)Then Fatal('cha'+#140+'ne GGUF invalide (longueur '+IStr(L)+
+   ')');
  SetLength(S,L);
  If L>0 Then RGet(@S[1],L);
  RStr:=S;
@@ -975,7 +1104,8 @@ Begin
   GT_STRING:KV.S:=RStr;
   Else Fatal('type de valeur GGUF inconnu : '+IStr(Typ));
  End;
- If Typ in[GT_UINT8,GT_INT8,GT_UINT16,GT_INT16,GT_UINT32,GT_INT32,GT_BOOL,GT_UINT64,GT_INT64]Then
+ If Typ in[GT_UINT8,GT_INT8,GT_UINT16,GT_INT16,GT_UINT32,GT_INT32,GT_BOOL,
+   GT_UINT64,GT_INT64]Then
   KV.F:=KV.I
  Else If Typ in[GT_FLOAT32,GT_FLOAT64]Then KV.I:=Trunc(KV.F);
 End;
@@ -999,7 +1129,7 @@ Begin
     For I:=1 to LongInt(KV.N)do RSkip(RU64);
    End
     Else If GGUFTypeSize(ET)>0 Then RSkip(KV.N*GGUFTypeSize(ET))
-    Else Fatal('tableau GGUF imbriqué non supporté');
+    Else Fatal('tableau GGUF imbriqu'+#130+' non support'+#130);
    Exit;
   End;
   Case ET of
@@ -1015,7 +1145,8 @@ Begin
     SetLength(KV.FA,KV.N);
     For I:=0 to LongInt(KV.N)-1 do KV.FA[I]:=RF64;
    End;
-   GT_UINT8,GT_INT8,GT_UINT16,GT_INT16,GT_UINT32,GT_INT32,GT_BOOL,GT_UINT64,GT_INT64:Begin
+   GT_UINT8,GT_INT8,GT_UINT16,GT_INT16,GT_UINT32,GT_INT32,GT_BOOL,GT_UINT64,
+     GT_INT64:Begin
     SetLength(KV.IA,KV.N);
     For I:=0 to LongInt(KV.N)-1 do Begin
      Tmp.I:=0;Tmp.F:=0;Tmp.S:='';
@@ -1023,14 +1154,15 @@ Begin
      KV.IA[I]:=LongInt(Tmp.I);
     End;
    End;
-   Else Fatal('tableau GGUF imbriqué non supporté');
+   Else Fatal('tableau GGUF imbriqu'+#130+' non support'+#130);
   End;
  End
   Else ReadScalar(KV.Typ,KV);
 End;
 
 { Lit l'en-tete d'un fichier GGUF (ou d'une partie) }
-Procedure ParseGGUFHeader(Const Name:AnsiString;FileIdx:LongInt;Var G:TGGUF;KeepKV:Boolean);
+Procedure ParseGGUFHeader(Const Name:AnsiString;FileIdx:LongInt;Var
+  G:TGGUF;KeepKV:Boolean);
 Var
  Magic:LongWord;
  NT,NK:Int64;
@@ -1043,13 +1175,15 @@ Var
 Begin
  ROpen(Name);
  Magic:=RU32;
- If Magic<>$46554747 Then Fatal(Name+' n''est pas un fichier GGUF valide (signature absente)');
+ If Magic<>$46554747 Then Fatal(Name+
+   ' n''est pas un fichier GGUF valide (signature absente)');
  G.Version:=LongInt(RU32);
  If(G.Version<2)or(G.Version>3)Then
-  Fatal('version GGUF non supportée : '+IStr(G.Version));
+  Fatal('version GGUF non support'+#130+'e : '+IStr(G.Version));
  NT:=Int64(RU64);
  NK:=Int64(RU64);
- If(NT<0)or(NT>1000000)or(NK<0)or(NK>1000000)Then Fatal('en-tête GGUF corrompu');
+ If(NT<0)or(NT>1000000)or(NK<0)or(NK>1000000)Then Fatal('en-t'+#136+
+   'te GGUF corrompu');
  K0:=Length(G.KV);
  For I:=0 to LongInt(NK)-1 do Begin
   ReadKV(KV,KeepKV);
@@ -1070,7 +1204,8 @@ Begin
  For I:=0 to LongInt(NT)-1 do Begin
   TI.Name:=RStr;
   TI.NDims:=LongInt(RU32);
-  If(TI.NDims<1)or(TI.NDims>4)Then Fatal('tenseur '+TI.Name+' : nombre de dimensions invalide');
+  If(TI.NDims<1)or(TI.NDims>4)Then Fatal('tenseur '+TI.Name+
+    ' : nombre de dimensions invalide');
   For J:=0 to 3 do TI.Ne[J]:=1;
   For J:=0 to TI.NDims-1 do TI.Ne[J]:=Int64(RU64);
   TI.Typ:=LongInt(RU32);
@@ -1117,10 +1252,12 @@ Var
 Begin
  I:=KVFind(G,Key);
  If(I<0)or(G.KV[I].Typ=GT_ARRAY)or(G.KV[I].Typ=GT_STRING)Then KVFloat:=Def
-                                                         Else KVFloat:=G.KV[I].F;
+                                                         Else
+                                                           KVFloat:=G.KV[I].F;
 End;
 
-Function KVStr(Const G:TGGUF;Const Key:AnsiString;Const Def:AnsiString):AnsiString;
+Function KVStr(Const G:TGGUF;Const Key:AnsiString;Const
+  Def:AnsiString):AnsiString;
 Var
  I:LongInt;
 Begin
@@ -1129,7 +1266,8 @@ Begin
 End;
 
 { Valeur d'un tableau d'entiers, ou scalaire repete }
-Function KVIntAt(Const G:TGGUF;Const Key:AnsiString;Idx:LongInt;Def:Int64):Int64;
+Function KVIntAt(Const G:TGGUF;Const
+  Key:AnsiString;Idx:LongInt;Def:Int64):Int64;
 Var
  I:LongInt;
 Begin
@@ -1372,7 +1510,8 @@ Begin
   SH:=PWord(Src+2)^;
   Q:=Src+8;
   For IB:=0 to 7 do Begin
-   LS:=((Src[4+(IB shr 1)]shr(4*(IB and 1)))and $F)or(((SH shr(2*IB))and 3)shl 4);
+   LS:=((Src[4+(IB shr 1)]shr(4*(IB and 1)))and $F)or(((SH shr(2*IB))and 3)shl
+     4);
    DL:=D*(LS-32);
    For J:=0 to 15 do Begin
     Dst[J]:=DL*KValuesIQ4NL[Q[J]and $F];
@@ -1595,7 +1734,7 @@ End;
 { appele depuis un fil de calcul : evite toute chaine temporaire (cadre d'exception) dans DequantRow }
 Procedure BadQuantType(T:LongInt);
 Begin
- Fatal('type de quantification non supporté : '+TypeName(T));
+ Fatal('type de quantification non support'+#130+' : '+TypeName(T));
 End;
 
 { Deplie une ligne de N elements du type T vers des flottants }
@@ -1626,8 +1765,10 @@ End;
 
 Function TypeSupported(T:LongInt):Boolean;
 Begin
- TypeSupported:=T in[TY_F32,TY_F16,TY_BF16,TY_F64,TY_Q4_0,TY_Q4_1,TY_Q5_0,TY_Q5_1,
-                     TY_Q8_0,TY_IQ4_NL,TY_IQ4_XS,TY_Q2_K,TY_Q3_K,TY_Q4_K,TY_Q5_K,TY_Q6_K];
+ TypeSupported:=T in[TY_F32,TY_F16,TY_BF16,TY_F64,TY_Q4_0,TY_Q4_1,TY_Q5_0,
+   TY_Q5_1,
+                     TY_Q8_0,TY_IQ4_NL,TY_IQ4_XS,TY_Q2_K,TY_Q3_K,TY_Q4_K,
+                       TY_Q5_K,TY_Q6_K];
 End;
 
 { Charge toutes les donnees de tenseurs en memoire }
@@ -1650,9 +1791,12 @@ Begin
    Continue;
   End;
   NEl:=TensorElems(G.T[I]);
-  If(TypeBlockSize(G.T[I].Typ)>0)and((G.T[I].Ne[0]mod TypeBlockSize(G.T[I].Typ))<>0)Then
-   Fatal('le tenseur '+G.T[I].Name+' a une taille de ligne incompatible avec son type');
-  G.T[I].NBytes:=RowBytes(G.T[I].Typ,G.T[I].Ne[0])*G.T[I].Ne[1]*G.T[I].Ne[2]*G.T[I].Ne[3];
+  If(TypeBlockSize(G.T[I].Typ)>0)and((G.T[I].Ne[0]mod
+    TypeBlockSize(G.T[I].Typ))<>0)Then
+   Fatal('le tenseur '+G.T[I].Name+
+     ' a une taille de ligne incompatible avec son type');
+  G.T[I].NBytes:=RowBytes(G.T[I].Typ,
+    G.T[I].Ne[0])*G.T[I].Ne[1]*G.T[I].Ne[2]*G.T[I].Ne[3];
   Inc(Tot,G.T[I].NBytes);
  End;
  G.NTotalBytes:=Tot;
@@ -1674,7 +1818,8 @@ Begin
     If Remaining<Chunk Then Chunk:=Remaining;
     BlockRead(F,P^,Chunk,Got);
     If(IOResult<>0)or(Got<>Chunk)Then
-     Fatal('lecture tronquée du tenseur '+G.T[I].Name+' (fichier incomplet ?)');
+     Fatal('lecture tronqu'+#130+'e du tenseur '+G.T[I].Name+
+       ' (fichier incomplet ?)');
     Inc(P,Chunk);
     Dec(Remaining,Chunk);
    End;
@@ -1820,7 +1965,8 @@ Begin
   Exit;
  End;
  If C<$370 Then Begin
-  CpIsLetter:=(C<>$D7)and(C<>$F7)and not((C>=$2C2)and(C<=$2C5))and not((C>=$2D2)and(C<=$2DF))
+  CpIsLetter:=(C<>$D7)and(C<>$F7)and not((C>=$2C2)and(C<=$2C5))and
+    not((C>=$2D2)and(C<=$2DF))
               and not((C>=$300)and(C<=$36F));
   Exit;
  End;
@@ -1868,7 +2014,8 @@ Const
  VT_BPE=2;
 
  PRE_DEFAULT=0; PRE_LLAMA3=1; PRE_QWEN2=2; PRE_QWEN35=3; PRE_GPT2=4;
- PRE_SMOLLM=5; PRE_FALCON=6; PRE_DEEPSEEK_LLM=7; PRE_DEEPSEEK_CODER=8; PRE_BLOOM=9;
+ PRE_SMOLLM=5; PRE_FALCON=6; PRE_DEEPSEEK_LLM=7; PRE_DEEPSEEK_CODER=8;
+   PRE_BLOOM=9;
  PRE_VIKING=10;
 
 Type
@@ -1885,7 +2032,8 @@ Type
   MergeHash:THash;
   BOS,EOS,EOT,EOM,UNK,SEP,PAD,MASK,NL:LongInt;
   FimPre,FimSuf,FimMid,FimPad,FimRep,FimSep:LongInt;
-  AddBOS,AddEOS,AddSep,AddSpacePrefix,RemoveExtraWs,EscapeWs,CleanSpaces,IgnoreMerges:Boolean;
+  AddBOS,AddEOS,AddSep,AddSpacePrefix,RemoveExtraWs,EscapeWs,CleanSpaces,
+    IgnoreMerges:Boolean;
   EOG:TBoolArray;
   Specials:TIntArray;
   ByteTok:Array[0..255]of LongInt;
@@ -1965,7 +2113,8 @@ Begin
 End;
 
 { Equivalent de llama_token_to_piece }
-Function TokenToPiece(Const V:TVocab;Tok:LongInt;Special:Boolean;LStrip:LongInt):AnsiString;
+Function TokenToPiece(Const
+  V:TVocab;Tok:LongInt;Special:Boolean;LStrip:LongInt):AnsiString;
 Var
  A:LongInt;
  R:AnsiString;
@@ -1978,7 +2127,8 @@ Begin
  If V.VType=VT_NONE Then Exit;
  If(A and(TA_UNKNOWN or TA_CONTROL or TA_USER_DEFINED))<>0 Then R:=V.Text[Tok]
  Else If(A and TA_NORMAL)<>0 Then Begin
-  If(V.VType=VT_SPM)or V.EscapeWs Then R:=ReplaceAll(V.Text[Tok],#$E2#$96#$81,' ')
+  If(V.VType=VT_SPM)or V.EscapeWs Then R:=ReplaceAll(V.Text[Tok],#$E2#$96#$81,
+    ' ')
   Else R:=DecodeBpeText(V.Text[Tok]);
  End
   Else If(A and TA_BYTE)<>0 Then Begin
@@ -1995,7 +2145,8 @@ Begin
  TokenToPiece:=R;
 End;
 
-Function DetokenizeTokens(Const V:TVocab;Const Toks:TIntArray;Count:LongInt;Special:Boolean;
+Function DetokenizeTokens(Const V:TVocab;Const
+  Toks:TIntArray;Count:LongInt;Special:Boolean;
                           RemoveSpecial:Boolean):AnsiString;
 Var
  I,Start,Fin:LongInt;
@@ -2037,7 +2188,8 @@ End;
 { Applique le decoupeur `Kind` a chaque segment (liste des longueurs) }
 Const
  SPL_GPT2=1; SPL_LLAMA3=2; SPL_QWEN2=3; SPL_QWEN35=4; SPL_DIGIT1=5; SPL_PUNCT=6;
- SPL_NUMS=7; SPL_DIG3=8; SPL_NL=9; SPL_SPL=10; SPL_SPP=11; SPL_CJK=12; SPL_ENDWS=13;
+ SPL_NUMS=7; SPL_DIG3=8; SPL_NL=9; SPL_SPL=10; SPL_SPP=11; SPL_CJK=12;
+   SPL_ENDWS=13;
  SPL_DSPUNCT=14; SPL_BLOOM=15;
 
 Function CpAt(Const Cps:TIntArray;Pos,Ini,Fin:LongInt):LongInt;
@@ -2057,7 +2209,8 @@ Begin
                 (C=$2026)or(C=$3002)or(C=$FF0C)or(C=$3001)or(C=$964)or(C=$6D4)or(C=$60C));
 End;
 
-Function SplitSegment(Const Cps:TIntArray;Ini,Fin:LongInt;Kind:LongInt;Var Out:TWordList):LongInt;
+Function SplitSegment(Const Cps:TIntArray;Ini,Fin:LongInt;Kind:LongInt;Var
+  Out:TWordList):LongInt;
 Var
  Pos,PrevEnd,C,C2,CN,CNN,Ini2,NumWs,LastRN,T:LongInt;
  Skip:Boolean;
@@ -2100,7 +2253,8 @@ Var
   X:=CpAt(Cps,P,Ini,Fin);
   IsPunctLike:=(X>=0)and(CpIsPunct(X)or(X=36)or(X=43)or(X=60)or(X=61)or(X=62)or(X=94)or(X=124)or(X=126));
  End;
- Function IsOther(P:LongInt):Boolean;  { [^\s\p{L}\p{N}] avec drapeaux non nuls }
+ Function IsOther(P:LongInt):Boolean;  { [^\s\p{L}\p{N}] avec drapeaux non nuls
+   }
  Begin
   IsOther:=(CpAt(Cps,P,Ini,Fin)>=0)and not IsS(P)and not IsL(P)and not IsN(P);
  End;
@@ -2109,7 +2263,8 @@ Begin
  PrevEnd:=Ini;
  Pos:=Ini;
  SplitSegment:=0;
- If Kind in[SPL_NL,SPL_SPL,SPL_SPP,SPL_CJK,SPL_ENDWS,SPL_DSPUNCT,SPL_BLOOM]Then Begin
+ If Kind in[SPL_NL,SPL_SPL,SPL_SPP,SPL_CJK,SPL_ENDWS,SPL_DSPUNCT,SPL_BLOOM]Then
+   Begin
   While Pos<Fin do Begin
    Q:=0;
    Case Kind of
@@ -2216,7 +2371,8 @@ Begin
   End;
   SPL_DIG3:Begin
    While Pos<Fin do Begin
-    If(Pos+2<Fin)and(Cps[Pos]>=48)and(Cps[Pos]<=57)and(Cps[Pos+1]>=48)and(Cps[Pos+1]<=57)and
+    If(Pos+2<Fin)and(Cps[Pos]>=48)and(Cps[Pos]<=57)and(Cps[Pos+
+      1]>=48)and(Cps[Pos+1]<=57)and
       (Cps[Pos+2]>=48)and(Cps[Pos+2]<=57)Then Begin
      AddTok(Pos);Inc(Pos,3);AddTok(Pos);
     End
@@ -2231,12 +2387,14 @@ Begin
   C:=Cps[Pos];
   { contractions }
   If(C=39)and(Pos+1<Fin)Then Begin
-   If Kind=SPL_GPT2 Then CN:=CpAt(Cps,Pos+1,Ini,Fin)Else CN:=CpToLower(CpAt(Cps,Pos+1,Ini,Fin));
+   If Kind=SPL_GPT2 Then CN:=CpAt(Cps,Pos+1,Ini,Fin)Else CN:=CpToLower(CpAt(Cps,
+     Pos+1,Ini,Fin));
    If(CN=Ord('s'))or(CN=Ord('t'))or(CN=Ord('m'))or(CN=Ord('d'))Then Begin
     AddTok(Pos+2);Pos:=PrevEnd;Continue;
    End;
    If Pos+2<Fin Then Begin
-    If Kind=SPL_GPT2 Then CNN:=CpAt(Cps,Pos+2,Ini,Fin)Else CNN:=CpToLower(CpAt(Cps,Pos+2,Ini,Fin));
+    If Kind=SPL_GPT2 Then CNN:=CpAt(Cps,Pos+2,Ini,Fin)Else
+      CNN:=CpToLower(CpAt(Cps,Pos+2,Ini,Fin));
     If((CN=Ord('r'))and(CNN=Ord('e')))or((CN=Ord('v'))and(CNN=Ord('e')))or
        ((CN=Ord('l'))and(CNN=Ord('l')))Then Begin
      AddTok(Pos+3);Pos:=PrevEnd;Continue;
@@ -2298,7 +2456,8 @@ Begin
    If C=32 Then Q:=Pos+1 Else Q:=Pos;
    If IsOther(Q)and not((Kind<>SPL_QWEN35)and False)Then Begin
     Pos:=Q;
-    While IsOther(Pos)and(not((Kind=SPL_QWEN35)and CpIsMark(Cps[Pos])))do Inc(Pos);
+    While IsOther(Pos)and(not((Kind=SPL_QWEN35)and CpIsMark(Cps[Pos])))do
+      Inc(Pos);
     C2:=CpAt(Cps,Pos,Ini,Fin);
     While(C2=13)or(C2=10)do Begin Inc(Pos);C2:=CpAt(Cps,Pos,Ini,Fin);End;
     AddTok(Pos);Continue;
@@ -2325,7 +2484,8 @@ Begin
 End;
 
 { Decoupe le texte en mots selon la liste de decoupeurs }
-Procedure PreTokenize(Const Text:AnsiString;Const Kinds:TIntArray;Var Words:TStrArray);
+Procedure PreTokenize(Const Text:AnsiString;Const Kinds:TIntArray;Var
+  Words:TStrArray);
 Var
  Cps,Offs:TIntArray;
  Cur,Nxt:TWordList;
@@ -2418,7 +2578,8 @@ Type
  End;
 
 { Tokenisation SPM (identique a llm_tokenizer_spm_session) }
-Procedure TokenizeSPM(Const V:TVocab;Const Text:AnsiString;Var Output:TIntArray);
+Procedure TokenizeSPM(Const V:TVocab;Const Text:AnsiString;Var
+  Output:TIntArray);
 Var
  Sym:Array of TSym;
  NS,Offs,Len,I:LongInt;
@@ -2468,7 +2629,8 @@ Begin
  For I:=1 to NS-1 do TryAdd(I-1,I);
  While Heap.N>0 do Begin
   B:=HeapPop(Heap);
-  If(Sym[B.Left].N=0)or(Sym[B.Right].N=0)or(Sym[B.Left].N+Sym[B.Right].N<>B.Size)Then Continue;
+  If(Sym[B.Left].N=0)or(Sym[B.Right].N=0)or(Sym[B.Left].N+
+    Sym[B.Right].N<>B.Size)Then Continue;
   Inc(Sym[B.Left].N,Sym[B.Right].N);
   Sym[B.Right].N:=0;
   Sym[B.Left].Next:=Sym[B.Right].Next;
@@ -2486,7 +2648,8 @@ Begin
 End;
 
 { Tokenisation BPE d'un mot deja decoupe (octets -> unicode puis fusions) }
-Procedure TokenizeBPEWord(Const V:TVocab;Const WordRaw:AnsiString;ByteEncode:Boolean;Var Output:TIntArray);
+Procedure TokenizeBPEWord(Const V:TVocab;Const
+  WordRaw:AnsiString;ByteEncode:Boolean;Var Output:TIntArray);
 Var
  Word,S,Key:AnsiString;
  I,Tk,J,NS,Offs,Len,R:LongInt;
@@ -2534,7 +2697,8 @@ Begin
  For I:=1 to NS-1 do TryAdd(I-1,I);
  While Heap.N>0 do Begin
   B:=HeapPop(Heap);
-  If(Sym[B.Left].N=0)or(Sym[B.Right].N=0)or(Sym[B.Left].N+Sym[B.Right].N<>B.Size)Then Continue;
+  If(Sym[B.Left].N=0)or(Sym[B.Right].N=0)or(Sym[B.Left].N+
+    Sym[B.Right].N<>B.Size)Then Continue;
   Inc(Sym[B.Left].N,Sym[B.Right].N);
   Sym[B.Right].N:=0;
   Sym[B.Left].Next:=Sym[B.Right].Next;
@@ -2568,7 +2732,8 @@ Type
  End;
  TFragArr=Array of TFrag;
 
-Procedure FragAdd(Var A:TFragArr;Var N:LongInt;IsTok:Boolean;Tok:LongInt;Const Txt:AnsiString);
+Procedure FragAdd(Var A:TFragArr;Var N:LongInt;IsTok:Boolean;Tok:LongInt;Const
+  Txt:AnsiString);
 Begin
  If N>=Length(A)Then SetLength(A,Length(A)*2+8);
  A[N].IsTok:=IsTok;A[N].Tok:=Tok;A[N].Txt:=Txt;
@@ -2579,7 +2744,8 @@ Var
  PreKinds:TIntArray;
 
 { Equivalent de llama_vocab::tokenize }
-Function VocabTokenize(Const V:TVocab;Const Raw:AnsiString;AddSpecial,ParseSpecial:Boolean):TIntArray;
+Function VocabTokenize(Const V:TVocab;Const Raw:AnsiString;AddSpecial,
+  ParseSpecial:Boolean):TIntArray;
 Var
  Out:TIntArray;
  Frags,NewF:TFragArr;
@@ -2598,7 +2764,8 @@ Begin
   FragAdd(Frags,NF,False,0,Raw);
   For K:=0 to High(V.Specials)do Begin
    Sp:=V.Specials[K];
-   If(not ParseSpecial)and((V.Attr[Sp]and(TA_CONTROL or TA_UNKNOWN))<>0)Then Continue;
+   If(not ParseSpecial)and((V.Attr[Sp]and(TA_CONTROL or TA_UNKNOWN))<>0)Then
+     Continue;
    SpT:=V.Text[Sp];
    If SpT='' Then Continue;
    NN:=0;
@@ -2613,7 +2780,8 @@ Begin
     While True do Begin
      Q:=PosFrom(SpT,Txt,P);
      If Q=0 Then Begin
-      If P<=Length(Txt)Then FragAdd(NewF,NN,False,0,Copy(Txt,P,Length(Txt)-P+1));
+      If P<=Length(Txt)Then FragAdd(NewF,NN,False,0,Copy(Txt,P,Length(Txt)-P+
+        1));
       Break;
      End;
      If Q>P Then FragAdd(NewF,NN,False,0,Copy(Txt,P,Q-P));
@@ -2671,10 +2839,13 @@ Begin
   PRE_QWEN35:AddInt(PreKinds,SPL_QWEN35);
   PRE_GPT2:AddInt(PreKinds,SPL_GPT2);
   PRE_SMOLLM:Begin AddInt(PreKinds,SPL_DIGIT1);AddInt(PreKinds,SPL_GPT2);End;
-  PRE_FALCON:Begin AddInt(PreKinds,SPL_PUNCT);AddInt(PreKinds,SPL_GPT2);AddInt(PreKinds,SPL_DIG3);End;
+  PRE_FALCON:Begin AddInt(PreKinds,SPL_PUNCT);AddInt(PreKinds,
+    SPL_GPT2);AddInt(PreKinds,SPL_DIG3);End;
   PRE_DEEPSEEK_LLM:Begin
-   AddInt(PreKinds,SPL_NL);AddInt(PreKinds,SPL_SPL);AddInt(PreKinds,SPL_DSPUNCT);
-   AddInt(PreKinds,SPL_ENDWS);AddInt(PreKinds,SPL_CJK);AddInt(PreKinds,SPL_NUMS);
+   AddInt(PreKinds,SPL_NL);AddInt(PreKinds,SPL_SPL);AddInt(PreKinds,
+     SPL_DSPUNCT);
+   AddInt(PreKinds,SPL_ENDWS);AddInt(PreKinds,SPL_CJK);AddInt(PreKinds,
+     SPL_NUMS);
   End;
   PRE_DEEPSEEK_CODER:Begin
    AddInt(PreKinds,SPL_NL);AddInt(PreKinds,SPL_SPL);AddInt(PreKinds,SPL_SPP);
@@ -2683,7 +2854,8 @@ Begin
   PRE_BLOOM:AddInt(PreKinds,SPL_BLOOM);
   PRE_VIKING:Begin AddInt(PreKinds,SPL_BLOOM);AddInt(PreKinds,SPL_DIGIT1);End;
   Else Begin
-   AddInt(PreKinds,SPL_PUNCT);AddInt(PreKinds,SPL_GPT2);AddInt(PreKinds,SPL_NUMS);AddInt(PreKinds,SPL_DIG3);
+   AddInt(PreKinds,SPL_PUNCT);AddInt(PreKinds,SPL_GPT2);AddInt(PreKinds,
+     SPL_NUMS);AddInt(PreKinds,SPL_DIG3);
   End;
  End;
 End;
@@ -2692,24 +2864,38 @@ Function PreTypeFromName(Const N:AnsiString;Var Known:Boolean):LongInt;
 Begin
  Known:=True;
  If(N='')or(N='default')Then PreTypeFromName:=PRE_DEFAULT
- Else If(N='llama3')or(N='llama-v3')or(N='llama-bpe')or(N='falcon3')or(N='falcon-h1')or(N='pixtral')or
-    (N='midm-2.0')or(N='lfm2')or(N='jina-v5-nano')or(N='dbrx')or(N='smaug-bpe')or(N='chatglm-bpe')or
+ Else
+   If(N='llama3')or(N='llama-v3')or(N='llama-bpe')or(N='falcon3')or(N='falcon-'+
+   'h1')or(N='pixtral')or
+    (N='midm-2.0')or(N='lfm2')or(N='jina-v5-nano')or(N='dbrx')or(N='smaug-bp'+
+      'e')or(N='chatglm-bpe')or
     (N='glm4')or(N='glm5')Then PreTypeFromName:=PRE_LLAMA3
- Else If(N='qwen2')or(N='deepseek-r1-qwen')or(N='kormo')or(N='f2llmv2')or(N='stablelm2')or(N='hunyuan')or
+ Else
+   If(N='qwen2')or(N='deepseek-r1-qwen')or(N='kormo')or(N='f2llmv2')or(N='stab'+
+   'lelm2')or(N='hunyuan')or
     (N='solar-open')or(N='megrez')Then PreTypeFromName:=PRE_QWEN2
  Else If N='qwen35' Then PreTypeFromName:=PRE_QWEN35
- Else If(N='gpt-2')or(N='phi-2')or(N='jina-es')or(N='jina-de')or(N='gigachat')or(N='jina-v2-es')or
-    (N='jina-v2-de')or(N='a.x-4.0')or(N='mellum')or(N='modern-bert')or(N='mpt')or(N='olmo')or(N='jais')or
-    (N='trillion')or(N='granite-docling')or(N='exaone4')or(N='jina-v1-en')or(N='jina-v2-code')or
+ Else
+   If(N='gpt-2')or(N='phi-2')or(N='jina-es')or(N='jina-de')or(N='gigacha'+
+   't')or(N='jina-v2-es')or
+    (N='jina-v2-de')or(N='a.x-4.0')or(N='mellum')or(N='modern-bert')or(N='mp'+
+      't')or(N='olmo')or(N='jais')or
+    (N='trillion')or(N='granite-docling')or(N='exaone4')or(N='jina-v1-e'+
+      'n')or(N='jina-v2-code')or
     (N='roberta-bpe')Then PreTypeFromName:=PRE_GPT2
- Else If(N='starcoder')or(N='refact')or(N='command-r')or(N='smollm')or(N='codeshell')or(N='exaone')or
+ Else
+   If(N='starcoder')or(N='refact')or(N='command-r')or(N='smollm')or(N='codeshe'+
+   'll')or(N='exaone')or
     (N='minerva-7b')or(N='mellum2')Then PreTypeFromName:=PRE_SMOLLM
  Else If N='falcon' Then PreTypeFromName:=PRE_FALCON
  Else If(N='deepseek-llm')Then PreTypeFromName:=PRE_DEEPSEEK_LLM
  Else If(N='deepseek-coder')Then PreTypeFromName:=PRE_DEEPSEEK_CODER
- Else If(N='poro-chat')or(N='bloom')or(N='gpt3-finnish')Then PreTypeFromName:=PRE_BLOOM
+ Else If(N='poro-chat')or(N='bloom')or(N='gpt3-finnish')Then
+   PreTypeFromName:=PRE_BLOOM
  Else If N='viking' Then PreTypeFromName:=PRE_VIKING
- Else If(N='gpt-4o')or(N='llama4')or(N='kanana2')or(N='talkie')or(N='tekken')Then PreTypeFromName:=PRE_LLAMA3
+ Else
+   If(N='gpt-4o')or(N='llama4')or(N='kanana2')or(N='talkie')or(N='tekken')Then
+   PreTypeFromName:=PRE_LLAMA3
  Else Begin
   Known:=False;
   PreTypeFromName:=PRE_DEFAULT;
@@ -2733,7 +2919,8 @@ Var
   X:=KVInt(G,Key,Def);
   If(X<0)or(X>=V.NTokens)Then Begin
    If KVHas(G,Key)and(X>=V.NTokens)Then
-    LogWrn('avertissement : '+Key+' = '+IStr(X)+' hors vocabulaire, ignoré'+#10);
+    LogWrn('avertissement : '+Key+' = '+IStr(X)+' hors vocabulaire, ignor'+#130+
+      #10);
    If X>=V.NTokens Then GetId:=-1 Else GetId:=Def;
   End
    Else GetId:=X;
@@ -2756,11 +2943,13 @@ Begin
  V.PreType:=PRE_DEFAULT;
  V.NTokens:=0;
  If(V.Model='no_vocab')or(V.Model='none')or(V.Model='')Then Begin
-  Fatal('le modèle ne contient pas de vocabulaire (tokenizer.ggml.model absent)');
+  Fatal('le mod'+#138+
+    'le ne contient pas de vocabulaire (tokenizer.ggml.model absent)');
  End;
  TI:=KVFind(G,'tokenizer.ggml.tokens');
  If(TI<0)or(G.KV[TI].Typ<>GT_ARRAY)or(G.KV[TI].ArrTyp<>GT_STRING)Then
-  Fatal('vocabulaire introuvable dans le fichier modèle (tokenizer.ggml.tokens)');
+  Fatal('vocabulaire introuvable dans le fichier mod'+#138+
+    'le (tokenizer.ggml.tokens)');
  V.NTokens:=Length(G.KV[TI].SA);
  If V.Model='llama' Then Begin
   V.VType:=VT_SPM;
@@ -2772,14 +2961,17 @@ Begin
    V.BOS:=11;V.EOS:=11;
    V.AddSpacePrefix:=False;V.EscapeWs:=False;V.CleanSpaces:=True;
    V.PreType:=PreTypeFromName(V.PreName,Known);
-   If V.PreName='' Then LogWrn('avertissement : pré-tokeniseur absent, utilisation de ''default'''+#10)
+   If V.PreName='' Then LogWrn('avertissement : pr'+#130+
+     '-tokeniseur absent, utilisation de ''default'''+#10)
    Else If not Known Then
-    LogWrn('avertissement : pré-tokeniseur inconnu ('+V.PreName+'), approximation utilisée'+#10);
+    LogWrn('avertissement : pr'+#130+'-tokeniseur inconnu ('+V.PreName+
+      '), approximation utilis'+#130+'e'+#10);
    If(V.PreName='llama-bpe')or(V.PreName='llama3')Then V.IgnoreMerges:=True;
    If(V.PreName='tekken')or(V.PreName='gpt-4o')Then V.IgnoreMerges:=True;
    If(V.PreName='qwen2')Then V.IgnoreMerges:=False;
    MI:=KVFind(G,'tokenizer.ggml.merges');
-   If MI<0 Then Fatal('fusions BPE introuvables dans le fichier modèle (tokenizer.ggml.merges)');
+   If MI<0 Then Fatal('fusions BPE introuvables dans le fichier mod'+#138+
+     'le (tokenizer.ggml.merges)');
    HInit(V.MergeHash,Length(G.KV[MI].SA));
    For I:=0 to High(G.KV[MI].SA)do Begin
     T:=G.KV[MI].SA[I];
@@ -2789,7 +2981,7 @@ Begin
     End;
    End;
   End
-  Else Fatal('type de tokeniseur non supporté : '+V.Model);
+  Else Fatal('type de tokeniseur non support'+#130+' : '+V.Model);
  V.IgnoreMerges:=KVInt(G,'tokenizer.ggml.ignore_merges',Ord(V.IgnoreMerges))<>0;
  SetPreKinds(V.PreType);
  { options }
@@ -2849,38 +3041,51 @@ Begin
  V.FimPad:=GetId('tokenizer.ggml.fim_pad_token_id',-1);
  V.FimRep:=GetId('tokenizer.ggml.fim_rep_token_id',-1);
  V.FimSep:=GetId('tokenizer.ggml.fim_sep_token_id',-1);
- If KVHas(G,'tokenizer.ggml.add_bos_token')Then V.AddBOS:=KVInt(G,'tokenizer.ggml.add_bos_token',0)<>0;
- If KVHas(G,'tokenizer.ggml.add_eos_token')Then V.AddEOS:=KVInt(G,'tokenizer.ggml.add_eos_token',0)<>0;
- If KVHas(G,'tokenizer.ggml.add_sep_token')Then V.AddSep:=KVInt(G,'tokenizer.ggml.add_sep_token',0)<>0;
+ If KVHas(G,'tokenizer.ggml.add_bos_token')Then V.AddBOS:=KVInt(G,
+   'tokenizer.ggml.add_bos_token',0)<>0;
+ If KVHas(G,'tokenizer.ggml.add_eos_token')Then V.AddEOS:=KVInt(G,
+   'tokenizer.ggml.add_eos_token',0)<>0;
+ If KVHas(G,'tokenizer.ggml.add_sep_token')Then V.AddSep:=KVInt(G,
+   'tokenizer.ggml.add_sep_token',0)<>0;
  { jetons de fin de generation (EOG) }
  For I:=0 to V.NTokens-1 do Begin
   T:=V.Text[I];
-  If(T='<|eot_id|>')or(T='<|im_end|>')or(T='<|end|>')or(T='<|return|>')or(T='<|call|>')or
-    (T='<|flush|>')or(T='<|calls|>')or(T='<end_of_turn>')or(T='<|endoftext|>')or(T='</s>')or
-    (T='<|eom_id|>')or(T='<EOT>')or(T='_<EOT>')or(T='[EOT]')or(T='[EOS]')or(T='<|end_of_text|>')or
-    (T='<end_of_utterance>')or(T='<eos>')or(T='<turn|>')or(T='<|tool_response>')or
+  If(T='<|eot_id|>')or(T='<|im_end|>')or(T='<|end|>')or(T='<|return|>')or(T='<'+
+    '|call|>')or
+    (T='<|flush|>')or(T='<|calls|>')or(T='<end_of_turn>')or(T='<|endoftext|'+
+      '>')or(T='</s>')or
+    (T='<|eom_id|>')or(T='<EOT>')or(T='_<EOT>')or(T='[EOT]')or(T='[EOS'+
+      ']')or(T='<|end_of_text|>')or
+    (T='<end_of_utterance>')or(T='<eos>')or(T='<turn|>')or(T='<|tool_response'+
+      '>')or
     (T='<｜end▁of▁sentence｜>')or(T='[e~[')Then Begin
    V.EOG[I]:=True;
    V.Attr[I]:=V.Attr[I]or TA_CONTROL;
   End;
   If V.EOT<0 Then Begin
-   If(T='<|eot_id|>')or(T='<|im_end|>')or(T='<|end|>')or(T='<end_of_turn>')or(T='<|endoftext|>')or
-     (T='<|end_of_text|>')or(T='<EOT>')or(T='_<EOT>')or(T='[EOT]')or(T='<end_of_utterance>')Then
+   If(T='<|eot_id|>')or(T='<|im_end|>')or(T='<|end|>')or(T='<end_of_turn'+
+     '>')or(T='<|endoftext|>')or
+     (T='<|end_of_text|>')or(T='<EOT>')or(T='_<EOT>')or(T='[EOT]')or(T='<end_o'+
+       'f_utterance>')Then
     V.EOT:=I;
   End;
   If V.FimPre<0 Then
-   If(T='<|fim_prefix|>')or(T='<fim-prefix>')or(T='<fim_prefix>')or(T='<PRE>')or(T='▁<PRE>')Then V.FimPre:=I;
+   If(T='<|fim_prefix|>')or(T='<fim-prefix>')or(T='<fim_prefix>')or(T='<PRE'+
+     '>')or(T='▁<PRE>')Then V.FimPre:=I;
   If V.FimSuf<0 Then
-   If(T='<|fim_suffix|>')or(T='<fim-suffix>')or(T='<fim_suffix>')or(T='<SUF>')or(T='▁<SUF>')Then V.FimSuf:=I;
+   If(T='<|fim_suffix|>')or(T='<fim-suffix>')or(T='<fim_suffix>')or(T='<SUF'+
+     '>')or(T='▁<SUF>')Then V.FimSuf:=I;
   If V.FimMid<0 Then
-   If(T='<|fim_middle|>')or(T='<fim-middle>')or(T='<fim_middle>')or(T='<MID>')or(T='▁<MID>')Then V.FimMid:=I;
+   If(T='<|fim_middle|>')or(T='<fim-middle>')or(T='<fim_middle>')or(T='<MID'+
+     '>')or(T='▁<MID>')Then V.FimMid:=I;
  End;
  MarkEog(V.EOS);MarkEog(V.EOT);MarkEog(V.EOM);
  MarkEog(V.FimPad);MarkEog(V.FimRep);MarkEog(V.FimSep);
  { jetons speciaux tries par longueur decroissante (tri par comptage) }
  Cnt:=0;
  For I:=0 to V.NTokens-1 do
-  If(V.Attr[I]and(TA_CONTROL or TA_USER_DEFINED or TA_UNKNOWN))<>0 Then Inc(Cnt);
+  If(V.Attr[I]and(TA_CONTROL or TA_USER_DEFINED or TA_UNKNOWN))<>0 Then
+    Inc(Cnt);
  SetLength(V.Specials,Cnt);
  SetLength(Tmp,V.MaxTokLen+2);
  For I:=0 to V.MaxTokLen+1 do Tmp[I]:=0;
@@ -2923,7 +3128,8 @@ Type
  TLayer=Record
   AttnNorm,FfnNorm,QNorm,KNorm,PostAttnNorm,PostFfnNorm:TSingleArray;
   Bq,Bk,Bv,Bo:TSingleArray;
-  Wq,Wk,Wv,Wo,Wqkv,FfnGate,FfnUp,FfnDown:LongInt;   { index dans G.T, -1 si absent }
+  Wq,Wk,Wv,Wo,Wqkv,FfnGate,FfnUp,FfnDown:LongInt;
+    { index dans G.T, -1 si absent }
   GateInp,GateExps,UpExps,DownExps:LongInt;
   GateInpShexp,GateShexp,UpShexp,DownShexp:LongInt;
   IsSWA:Boolean;
@@ -3063,9 +3269,11 @@ Begin
  SetLength(M.G.KV,0);SetLength(M.G.T,0);
  SplitFileNames(Path,Names);
  M.G.Files:=Names;
- If not FileExistsP(Names[0])Then Fatal('le fichier modèle est introuvable : '+Names[0]);
+ If not FileExistsP(Names[0])Then Fatal('le fichier mod'+#138+
+   'le est introuvable : '+Names[0]);
  For I:=0 to High(Names)do Begin
-  If not FileExistsP(Names[I])Then Fatal('fichier du modèle fractionné introuvable : '+Names[I]);
+  If not FileExistsP(Names[I])Then Fatal('fichier du mod'+#138+'le fractionn'+
+    #130+' introuvable : '+Names[I]);
   ParseGGUFHeader(Names[I],I,M.G,I=0);
  End;
 End;
@@ -3086,16 +3294,19 @@ Begin
  M.Name:=KVStr(G^,'general.name','');
  M.ArchId:=ArchIdFromName(M.Arch);
  If M.ArchId=0 Then
-  Fatal('architecture de modèle non supportée : '''+M.Arch+''' (supportées : llama, qwen2, qwen3, '+
+  Fatal('architecture de mod'+#138+'le non support'+#130+'e : '''+M.Arch+
+    ''' (support'+#130+'es : llama, qwen2, qwen3, '+
         'qwen3moe, phi3, gemma, gemma2, gemma3, granite)');
  A:=M.Arch+'.';
  M.NCtxTrain:=KVInt(G^,A+'context_length',0);
  M.NEmbd:=KVInt(G^,A+'embedding_length',0);
  M.NLayer:=KVInt(G^,A+'block_count',0);
- If(M.NEmbd<=0)or(M.NLayer<=0)Then Fatal('métadonnées du modèle invalides (embedding_length/block_count)');
+ If(M.NEmbd<=0)or(M.NLayer<=0)Then Fatal('m'+#130+'tadonn'+#130+'es du mod'+
+   #138+'le invalides (embedding_length/block_count)');
  M.NFF:=KVIntAt(G^,A+'feed_forward_length',0,0);
  M.NHead:=KVIntAt(G^,A+'attention.head_count',0,0);
- If M.NHead<=0 Then Fatal('métadonnée '+A+'attention.head_count absente');
+ If M.NHead<=0 Then Fatal('m'+#130+'tadonn'+#130+'e '+A+
+   'attention.head_count absente');
  M.NHeadKV:=KVIntAt(G^,A+'attention.head_count_kv',0,M.NHead);
  If M.NHeadKV<=0 Then M.NHeadKV:=M.NHead;
  M.NormEps:=KVFloat(G^,A+'attention.layer_norm_rms_epsilon',1e-6);
@@ -3117,7 +3328,8 @@ Begin
  Else M.RopeScalingType:=RS_LINEAR;
  RopeFactor:=KVFloat(G^,A+'rope.scaling.factor',0);
  If RopeFactor=0 Then RopeFactor:=KVFloat(G^,A+'rope.scale_linear',0);
- If RopeFactor=0 Then M.RopeScaleTrain:=1.0 Else M.RopeScaleTrain:=1.0/RopeFactor;
+ If RopeFactor=0 Then M.RopeScaleTrain:=1.0 Else
+   M.RopeScaleTrain:=1.0/RopeFactor;
  M.RopeScaleSWA:=1.0;
  M.RopeAttnFactor:=KVFloat(G^,A+'rope.scaling.attn_factor',1.0);
  M.YarnLogMul:=KVFloat(G^,A+'rope.scaling.yarn_log_multiplier',0);
@@ -3190,9 +3402,10 @@ Var
 
  Procedure Need(Idx:LongInt;Const Name:AnsiString);
  Begin
-  If Idx<0 Then Fatal('tenseur manquant dans le modèle : '+Name);
+  If Idx<0 Then Fatal('tenseur manquant dans le mod'+#138+'le : '+Name);
   If not TypeSupported(G^.T[Idx].Typ)Then
-   Fatal('le tenseur '+Name+' utilise un type de quantification non supporté ('+TypeName(G^.T[Idx].Typ)+')');
+   Fatal('le tenseur '+Name+' utilise un type de quantification non support'+
+     #130+' ('+TypeName(G^.T[Idx].Typ)+')');
  End;
 
  Function Pref(L:LongInt;Const Part:AnsiString):LongInt;
@@ -3215,7 +3428,8 @@ Begin
  LoadVec(G^,FindTensor(G^,'rope_factors_short.weight'),M.RopeShort);
  M.NVocab:=G^.T[M.TokEmbd].Ne[1];
  If M.V.NTokens<>M.NVocab Then Begin
-  LogWrn('avertissement : taille du vocabulaire ('+IStr(M.V.NTokens)+') différente de token_embd ('+
+  LogWrn('avertissement : taille du vocabulaire ('+IStr(M.V.NTokens)+') diff'+
+    #130+'rente de token_embd ('+
          IStr(M.NVocab)+')'+#10);
   If M.NVocab>M.V.NTokens Then M.NVocab:=M.V.NTokens;
  End;
@@ -3243,8 +3457,10 @@ Begin
     Need(Wv,'blk.'+IStr(I)+'.attn_v.weight');
    End
     Else Need(Wqkv,'blk.'+IStr(I)+'.attn_qkv.weight');
-   Wo:=Pref(I,'attn_output.weight');Need(Wo,'blk.'+IStr(I)+'.attn_output.weight');
-   If Length(FfnNorm)=0 Then Fatal('tenseur manquant dans le modèle : blk.'+IStr(I)+'.ffn_norm.weight');
+   Wo:=Pref(I,'attn_output.weight');Need(Wo,'blk.'+IStr(I)+
+     '.attn_output.weight');
+   If Length(FfnNorm)=0 Then Fatal('tenseur manquant dans le mod'+#138+
+     'le : blk.'+IStr(I)+'.ffn_norm.weight');
    FfnGate:=Pref(I,'ffn_gate.weight');
    FfnUp:=Pref(I,'ffn_up.weight');
    FfnDown:=Pref(I,'ffn_down.weight');
@@ -3295,7 +3511,8 @@ Var
 Begin
  For I:=0 to 63 do Cnt[I]:=0;
  For I:=0 to High(M.G.T)do
-  If(M.G.T[I].Typ>=0)and(M.G.T[I].Typ<64)and(M.G.T[I].NDims>=2)Then Inc(Cnt[M.G.T[I].Typ]);
+  If(M.G.T[I].Typ>=0)and(M.G.T[I].Typ<64)and(M.G.T[I].NDims>=2)Then
+    Inc(Cnt[M.G.T[I].Typ]);
  Best:=0;
  For I:=0 to 63 do If Cnt[I]>Cnt[Best]Then Best:=I;
  ModelDominantType:=TypeName(Best);
@@ -3330,16 +3547,23 @@ Begin
  LogOut(4,'print_info: n_vocab          = '+IStr(M.V.NTokens)+#10);
  LogOut(4,'print_info: file format      = GGUF V'+IStr(M.G.Version)+#10);
  LogOut(4,'print_info: file type        = '+ModelDominantType(M)+#10);
- LogOut(4,'print_info: file size        = '+HumanBytes(M.NBytes)+' ('+FStr(M.NBytes*8.0/(M.NElements+1),2)+' BPW)'+#10);
+ LogOut(4,'print_info: file size        = '+HumanBytes(M.NBytes)+' ('+
+   FStr(M.NBytes*8.0/(M.NElements+1),2)+' BPW)'+#10);
  LogOut(4,'print_info: general.name     = '+M.Name+#10);
- If M.V.BOS>=0 Then LogOut(4,'print_info: BOS token        = '+IStr(M.V.BOS)+' '''+M.V.Text[M.V.BOS]+''''+#10);
- If M.V.EOS>=0 Then LogOut(4,'print_info: EOS token        = '+IStr(M.V.EOS)+' '''+M.V.Text[M.V.EOS]+''''+#10);
- If M.V.EOT>=0 Then LogOut(4,'print_info: EOT token        = '+IStr(M.V.EOT)+' '''+M.V.Text[M.V.EOT]+''''+#10);
- If M.V.UNK>=0 Then LogOut(4,'print_info: UNK token        = '+IStr(M.V.UNK)+' '''+M.V.Text[M.V.UNK]+''''+#10);
- If M.V.PAD>=0 Then LogOut(4,'print_info: PAD token        = '+IStr(M.V.PAD)+' '''+M.V.Text[M.V.PAD]+''''+#10);
+ If M.V.BOS>=0 Then LogOut(4,'print_info: BOS token        = '+IStr(M.V.BOS)+
+   ' '''+M.V.Text[M.V.BOS]+''''+#10);
+ If M.V.EOS>=0 Then LogOut(4,'print_info: EOS token        = '+IStr(M.V.EOS)+
+   ' '''+M.V.Text[M.V.EOS]+''''+#10);
+ If M.V.EOT>=0 Then LogOut(4,'print_info: EOT token        = '+IStr(M.V.EOT)+
+   ' '''+M.V.Text[M.V.EOT]+''''+#10);
+ If M.V.UNK>=0 Then LogOut(4,'print_info: UNK token        = '+IStr(M.V.UNK)+
+   ' '''+M.V.Text[M.V.UNK]+''''+#10);
+ If M.V.PAD>=0 Then LogOut(4,'print_info: PAD token        = '+IStr(M.V.PAD)+
+   ' '''+M.V.Text[M.V.PAD]+''''+#10);
  If M.V.NL>=0 Then LogOut(4,'print_info: LF token         = '+IStr(M.V.NL)+#10);
  For I:=0 to M.V.NTokens-1 do
-  If M.V.EOG[I]Then LogOut(4,'print_info: EOG token        = '+IStr(I)+' '''+M.V.Text[I]+''''+#10);
+  If M.V.EOG[I]Then LogOut(4,'print_info: EOG token        = '+IStr(I)+' '''+
+    M.V.Text[I]+''''+#10);
 End;
 
 Procedure ApplyKVOverrides(Var G:TGGUF);
@@ -3370,7 +3594,8 @@ Begin
    End
    Else If KVOverrides[I].Typ='bool' Then Begin
     G.KV[K].Typ:=GT_BOOL;
-    If(LoStr(KVOverrides[I].Val)='true')or(KVOverrides[I].Val='1')Then G.KV[K].I:=1;
+    If(LoStr(KVOverrides[I].Val)='true')or(KVOverrides[I].Val='1')Then
+      G.KV[K].I:=1;
     G.KV[K].F:=G.KV[K].I;
    End
    Else Begin
@@ -3389,13 +3614,15 @@ Begin
  ApplyKVOverrides(M.G);
  LoadHParams(M);
  LoadVocab(M.V,M.G);
- LogOut(4,'llama_model_loader: chargement de '+IStr(Length(M.G.T))+' tenseurs depuis '+Path+#10);
+ LogOut(4,'llama_model_loader: chargement de '+IStr(Length(M.G.T))+
+   ' tenseurs depuis '+Path+#10);
  LoadTensorData(M.G,Verbose);
  ModelCountSize(M);
  BindTensors(M);
  If M.NCtxTrain<=0 Then M.NCtxTrain:=4096;
  PrintModelInfo(M);
- LogOut(4,'load_tensors: modèle chargé en '+IStr(NowMs-T0)+' ms'+#10);
+ LogOut(4,'load_tensors: mod'+#138+'le charg'+#130+' en '+IStr(NowMs-T0)+' ms'+
+   #10);
 End;
 
 { ------------------------------------------------------------------ }
@@ -3407,7 +3634,8 @@ Type
   NCtx,NBatch:LongInt;
   KC,VC:Array of PSingle;
   NPast:LongInt;
-  X,XN,Q,Kb,Vb,AO,OB,FG,FU,QKV,Logits,Scores,W4,Hid,Acc,RL,RopeCs,RopeCsS,Tmp:PSingle;
+  X,XN,Q,Kb,Vb,AO,OB,FG,FU,QKV,Logits,Scores,W4,Hid,Acc,RL,RopeCs,RopeCsS,
+    Tmp:PSingle;
   QD,KD,VD,AOD,MaxFF:LongInt;
   FreqBase,FreqScale,ExtFactor,AttnFactor,BetaFast,BetaSlow:Single;
   CorrLo,CorrHi:Single;
@@ -3483,7 +3711,8 @@ Begin
   Else XQRowBytes:=Int64(K shr 8)*XQKStride;
 End;
 
-Function IntDotType(T:LongInt;K:LongInt):LongInt;   { 0 = non, 1 = Q8_0, 2 = Q8_K }
+Function IntDotType(T:LongInt;K:LongInt):LongInt;
+  { 0 = non, 1 = Q8_0, 2 = Q8_K }
 Begin
  IntDotType:=0;
  If NoIntDot Then Exit;
@@ -3915,12 +4144,14 @@ End;
 { ------------------------------------------------------------------ }
 
 {$IFDEF WINDOWS}
-Function CreateThread(Attr:Pointer;Stack:PtrUInt;Start:Pointer;Param:Pointer;Flags:LongWord;Var Tid:LongWord):PtrUInt;
+Function
+  CreateThread(Attr:Pointer;Stack:PtrUInt;Start:Pointer;Param:Pointer;Flags:LongWord;Var Tid:LongWord):PtrUInt;
  stdcall;external 'kernel32.dll' name 'CreateThread';
 Procedure WinSleep(Ms:LongWord);stdcall;external 'kernel32.dll' name 'Sleep';
 {$ELSE}
  {$IFDEF UNIX}
-Function pthread_create(Var Th:PtrUInt;Attr:Pointer;Start:Pointer;Arg:Pointer):LongInt;cdecl;
+Function pthread_create(Var
+  Th:PtrUInt;Attr:Pointer;Start:Pointer;Arg:Pointer):LongInt;cdecl;
  external 'pthread' name 'pthread_create';
 Function usleep(Us:LongWord):LongInt;cdecl;external 'c' name 'usleep';
 Function sysconf(Name:LongInt):PtrInt;cdecl;external 'c' name 'sysconf';
@@ -4014,7 +4245,8 @@ Begin
    For T:=0 to J.NTok-1 do Begin
     Xp:=J.X+T*K;
     Dot4(Wp[0],Wp[1],Wp[2],Wp[3],Xp,K,@Tmp4[0]);
-    J.Y[T*M+R]:=Tmp4[0];J.Y[T*M+R+1]:=Tmp4[1];J.Y[T*M+R+2]:=Tmp4[2];J.Y[T*M+R+3]:=Tmp4[3];
+    J.Y[T*M+R]:=Tmp4[0];J.Y[T*M+R+1]:=Tmp4[1];J.Y[T*M+R+2]:=Tmp4[2];J.Y[T*M+R+
+      3]:=Tmp4[3];
    End;
   End
    Else Begin
@@ -4202,32 +4434,43 @@ Type
  End;
 
  TFnCreateDev=Function(Adapter:Pointer;DrvType:LongWord;Soft:PtrUInt;Flags:LongWord;FL:Pointer;NFL:LongWord;
-  Sdk:LongWord;Var Dev:Pointer;Var FLOut:LongWord;Var Ctx:Pointer):LongInt;stdcall;
- TFnCompile=Function(Src:Pointer;SrcLen:PtrUInt;Name:PChar;Defs,Inc:Pointer;Entry,Target:PChar;F1,F2:LongWord;
+  Sdk:LongWord;Var Dev:Pointer;Var FLOut:LongWord;Var
+    Ctx:Pointer):LongInt;stdcall;
+ TFnCompile=Function(Src:Pointer;SrcLen:PtrUInt;Name:PChar;Defs,
+   Inc:Pointer;Entry,Target:PChar;F1,F2:LongWord;
   Var Code:Pointer;Var Err:Pointer):LongInt;stdcall;
  TFnFactory=Function(Iid:Pointer;Var F:Pointer):LongInt;stdcall;
  TMQuery=Function(Self,Iid:Pointer;Var Obj:Pointer):LongInt;stdcall;
  TMRelease=Function(Self:Pointer):LongWord;stdcall;
- TMEnumAdapters=Function(Self:Pointer;Idx:LongWord;Var Ad:Pointer):LongInt;stdcall;
+ TMEnumAdapters=Function(Self:Pointer;Idx:LongWord;Var
+   Ad:Pointer):LongInt;stdcall;
  TMGetDesc=Function(Self:Pointer;Var D:TAdapterDesc):LongInt;stdcall;
- TMQueryMem=Function(Self:Pointer;Node,Seg:LongWord;Var Info:TVideoMemInfo):LongInt;stdcall;
- TMCreateBuffer=Function(Self,Desc,Init:Pointer;Var Buf:Pointer):LongInt;stdcall;
+ TMQueryMem=Function(Self:Pointer;Node,Seg:LongWord;Var
+   Info:TVideoMemInfo):LongInt;stdcall;
+ TMCreateBuffer=Function(Self,Desc,Init:Pointer;Var
+   Buf:Pointer):LongInt;stdcall;
  TMCreateView=Function(Self,Res,Desc:Pointer;Var V:Pointer):LongInt;stdcall;
- TMCreateCS=Function(Self,Code:Pointer;Len:PtrUInt;Link:Pointer;Var Sh:Pointer):LongInt;stdcall;
- TMMap=Function(Self,Res:Pointer;Sub,MType,MFlags:LongWord;Var Mapped:TMapped):LongInt;stdcall;
+ TMCreateCS=Function(Self,Code:Pointer;Len:PtrUInt;Link:Pointer;Var
+   Sh:Pointer):LongInt;stdcall;
+ TMMap=Function(Self,Res:Pointer;Sub,MType,MFlags:LongWord;Var
+   Mapped:TMapped):LongInt;stdcall;
  TMUnmap=Procedure(Self,Res:Pointer;Sub:LongWord);stdcall;
  TMDispatch=Procedure(Self:Pointer;X,Y,Z:LongWord);stdcall;
  TMCopyRes=Procedure(Self,Dst,Src:Pointer);stdcall;
- TMUpdate=Procedure(Self,Dst:Pointer;Sub:LongWord;Box,Data:Pointer;RP,DP:LongWord);stdcall;
+ TMUpdate=Procedure(Self,Dst:Pointer;Sub:LongWord;Box,Data:Pointer;RP,
+   DP:LongWord);stdcall;
  TMSetSRV=Procedure(Self:Pointer;Start,Num:LongWord;Views:Pointer);stdcall;
- TMSetUAV=Procedure(Self:Pointer;Start,Num:LongWord;Views,Counts:Pointer);stdcall;
+ TMSetUAV=Procedure(Self:Pointer;Start,Num:LongWord;Views,
+   Counts:Pointer);stdcall;
  TMSetShader=Procedure(Self,Sh,Inst:Pointer;N:LongWord);stdcall;
  TMSetCB=Procedure(Self:Pointer;Start,Num:LongWord;Bufs:Pointer);stdcall;
  TMBlobPtr=Function(Self:Pointer):Pointer;stdcall;
  TMBlobSize=Function(Self:Pointer):PtrUInt;stdcall;
 
-Function LoadLibraryA(Name:PChar):PtrUInt;stdcall;external 'kernel32.dll' name 'LoadLibraryA';
-Function GetProcAddress(H:PtrUInt;Name:PChar):Pointer;stdcall;external 'kernel32.dll' name 'GetProcAddress';
+Function LoadLibraryA(Name:PChar):PtrUInt;stdcall;external 'kernel32.dll' name
+  'LoadLibraryA';
+Function GetProcAddress(H:PtrUInt;Name:PChar):Pointer;stdcall;external
+  'kernel32.dll' name 'GetProcAddress';
 
 Var
  GFactory:Pointer=Nil;
@@ -4249,8 +4492,10 @@ End;
 
 Procedure GpuEnumDevices;
 Const
- IID_Factory:TGuid4=(D1:$7b7166ec;D2:$21c7;D3:$44ae;D4:($b2,$1a,$c9,$ae,$32,$1a,$e3,$69));
- IID_Adapter3:TGuid4=(D1:$645967A4;D2:$1392;D3:$4310;D4:($A7,$98,$80,$53,$CE,$3E,$93,$FD));
+ IID_Factory:TGuid4=(D1:$7b7166ec;D2:$21c7;D3:$44ae;D4:($b2,$1a,$c9,$ae,$32,$1a,
+   $e3,$69));
+ IID_Adapter3:TGuid4=(D1:$645967A4;D2:$1392;D3:$4310;D4:($A7,$98,$80,$53,$CE,
+   $3E,$93,$FD));
 Var
  H:PtrUInt;
  Fn:TFnFactory;
@@ -4304,7 +4549,8 @@ Begin
  End;
 End;
 
-Function GpuMakeBuffer(ByteWidth,Usage,Bind,CPU,Misc:LongWord;Init:Pointer;Var Buf:Pointer):Boolean;
+Function GpuMakeBuffer(ByteWidth,Usage,Bind,CPU,Misc:LongWord;Init:Pointer;Var
+  Buf:Pointer):Boolean;
 Var
  D:TBufDesc;
  SD:TSubData;
@@ -4340,7 +4586,8 @@ Begin
  GpuMakeUAV:=TMCreateView(VTab(GDev,8))(GDev,Buf,@D,V)>=0;
 End;
 
-Function GpuCompile(Const Src,Entry:AnsiString;Var Sh:Pointer;Var Err:AnsiString):Boolean;
+Function GpuCompile(Const Src,Entry:AnsiString;Var Sh:Pointer;Var
+  Err:AnsiString):Boolean;
 Var
  H:PtrUInt;
  Fn:TFnCompile;
@@ -4354,13 +4601,15 @@ Begin
  Fn:=TFnCompile(GetProcAddress(H,'D3DCompile'));
  If not Assigned(Fn)Then Begin Err:='D3DCompile introuvable';Exit;End;
  Code:=Nil;EMsg:=Nil;
- R:=Fn(PChar(Src),Length(Src),'llama',Nil,Nil,PChar(Entry),'cs_5_0',1 shl 15,0,Code,EMsg);
+ R:=Fn(PChar(Src),Length(Src),'llama',Nil,Nil,PChar(Entry),'cs_5_0',1 shl 15,0,
+   Code,EMsg);
  If R<0 Then Begin
   Err:='compilation du shader '+Entry+' impossible';
   If EMsg<>Nil Then Err:=Err+' : '+PChar(TMBlobPtr(VTab(EMsg,3))(EMsg));
   Exit;
  End;
- R:=TMCreateCS(VTab(GDev,18))(GDev,TMBlobPtr(VTab(Code,3))(Code),TMBlobSize(VTab(Code,4))(Code),Nil,Sh);
+ R:=TMCreateCS(VTab(GDev,18))(GDev,TMBlobPtr(VTab(Code,3))(Code),
+   TMBlobSize(VTab(Code,4))(Code),Nil,Sh);
  ComRelease(Code);
  If R<0 Then Begin Err:='creation du shader '+Entry+' impossible';Exit;End;
  GpuCompile:=True;
@@ -4467,7 +4716,9 @@ Const
 +  '  {'#10
 +  '    uint b = rowBase + sb * 212;'#10
 +  '    float d = asfloat(W.Load(b + 208));'#10
-+  '    int sc = int(((W.Load(b + 192 + (sidx & ~3u)) >> ((sidx & 3) * 8)) & 255) << 24) >> 24;'#10
++
+  '    int sc = int(((W.Load(b + 192 + (sidx & ~3u)) >> ((sidx & 3) * 8)) & 25'+
+  '5) << 24) >> 24;'#10
 +  '    uint2 ql = W.Load2(b + qlOff);'#10
 +  '    uint2 qh = W.Load2(b + 128 + qhOff);'#10
 +  '    uint xa = (t * K + sb * 256 + e0) * 4;'#10
@@ -4480,7 +4731,9 @@ Const
 +  '      uint w1 = (n < 4) ? ql.x : ql.y;'#10
 +  '      uint w2 = (n < 4) ? qh.x : qh.y;'#10
 +  '      uint sft = (n & 3) * 8;'#10
-+  '      int q = int(((w1 >> (sft + shL)) & 15) | (((w2 >> (sft + shH)) & 3) << 4)) - 32;'#10
++
+  '      int q = int(((w1 >> (sft + shL)) & 15) | (((w2 >> (sft + shH)) & 3) <'+
+  '< 4)) - 32;'#10
 +  '      s += float(q) * xs[n];'#10
 +  '    }'#10
 +  '    acc += d * float(sc) * s;'#10
@@ -4503,8 +4756,12 @@ Const
 +  '    float d = asfloat(W.Load(b));'#10
 +  '    uint w = W.Load(b + 4 + part * 4);'#10
 +  '    float4 x = asfloat(X.Load4((t * K + bi * 32 + part * 4) * 4));'#10
-+  '    float s = float(int(w << 24) >> 24) * x.x + float(int((w >> 8) << 24) >> 24) * x.y'#10
-+  '            + float(int((w >> 16) << 24) >> 24) * x.z + float(int(w) >> 24) * x.w;'#10
++
+  '    float s = float(int(w << 24) >> 24) * x.x + float(int((w >> 8) << 24) >'+
+  '> 24) * x.y'#10
++
+  '            + float(int((w >> 16) << 24) >> 24) * x.z + float(int(w) >> 24)'+
+  ' * x.w;'#10
 +  '    acc += d * s;'#10
 +  '  }'#10
 +  '  Reduce(tid, acc, row, t);'#10
@@ -4530,7 +4787,8 @@ Begin
  If not GpuCompile(GpuShaderSrc,'CSQ4K',GShQ4K,Err)Then Exit;
  If not GpuCompile(GpuShaderSrc,'CSQ6K',GShQ6K,Err)Then Exit;
  If not GpuCompile(GpuShaderSrc,'CSQ80',GShQ80,Err)Then Exit;
- If not GpuMakeBuffer(16,0,4,0,0,Nil,GCB)Then Begin Err:='creation du tampon constant impossible';Exit;End;
+ If not GpuMakeBuffer(16,0,4,0,0,Nil,GCB)Then Begin
+   Err:='creation du tampon constant impossible';Exit;End;
  GXCap:=0;GYCap:=0;
  GDevIdx:=Idx;
  GpuInitDevice:=True;
@@ -4637,7 +4895,8 @@ Begin
   GpuPend:=0;
   Exit;
  End;
- For I:=0 to GpuPend-1 do Move((PByte(Mp.Data)+GpuPendOff[I])^,GpuPendY[I]^,GpuPendLen[I]);
+ For I:=0 to GpuPend-1 do Move((PByte(Mp.Data)+GpuPendOff[I])^,GpuPendY[I]^,
+   GpuPendLen[I]);
  TMUnmap(VTab(GCtx,15))(GCtx,GYStage,0);
  GpuPend:=0;
  GpuYOff:=0;
@@ -4659,7 +4918,8 @@ Begin
  GpuFlush;
 End;
 
-Function GpuMatMul(Typ:LongInt;Data:PByte;K,M:LongInt;X,Y:PSingle;NTok:LongInt):Boolean;
+Function GpuMatMul(Typ:LongInt;Data:PByte;K,M:LongInt;X,
+  Y:PSingle;NTok:LongInt):Boolean;
 Var
  I,F:LongInt;
  CB:TCBData;
@@ -4671,9 +4931,11 @@ Begin
  If not GpuOn Then Exit;
  F:=-1;
  If(GpuLast<GpuNT)and(GpuTensors[GpuLast].Data=Data)Then F:=GpuLast
-  Else For I:=0 to GpuNT-1 do If GpuTensors[I].Data=Data Then Begin F:=I;Break;End;
+  Else For I:=0 to GpuNT-1 do If GpuTensors[I].Data=Data Then Begin
+    F:=I;Break;End;
  If F<0 Then Exit;
- If(GpuTensors[F].K<>K)or(GpuTensors[F].M<>M)or(GpuTensors[F].Typ<>Typ)Then Exit;
+ If(GpuTensors[F].K<>K)or(GpuTensors[F].M<>M)or(GpuTensors[F].Typ<>Typ)Then
+   Exit;
  GpuLast:=F;
  XB:=Int64(NTok)*K*4;YB:=Int64(NTok)*M*4;
  If(XB>GpuMaxIO)or(YB>GpuMaxIO)or(NTok>65535)Then Exit;
@@ -4689,7 +4951,8 @@ Begin
  End;
  CB.K:=K;CB.M:=M;CB.NTok:=NTok;CB.Pad:=GpuYOff;
  TMUpdate(VTab(GCtx,48))(GCtx,GCB,0,Nil,@CB,0,0);
- If not(GpuBatch and GpuXDone)Then TMUpdate(VTab(GCtx,48))(GCtx,GXBuf,0,Nil,X,0,0);
+ If not(GpuBatch and GpuXDone)Then TMUpdate(VTab(GCtx,48))(GCtx,GXBuf,0,Nil,X,0,
+   0);
  GpuXDone:=GpuBatch;
  TMSetShader(VTab(GCtx,69))(GCtx,Sh,Nil,0);
  TMSetCB(VTab(GCtx,71))(GCtx,0,1,@GCB);
@@ -4701,7 +4964,8 @@ Begin
  If M<GpuRowStride Then
   TMDispatch(VTab(GCtx,41))(GCtx,M,1,NTok)
  Else
-  TMDispatch(VTab(GCtx,41))(GCtx,GpuRowStride,(M+GpuRowStride-1)div GpuRowStride,NTok);
+  TMDispatch(VTab(GCtx,41))(GCtx,GpuRowStride,(M+GpuRowStride-1)div
+    GpuRowStride,NTok);
  GpuPendY[GpuPend]:=Y;GpuPendOff[GpuPend]:=GpuYOff;GpuPendLen[GpuPend]:=YB;
  Inc(GpuPend);
  Inc(GpuYOff,YB);
@@ -4724,7 +4988,8 @@ Begin
  GpuTensorBytes:=NBytes;
 End;
 
-Function GpuMatMul(Typ:LongInt;Data:PByte;K,M:LongInt;X,Y:PSingle;NTok:LongInt):Boolean;
+Function GpuMatMul(Typ:LongInt;Data:PByte;K,M:LongInt;X,
+  Y:PSingle;NTok:LongInt):Boolean;
 Begin
  GpuMatMul:=False;
 End;
@@ -4759,11 +5024,13 @@ Var
  I:LongInt;
 Begin
  GpuOutputName:='token_embd.weight';
- For I:=0 to High(M.G.T)do If M.G.T[I].Name='output.weight' Then GpuOutputName:='output.weight';
+ For I:=0 to High(M.G.T)do If M.G.T[I].Name='output.weight' Then
+   GpuOutputName:='output.weight';
 End;
 
 { taille GPU necessaire pour deporter NGL couches (llama.cpp : les dernieres couches, puis la sortie) }
-Function GpuBytesForNGL(Const M:TModel;NGL:LongInt;Const OutName:AnsiString):Int64;
+Function GpuBytesForNGL(Const M:TModel;NGL:LongInt;Const
+  OutName:AnsiString):Int64;
 Var
  I,L,Start:LongInt;
  Tot:Int64;
@@ -4777,7 +5044,8 @@ Begin
   If L>=0 Then Begin
    If L>=Start Then Inc(Tot,GpuTensorBytes(M.G.T[I].Typ,M.G.T[I].NBytes));
   End
-   Else If(M.G.T[I].Name=OutName)and(NGL>M.NLayer)Then Inc(Tot,GpuTensorBytes(M.G.T[I].Typ,M.G.T[I].NBytes));
+   Else If(M.G.T[I].Name=OutName)and(NGL>M.NLayer)Then Inc(Tot,
+     GpuTensorBytes(M.G.T[I].Typ,M.G.T[I].NBytes));
  End;
  GpuBytesForNGL:=Tot;
 End;
@@ -4793,15 +5061,18 @@ Var
 Begin
  GpuEnumDevices;
  WriteLn('Available devices:');
- If Length(GpuDevs)=0 Then WriteLn('  (aucun périphérique GPU Direct3D 11 détecté)');
+ If Length(GpuDevs)=0 Then WriteLn('  (aucun p'+#130+'riph'+#130+
+   'rique GPU Direct3D 11 d'+#130+'tect'+#130+')');
  For I:=0 to High(GpuDevs)do
-  WriteLn('  '+GpuDevName(I)+': '+GpuDevs[I].Name+' ('+IStr(GpuDevs[I].VRam shr 20)+' MiB, '+
+  WriteLn('  '+GpuDevName(I)+': '+GpuDevs[I].Name+' ('+IStr(GpuDevs[I].VRam shr
+    20)+' MiB, '+
           IStr(GpuDevs[I].Free shr 20)+' MiB free)');
 End;
 
 { choix du peripherique, envoi des poids en VRAM et activation du calcul GPU
   NGL : -1 = automatique, 0 = aucun, N = nombre de couches ; ne fait rien sans GPU }
-Procedure GpuSetup(Var M:TModel;NGL:LongInt;Const DevStr:AnsiString;MainGpu:LongInt;Fit:Boolean);
+Procedure GpuSetup(Var M:TModel;NGL:LongInt;Const
+  DevStr:AnsiString;MainGpu:LongInt;Fit:Boolean);
 {$IFDEF WINDOWS}
 Var
  I,L,Idx,Best,Start,Off,NL:LongInt;
@@ -4822,9 +5093,11 @@ Begin
   S:=Parts[0];
   If StartsWith(S,'d3d')Then Delete(S,1,3);
   If ParseInt(S,V)and(V>=0)and(V<Length(GpuDevs))Then Idx:=V
-   Else LogWrn('avertissement : périphérique inconnu : '+DevStr+#10);
+   Else LogWrn('avertissement : p'+#130+'riph'+#130+'rique inconnu : '+DevStr+
+     #10);
   If Length(Parts)>1 Then
-   LogWrn('avertissement : un seul GPU est utilisé, les autres périphériques sont ignorés'+#10);
+   LogWrn('avertissement : un seul GPU est utilis'+#130+', les autres p'+#130+
+     'riph'+#130+'riques sont ignor'+#130+'s'+#10);
  End;
  If(Idx<0)and(MainGpu>0)and(MainGpu<Length(GpuDevs))Then Idx:=MainGpu;
  If Idx<0 Then Begin
@@ -4834,13 +5107,14 @@ Begin
  End;
  Err:='';
  If not GpuInitDevice(Idx,Err)Then Begin
-  LogInf('GPU non utilisé : '+Err+#10);
+  LogInf('GPU non utilis'+#130+' : '+Err+#10);
   Exit;
  End;
  OutName:=GpuOutputName(M);
  If NGL<0 Then Begin
   If Fit Then Begin
-   Budget:=GpuDevs[Idx].Free-805306368;   { marge de 768 Mo pour le systeme et les tampons }
+   Budget:=GpuDevs[Idx].Free-805306368;
+     { marge de 768 Mo pour le systeme et les tampons }
    NL:=M.NLayer+1;
    While(NL>0)and(GpuBytesForNGL(M,NL,OutName)>Budget)do Dec(NL);
    NGL:=NL;
@@ -4848,7 +5122,8 @@ Begin
    Else NGL:=M.NLayer+1;
  End;
  If NGL<=0 Then Begin
-  LogInf('GPU '+GpuDevs[Idx].Name+' : mémoire insuffisante, calcul sur le CPU'+#10);
+  LogInf('GPU '+GpuDevs[Idx].Name+' : m'+#130+
+    'moire insuffisante, calcul sur le CPU'+#10);
   Exit;
  End;
  Start:=M.NLayer-NGL;
@@ -4863,14 +5138,16 @@ Begin
    Else If not((M.G.T[I].Name=OutName)and(NGL>M.NLayer))Then Continue;
   If GpuUploadTensor(M.G.T[I])Then Inc(Off)
    Else Begin
-    LogWrn('avertissement : envoi impossible en VRAM de '+M.G.T[I].Name+', suite du calcul sur le CPU'+#10);
+    LogWrn('avertissement : envoi impossible en VRAM de '+M.G.T[I].Name+
+      ', suite du calcul sur le CPU'+#10);
     Break;
    End;
  End;
  If Off=0 Then Exit;
  GpuOn:=True;
  If NGL>M.NLayer Then NL:=M.NLayer+1 Else NL:=NGL;
- LogInf('chargement GPU : '+IStr(NL)+'/'+IStr(M.NLayer+1)+' couches déportées sur '+GpuDevName(Idx)+' ('+
+ LogInf('chargement GPU : '+IStr(NL)+'/'+IStr(M.NLayer+1)+' couches d'+#130+
+   'port'+#130+'es sur '+GpuDevName(Idx)+' ('+
         GpuDevs[Idx].Name+'), '+IStr(GpuTotalBytes shr 20)+' MiB en VRAM'+#10);
 End;
 {$ELSE}
@@ -4878,7 +5155,8 @@ Begin
 End;
 {$ENDIF}
 
-Procedure MatMulPtr(Typ:LongInt;Data:PByte;K,M:LongInt;X,Y:PSingle;NTok:LongInt;Scratch:PSingle);
+Procedure MatMulPtr(Typ:LongInt;Data:PByte;K,M:LongInt;X,
+  Y:PSingle;NTok:LongInt;Scratch:PSingle);
 Var
  J:TMMJob;
  Expect,T:LongInt;
@@ -4897,7 +5175,8 @@ Begin
   End;
   J.XQ:=XQBuf;
   For T:=0 to NTok-1 do
-   If J.IT=1 Then QuantRowQ8_0(X+T*K,XQBuf+T*XS,K) Else QuantRowQ8_K(X+T*K,XQBuf+T*XS,K);
+   If J.IT=1 Then QuantRowQ8_0(X+T*K,XQBuf+T*XS,K) Else QuantRowQ8_K(X+T*K,
+     XQBuf+T*XS,K);
  End;
  If(PoolN<=1)or(M<4*ChunkRows)or(Int64(M)*K*NTok<200000)Then Begin
   MatMulRows(J,0,M,Scratch);
@@ -4958,7 +5237,8 @@ Begin
 End;
 
 { cos/sin pour une position ; Dst = [cos0,sin0,cos1,sin1,...] }
-Procedure RopeCacheInit(Var C:TCtx;Dst:PSingle;Pos:LongInt;FreqBase,FreqScale:Single;NRot:LongInt;
+Procedure RopeCacheInit(Var C:TCtx;Dst:PSingle;Pos:LongInt;FreqBase,
+  FreqScale:Single;NRot:LongInt;
                         Ext,Attn:Single;Fact:PSingle);
 Var
  IC:LongInt;
@@ -4980,7 +5260,8 @@ Begin
  End;
 End;
 
-Procedure ApplyRope(V:PSingle;NHeads,HeadDim:LongInt;Cs:PSingle;NRot:LongInt;Neox:Boolean);
+Procedure ApplyRope(V:PSingle;NHeads,
+  HeadDim:LongInt;Cs:PSingle;NRot:LongInt;Neox:Boolean);
 Var
  H,IC,Half:LongInt;
  P:PSingle;
@@ -5022,7 +5303,8 @@ End;
 
 Function KVBytesFor(Const M:TModel;NCtx:LongInt):Int64;
 Begin
- KVBytesFor:=Int64(NCtx)*M.NLayer*(Int64(M.NHeadKV)*M.HeadK+Int64(M.NHeadKV)*M.HeadV)*4;
+ KVBytesFor:=Int64(NCtx)*M.NLayer*(Int64(M.NHeadKV)*M.HeadK+
+   Int64(M.NHeadKV)*M.HeadV)*4;
 End;
 
 Function AllocF(N:Int64):PSingle;
@@ -5034,7 +5316,8 @@ Begin
  AllocF:=PSingle(P);
 End;
 
-Procedure CtxInit(Const M:TModel;Var C:TCtx;NCtx,NBatch:LongInt;Const RO:TRopeOpts);
+Procedure CtxInit(Const M:TModel;Var C:TCtx;NCtx,NBatch:LongInt;Const
+  RO:TRopeOpts);
 Var
  I,MaxF,Wmax:LongInt;
  Fac,CD0,CD1:Double;
@@ -5058,7 +5341,8 @@ Begin
  If M.NFFExp>MaxF Then MaxF:=M.NFFExp;
  If M.NFFShexp>MaxF Then MaxF:=M.NFFShexp;
  For I:=0 to M.NLayer-1 do Begin
-  If M.Layers[I].FfnUp>=0 Then If M.G.T[M.Layers[I].FfnUp].Ne[1]>MaxF Then MaxF:=M.G.T[M.Layers[I].FfnUp].Ne[1];
+  If M.Layers[I].FfnUp>=0 Then If M.G.T[M.Layers[I].FfnUp].Ne[1]>MaxF Then
+    MaxF:=M.G.T[M.Layers[I].FfnUp].Ne[1];
  End;
  C.MaxFF:=MaxF;
  Wmax:=M.NEmbd;
@@ -5088,7 +5372,8 @@ Begin
  C.Acc:=AllocF(Int64(M.NEmbd)*2);
  C.Tmp:=AllocF(Int64(MaxF)*2+M.NEmbd);
  C.RL:=AllocF(Int64(NBatch)*(M.NExpert+1));
- If M.G.T[M.Output].Ne[1]>M.NVocab Then C.Logits:=AllocF(M.G.T[M.Output].Ne[1]+16)
+ If M.G.T[M.Output].Ne[1]>M.NVocab Then C.Logits:=AllocF(M.G.T[M.Output].Ne[1]+
+   16)
  Else C.Logits:=AllocF(M.NVocab+16);
  C.Scores:=AllocF(NCtx+16);
  C.W4:=AllocF(Int64(Wmax+M.NEmbd)*4*2);
@@ -5152,14 +5437,17 @@ Begin
  If NMove<0 Then NMove:=0;
  For L:=0 to M.NLayer-1 do Begin
   If NMove>0 Then Begin
-   Move((C.KC[L]+(Int64(NKeep+NDiscard)*C.KD))^,(C.KC[L]+Int64(NKeep)*C.KD)^,Int64(NMove)*C.KD*4);
-   Move((C.VC[L]+(Int64(NKeep+NDiscard)*C.VD))^,(C.VC[L]+Int64(NKeep)*C.VD)^,Int64(NMove)*C.VD*4);
+   Move((C.KC[L]+(Int64(NKeep+NDiscard)*C.KD))^,(C.KC[L]+Int64(NKeep)*C.KD)^,
+     Int64(NMove)*C.KD*4);
+   Move((C.VC[L]+(Int64(NKeep+NDiscard)*C.VD))^,(C.VC[L]+Int64(NKeep)*C.VD)^,
+     Int64(NMove)*C.VD*4);
   End;
   If M.Layers[L].IsSWA Then Begin FB:=M.RopeBaseSWA;FS:=M.RopeScaleSWA;End
                        Else Begin FB:=C.FreqBase;FS:=C.FreqScale;End;
   RopeCacheInit(C,C.RopeCs,-NDiscard,FB,FS,M.NRot,0,1.0,C.Factors);
   For J:=0 to NMove-1 do
-   ApplyRope(C.KC[L]+Int64(NKeep+J)*C.KD,M.NHeadKV,M.HeadK,C.RopeCs,M.NRot,M.RopeNeox);
+   ApplyRope(C.KC[L]+Int64(NKeep+J)*C.KD,M.NHeadKV,M.HeadK,C.RopeCs,M.NRot,
+     M.RopeNeox);
  End;
  Dec(C.NPast,NDiscard);
 End;
@@ -5170,9 +5458,11 @@ Begin
  If P<C.NPast Then C.NPast:=P;
 End;
 
-Procedure MatMulT(Const M:TModel;Idx:LongInt;X,Y:PSingle;NTok:LongInt;Var C:TCtx);
+Procedure MatMulT(Const M:TModel;Idx:LongInt;X,Y:PSingle;NTok:LongInt;Var
+  C:TCtx);
 Begin
- MatMulPtr(M.G.T[Idx].Typ,M.G.T[Idx].Data,M.G.T[Idx].Ne[0],M.G.T[Idx].Ne[1],X,Y,NTok,C.W4);
+ MatMulPtr(M.G.T[Idx].Typ,M.G.T[Idx].Data,M.G.T[Idx].Ne[0],M.G.T[Idx].Ne[1],X,Y,
+   NTok,C.W4);
 End;
 
 { Produit matrice-vecteur sur un expert (tenseur 3D) }
@@ -5181,7 +5471,8 @@ Var
  T:^TTensorInfo;
 Begin
  T:=@M.G.T[Idx];
- MatMulPtr(T^.Typ,T^.Data+Int64(E)*T^.Ne[1]*RowBytes(T^.Typ,T^.Ne[0]),T^.Ne[0],T^.Ne[1],X,Y,1,C.W4);
+ MatMulPtr(T^.Typ,T^.Data+Int64(E)*T^.Ne[1]*RowBytes(T^.Typ,T^.Ne[0]),T^.Ne[0],
+   T^.Ne[1],X,Y,1,C.W4);
 End;
 
 { ------------------------------------------------------------------ }
@@ -5197,7 +5488,8 @@ Begin
   For I:=0 to N-1 do Y[T*N+I]:=Y[T*N+I]+B[I];
 End;
 
-Procedure HeadNorm(V:PSingle;NHeads,HeadDim:LongInt;Const W:TSingleArray;Eps:Single);
+Procedure HeadNorm(V:PSingle;NHeads,HeadDim:LongInt;Const
+  W:TSingleArray;Eps:Single);
 Var
  H:LongInt;
 Begin
@@ -5230,14 +5522,17 @@ Begin
  EmbT:=@M.G.T[M.TokEmbd];
  { plongement des jetons }
  For T:=0 to N-1 do Begin
-  DequantRow(EmbT^.Typ,EmbT^.Data+Int64(Toks[T])*RowBytes(EmbT^.Typ,EmbT^.Ne[0]),C.X+T*D,D);
+  DequantRow(EmbT^.Typ,EmbT^.Data+Int64(Toks[T])*RowBytes(EmbT^.Typ,
+    EmbT^.Ne[0]),C.X+T*D,D);
   If M.EmbScale<>1.0 Then For I:=0 to D-1 do C.X[T*D+I]:=C.X[T*D+I]*M.EmbScale;
  End;
  { tables de rotation }
  For T:=0 to N-1 do Begin
-  RopeCacheInit(C,C.RopeCs+T*M.NRot,Pos0+T,C.FreqBase,C.FreqScale,M.NRot,C.ExtFactor,C.AttnFactor,C.Factors);
+  RopeCacheInit(C,C.RopeCs+T*M.NRot,Pos0+T,C.FreqBase,C.FreqScale,M.NRot,
+    C.ExtFactor,C.AttnFactor,C.Factors);
   If C.UseSWA Then
-   RopeCacheInit(C,C.RopeCsS+T*M.NRot,Pos0+T,M.RopeBaseSWA,M.RopeScaleSWA,M.NRot,C.ExtFactor,C.AttnFactor,C.Factors);
+   RopeCacheInit(C,C.RopeCsS+T*M.NRot,Pos0+T,M.RopeBaseSWA,M.RopeScaleSWA,
+     M.NRot,C.ExtFactor,C.AttnFactor,C.Factors);
  End;
  Scale:=M.AttnScale;
  If Scale=0 Then Scale:=1.0/Sqrt(M.HeadK);
@@ -5269,8 +5564,10 @@ Begin
   AddBias(C.Vb,Lay^.Bv,C.VD,N);
   If Lay^.IsSWA and C.UseSWA Then Cs:=C.RopeCsS Else Cs:=C.RopeCs;
   For T:=0 to N-1 do Begin
-   If Length(Lay^.QNorm)>0 Then HeadNorm(C.Q+T*C.QD,M.NHead,M.HeadK,Lay^.QNorm,M.NormEps);
-   If Length(Lay^.KNorm)>0 Then HeadNorm(C.Kb+T*C.KD,M.NHeadKV,M.HeadK,Lay^.KNorm,M.NormEps);
+   If Length(Lay^.QNorm)>0 Then HeadNorm(C.Q+T*C.QD,M.NHead,M.HeadK,Lay^.QNorm,
+     M.NormEps);
+   If Length(Lay^.KNorm)>0 Then HeadNorm(C.Kb+T*C.KD,M.NHeadKV,M.HeadK,
+     Lay^.KNorm,M.NormEps);
    ApplyRope(C.Q+T*C.QD,M.NHead,M.HeadK,Cs+T*M.NRot,M.NRot,Neox);
    ApplyRope(C.Kb+T*C.KD,M.NHeadKV,M.HeadK,Cs+T*M.NRot,M.NRot,Neox);
    Move(C.Kb[T*C.KD],C.KC[L][Int64(Pos0+T)*C.KD],C.KD*4);
@@ -5315,7 +5612,8 @@ Begin
   MatMulT(M,Lay^.Wo,C.AO,C.OB,N,C);
   AddBias(C.OB,Lay^.Bo,D,N);
   If Length(Lay^.PostAttnNorm)>0 Then
-   For T:=0 to N-1 do RMSNorm(C.OB+T*D,@Lay^.PostAttnNorm[0],C.OB+T*D,D,M.NormEps);
+   For T:=0 to N-1 do RMSNorm(C.OB+T*D,@Lay^.PostAttnNorm[0],C.OB+T*D,D,
+     M.NormEps);
   If M.ResidualScale<>1.0 Then
    For T:=0 to N*D-1 do C.OB[T]:=C.OB[T]*M.ResidualScale;
   For T:=0 to N*D-1 do C.X[T]:=C.X[T]+C.OB[T];
@@ -5345,7 +5643,8 @@ Begin
     If Tot<6.103515625e-5 Then Tot:=6.103515625e-5;
     For Sel:=0 to M.NExpertUsed-1 do Begin
      TopW[Sel]:=TopW[Sel]/Tot;
-     If(M.ExpertWScale<>0)and(M.ExpertWScale<>1.0)Then TopW[Sel]:=TopW[Sel]*M.ExpertWScale;
+     If(M.ExpertWScale<>0)and(M.ExpertWScale<>1.0)Then
+       TopW[Sel]:=TopW[Sel]*M.ExpertWScale;
     End;
     For I:=0 to D-1 do C.Acc[I]:=0;
     FF:=M.G.T[Lay^.UpExps].Ne[1];
@@ -5384,7 +5683,8 @@ Begin
     MatMulT(M,Lay^.FfnDown,C.Hid,C.OB,N,C);
    End;
   If Length(Lay^.PostFfnNorm)>0 Then
-   For T:=0 to N-1 do RMSNorm(C.OB+T*D,@Lay^.PostFfnNorm[0],C.OB+T*D,D,M.NormEps);
+   For T:=0 to N-1 do RMSNorm(C.OB+T*D,@Lay^.PostFfnNorm[0],C.OB+T*D,D,
+     M.NormEps);
   If M.ResidualScale<>1.0 Then
    For T:=0 to N*D-1 do C.OB[T]:=C.OB[T]*M.ResidualScale;
   For T:=0 to N*D-1 do C.X[T]:=C.X[T]+C.OB[T];
@@ -5397,7 +5697,8 @@ Begin
  If M.LogitScale<>0 Then
   For I:=0 to M.NVocab-1 do C.Logits[I]:=C.Logits[I]/M.LogitScale;
  If M.FinalSoftCap>0 Then
-  For I:=0 to M.NVocab-1 do C.Logits[I]:=M.FinalSoftCap*FTanh(C.Logits[I]/M.FinalSoftCap);
+  For I:=0 to M.NVocab-1 do
+    C.Logits[I]:=M.FinalSoftCap*FTanh(C.Logits[I]/M.FinalSoftCap);
  If Pos0+N>C.NPast Then C.NPast:=Pos0+N;
 End;
 
@@ -5491,7 +5792,8 @@ Begin
  R:='';
  Inc(JPos);
  While True do Begin
-  If JPos>Length(JSrc)Then Begin JFail:=True;JErr:='chaîne non terminée';Break;End;
+  If JPos>Length(JSrc)Then Begin JFail:=True;JErr:='cha'+#140+'ne non termin'+
+    #130+'e';Break;End;
   C:=JSrc[JPos];
   If C='"' Then Begin Inc(JPos);Break;End;
   If C='\' Then Begin
@@ -5512,8 +5814,10 @@ Begin
      Cp:=LongWord(HexVal(JSrc[JPos+1]))*4096+LongWord(HexVal(JSrc[JPos+2]))*256+
          LongWord(HexVal(JSrc[JPos+3]))*16+LongWord(HexVal(JSrc[JPos+4]));
      Inc(JPos,4);
-     If(Cp>=$D800)and(Cp<=$DBFF)and(JPos+6<=Length(JSrc))and(JSrc[JPos+1]='\')and(JSrc[JPos+2]='u')Then Begin
-      Lo:=LongWord(HexVal(JSrc[JPos+3]))*4096+LongWord(HexVal(JSrc[JPos+4]))*256+
+     If(Cp>=$D800)and(Cp<=$DBFF)and(JPos+6<=Length(JSrc))and(JSrc[JPos+
+       1]='\')and(JSrc[JPos+2]='u')Then Begin
+      Lo:=LongWord(HexVal(JSrc[JPos+3]))*4096+LongWord(HexVal(JSrc[JPos+
+        4]))*256+
           LongWord(HexVal(JSrc[JPos+5]))*16+LongWord(HexVal(JSrc[JPos+6]));
       If(Lo>=$DC00)and(Lo<=$DFFF)Then Begin
        Cp:=$10000+((Cp-$D800)shl 10)+(Lo-$DC00);
@@ -5522,7 +5826,7 @@ Begin
      End;
      R:=R+CpToUtf8(Cp);
     End;
-    Else Begin JFail:=True;JErr:='échappement inconnu';End;
+    Else Begin JFail:=True;JErr:=#130+'chappement inconnu';End;
    End;
    Inc(JPos);
   End
@@ -5553,13 +5857,16 @@ Begin
    V:=JNew(JK_OBJ);
    Inc(JPos);
    JSkipWs;
-   If(JPos<=Length(JSrc))and(JSrc[JPos]='}')Then Begin Inc(JPos);JParseValue:=V;Exit;End;
+   If(JPos<=Length(JSrc))and(JSrc[JPos]='}')Then Begin
+     Inc(JPos);JParseValue:=V;Exit;End;
    While True do Begin
     JSkipWs;
-    If(JPos>Length(JSrc))or(JSrc[JPos]<>'"')Then Begin JFail:=True;JErr:='clé d''objet attendue';Exit;End;
+    If(JPos>Length(JSrc))or(JSrc[JPos]<>'"')Then Begin JFail:=True;JErr:='cl'+
+      #130+' d''objet attendue';Exit;End;
     K:=JParseString;
     JSkipWs;
-    If(JPos>Length(JSrc))or(JSrc[JPos]<>':')Then Begin JFail:=True;JErr:='":" attendu';Exit;End;
+    If(JPos>Length(JSrc))or(JSrc[JPos]<>':')Then Begin
+      JFail:=True;JErr:='":" attendu';Exit;End;
     Inc(JPos);
     E:=JParseValue();
     If JFail Then Exit;
@@ -5576,7 +5883,8 @@ Begin
    V:=JNew(JK_ARR);
    Inc(JPos);
    JSkipWs;
-   If(JPos<=Length(JSrc))and(JSrc[JPos]=']')Then Begin Inc(JPos);JParseValue:=V;Exit;End;
+   If(JPos<=Length(JSrc))and(JSrc[JPos]=']')Then Begin
+     Inc(JPos);JParseValue:=V;Exit;End;
    While True do Begin
     E:=JParseValue();
     If JFail Then Exit;
@@ -5595,21 +5903,25 @@ Begin
    JParseValue:=V;
   End;
   't':Begin
-   If Copy(JSrc,JPos,4)='true' Then Begin V:=JNew(JK_BOOL);V^.B:=True;Inc(JPos,4);JParseValue:=V;End
+   If Copy(JSrc,JPos,4)='true' Then Begin V:=JNew(JK_BOOL);V^.B:=True;Inc(JPos,
+     4);JParseValue:=V;End
    Else JFail:=True;
   End;
   'f':Begin
-   If Copy(JSrc,JPos,5)='false' Then Begin V:=JNew(JK_BOOL);Inc(JPos,5);JParseValue:=V;End
+   If Copy(JSrc,JPos,5)='false' Then Begin V:=JNew(JK_BOOL);Inc(JPos,
+     5);JParseValue:=V;End
    Else JFail:=True;
   End;
   'n':Begin
-   If Copy(JSrc,JPos,4)='null' Then Begin V:=JNew(JK_NULL);Inc(JPos,4);JParseValue:=V;End
+   If Copy(JSrc,JPos,4)='null' Then Begin V:=JNew(JK_NULL);Inc(JPos,
+     4);JParseValue:=V;End
    Else JFail:=True;
   End;
   Else Begin
    St:=JPos;
    IsF:=False;
-   While(JPos<=Length(JSrc))and(JSrc[JPos]in['0'..'9','-','+','.','e','E'])do Begin
+   While(JPos<=Length(JSrc))and(JSrc[JPos]in['0'..'9','-','+','.','e','E'])do
+     Begin
     If JSrc[JPos]in['.','e','E']Then IsF:=True;
     Inc(JPos);
    End;
@@ -5689,7 +6001,8 @@ Begin
   Str(F:0:I,S);
   If Abs(StrToFloatDef(S,0)-F)<=Abs(F)*1.0e-16 Then Break;
  End;
- While(Length(S)>1)and(S[Length(S)]='0')and(Pos('.',S)>0)do Delete(S,Length(S),1);
+ While(Length(S)>1)and(S[Length(S)]='0')and(Pos('.',S)>0)do Delete(S,Length(S),
+   1);
  JFloatStr:=S;
 End;
 
@@ -5768,17 +6081,30 @@ Begin
  SetB(PrimRules[0],'boolean','("true" | "false")','');
  SetB(PrimRules[1],'decimal-part','[0-9]{1,16}','');
  SetB(PrimRules[2],'integral-part','[0] | [1-9] [0-9]{0,15}','');
- SetB(PrimRules[3],'number','("-"? integral-part) ("." decimal-part)? ([eE] [-+]? integral-part)?','integral-part,decimal-part');
+ SetB(PrimRules[3],'number',
+   '("-"? integral-part) ("." decimal-part)? ([eE] [-+]? integral-part)?',
+   'integral-part,decimal-part');
  SetB(PrimRules[4],'integer','("-"? integral-part)','integral-part');
- SetB(PrimRules[5],'value','object | array | string | number | boolean | null','object,array,string,number,boolean,null');
- SetB(PrimRules[6],'object','"{" space ( string ":" space value ("," space string ":" space value)* )? space "}"','string,value');
- SetB(PrimRules[7],'array','"[" space ( value ("," space value)* )? space "]"','value');
- SetB(PrimRules[8],'uuid','"\"" [0-9a-fA-F]{8} "-" [0-9a-fA-F]{4} "-" [0-9a-fA-F]{4} "-" [0-9a-fA-F]{4} "-" [0-9a-fA-F]{12} "\""','');
- SetB(PrimRules[9],'char','[^"\\\x7F\x00-\x1F] | [\\] (["\\bfnrt] | "u" [0-9a-fA-F]{4})','');
+ SetB(PrimRules[5],'value','object | array | string | number | boolean | null',
+   'object,array,string,number,boolean,null');
+ SetB(PrimRules[6],'object',
+   '"{" space ( string ":" space value ("," space string ":" space value)* )? '+
+   'space "}"','string,value');
+ SetB(PrimRules[7],'array','"[" space ( value ("," space value)* )? space "]"',
+   'value');
+ SetB(PrimRules[8],'uuid',
+   '"\"" [0-9a-fA-F]{8} "-" [0-9a-fA-F]{4} "-" [0-9a-fA-F]{4} "-" [0-9a-fA-F]{'+
+   '4} "-" [0-9a-fA-F]{12} "\""','');
+ SetB(PrimRules[9],'char',
+   '[^"\\\x7F\x00-\x1F] | [\\] (["\\bfnrt] | "u" [0-9a-fA-F]{4})','');
  SetB(PrimRules[10],'string','"\"" char* "\""','char');
  SetB(PrimRules[11],'null','"null"','');
- SetB(FmtRules[0],'date','[0-9]{4} "-" ( "0" [1-9] | "1" [0-2] ) "-" ( "0" [1-9] | [1-2] [0-9] | "3" [0-1] )','');
- SetB(FmtRules[1],'time','([01] [0-9] | "2" [0-3]) ":" [0-5] [0-9] ":" [0-5] [0-9] ( "." [0-9]{3} )? ( "Z" | ( "+" | "-" ) ( [01] [0-9] | "2" [0-3] ) ":" [0-5] [0-9] )','');
+ SetB(FmtRules[0],'date',
+   '[0-9]{4} "-" ( "0" [1-9] | "1" [0-2] ) "-" ( "0" [1-9] | [1-2] [0-9] | "3"'+
+   ' [0-1] )','');
+ SetB(FmtRules[1],'time',
+   '([01] [0-9] | "2" [0-3]) ":" [0-5] [0-9] ":" [0-5] [0-9] ( "." [0-9]{3} )?'+
+   ' ( "Z" | ( "+" | "-" ) ( [01] [0-9] | "2" [0-3] ) ":" [0-5] [0-9] )','');
  SetB(FmtRules[2],'date-time','date "T" time','date,time');
  SetB(FmtRules[3],'date-string','"\"" date "\""','date');
  SetB(FmtRules[4],'time-string','"\"" time "\""','time');
@@ -5790,7 +6116,8 @@ Var
  I:LongInt;
 Begin
  FindBuiltin:=True;
- For I:=0 to NPrim-1 do If PrimRules[I].Name=N Then Begin B:=PrimRules[I];Exit;End;
+ For I:=0 to NPrim-1 do If PrimRules[I].Name=N Then Begin
+   B:=PrimRules[I];Exit;End;
  For I:=0 to NFmt-1 do If FmtRules[I].Name=N Then Begin B:=FmtRules[I];Exit;End;
  FindBuiltin:=False;
 End;
@@ -5807,7 +6134,8 @@ Var
  I:LongInt;
 Begin
  RuleIndex:=-1;
- For I:=0 to High(SRules)do If SRules[I].Name=N Then Begin RuleIndex:=I;Exit;End;
+ For I:=0 to High(SRules)do If SRules[I].Name=N Then Begin
+   RuleIndex:=I;Exit;End;
 End;
 
 Procedure SetRule(Const N,R:AnsiString);
@@ -5919,7 +6247,8 @@ Begin
  FormatLiteral:=R+'"';
 End;
 
-Function BuildRepetition(Const Item:AnsiString;MinI,MaxI:LongInt;Const Sep:AnsiString):AnsiString;
+Function BuildRepetition(Const Item:AnsiString;MinI,MaxI:LongInt;Const
+  Sep:AnsiString):AnsiString;
 Var
  HasMax:Boolean;
  R:AnsiString;
@@ -5956,7 +6285,8 @@ Const
  I64Min=Int64($8000000000000000);
  I64Max=Int64($7FFFFFFFFFFFFFFF);
 
-Procedure BuildMinMaxInt(MinV,MaxV:Int64;Var Outp:AnsiString;DecimalsLeft:LongInt;TopLevel:Boolean);
+Procedure BuildMinMaxInt(MinV,MaxV:Int64;Var
+  Outp:AnsiString;DecimalsLeft:LongInt;TopLevel:Boolean);
 Var
  HasMin,HasMax:Boolean;
  LessDec,MinD,MaxD,Digits:LongInt;
@@ -6098,14 +6428,16 @@ Begin
     Len:=Length(MinS);
     C:=MinS[1];
     If C>'1' Then Begin
-     If TopLevel Then DigitRange('1',Chr(Ord(C)-1))Else DigitRange('0',Chr(Ord(C)-1));
+     If TopLevel Then DigitRange('1',Chr(Ord(C)-1))Else DigitRange('0',
+       Chr(Ord(C)-1));
      Outp:=Outp+' ';
      MoreDigits(Len,LessDec);
      Outp:=Outp+' | ';
     End;
     DigitRange(C,C);
     Outp:=Outp+' (';
-    BuildMinMaxInt(StrToIntDef(Copy(MinS,2,Length(MinS)),0),I64Max,Outp,LessDec,False);
+    BuildMinMaxInt(StrToIntDef(Copy(MinS,2,Length(MinS)),0),I64Max,Outp,LessDec,
+      False);
     Outp:=Outp+')';
     If C<'9' Then Begin
      Outp:=Outp+' | ';
@@ -6273,21 +6605,24 @@ Begin
    PatTransform:=JoinSeq;
    Exit;
   End
-  Else If(C='^')or(C='$')Then Begin PatFail(1,'anchor inside the pattern');Break;End
+  Else If(C='^')or(C='$')Then Begin PatFail(1,
+    'anchor inside the pattern');Break;End
   Else If C='[' Then Begin
    Sq:='[';
    Inc(PatI);
    While(PatI<=PatLen)and(PatSub[PatI]<>']')do Begin
     If PatSub[PatI]='\' Then Begin
      EL:=GbnfEscapeLength(PatSub,PatI);
-     If EL=0 Then Begin PatFail(1,'unsupported escape in character class');Break;End;
+     If EL=0 Then Begin PatFail(1,
+       'unsupported escape in character class');Break;End;
      Sq:=Sq+Copy(PatSub,PatI,EL);
      Inc(PatI,EL);
     End
      Else Begin Sq:=Sq+PatSub[PatI];Inc(PatI);End;
    End;
    If PatErr.Kind<>0 Then Break;
-   If PatI>PatLen Then Begin PatFail(2,'unterminated character class');Break;End;
+   If PatI>PatLen Then Begin PatFail(2,
+     'unterminated character class');Break;End;
    Sq:=Sq+']';
    Inc(PatI);
    Push(Sq,False);
@@ -6302,20 +6637,25 @@ Begin
   Else If C='{' Then Begin
    Br:='{';
    Inc(PatI);
-   While(PatI<=PatLen)and(PatSub[PatI]<>'}')do Begin Br:=Br+PatSub[PatI];Inc(PatI);End;
+   While(PatI<=PatLen)and(PatSub[PatI]<>'}')do Begin Br:=Br+
+     PatSub[PatI];Inc(PatI);End;
    If PatI>PatLen Then Begin PatFail(1,'unterminated curly brackets');Break;End;
    Br:=Br+'}';
    Inc(PatI);
    Nums:=SplitStr(Copy(Br,2,Length(Br)-2),',');
    MinT:=0;MaxT:=MaxLongInt;
-   If(Length(Nums)<>1)and(Length(Nums)<>2)Then Begin PatFail(1,'wrong number of values in curly brackets');Break;End;
+   If(Length(Nums)<>1)and(Length(Nums)<>2)Then Begin PatFail(1,
+     'wrong number of values in curly brackets');Break;End;
    If Length(Nums)=1 Then Begin
-    If not ParseInt(Nums[0],MinT)Then Begin PatFail(1,'invalid number in curly brackets');Break;End;
+    If not ParseInt(Nums[0],MinT)Then Begin PatFail(1,
+      'invalid number in curly brackets');Break;End;
     MaxT:=MinT;
    End
     Else Begin
-     If Nums[0]<>'' Then If not ParseInt(Nums[0],MinT)Then Begin PatFail(1,'invalid number in curly brackets');Break;End;
-     If Nums[1]<>'' Then If not ParseInt(Nums[1],MaxT)Then Begin PatFail(1,'invalid number in curly brackets');Break;End;
+     If Nums[0]<>'' Then If not ParseInt(Nums[0],MinT)Then Begin PatFail(1,
+       'invalid number in curly brackets');Break;End;
+     If Nums[1]<>'' Then If not ParseInt(Nums[1],MaxT)Then Begin PatFail(1,
+       'invalid number in curly brackets');Break;End;
     End;
    If NSeq=0 Then Begin PatFail(2,'nothing to repeat');Break;End;
    Sub:=Seq[NSeq-1].S;
@@ -6356,7 +6696,8 @@ Begin
     Else If PatSub[PatI]='"' Then Begin Lit:=Lit+'\"';Inc(PatI);End
     Else Begin
      NonLit:=IsNonLiteral(PatSub[PatI]);
-     If(not NonLit)and((PatI=PatLen)or(Lit='')or(PatSub[PatI+1]='.')or not IsNonLiteral(PatSub[PatI+1]))Then Begin
+     If(not NonLit)and((PatI=PatLen)or(Lit='')or(PatSub[PatI+1]='.')or not
+       IsNonLiteral(PatSub[PatI+1]))Then Begin
       Lit:=Lit+PatSub[PatI];Inc(PatI);
      End
       Else Break;
@@ -6376,8 +6717,11 @@ Var
  R:TLit;
 Begin
  Snap:=Copy(SRules,0,Length(SRules));
- If(Length(Pattern)<2)or(Pattern[1]<>'^')or(Pattern[Length(Pattern)]<>'$')Then Begin
-  AddStr(SWarnings,'pattern '+Pattern+' is not supported (not anchored with ''^'' and ''$''), accepting any string');
+ If(Length(Pattern)<2)or(Pattern[1]<>'^')or(Pattern[Length(Pattern)]<>'$')Then
+   Begin
+  AddStr(SWarnings,'pattern '+Pattern+
+    ' is not supported (not anchored with ''^'' and ''$''), accepting any stri'+
+    'ng');
   VisitPattern:=AddRule(Name,PrimRule('string'));
   Exit;
  End;
@@ -6389,7 +6733,8 @@ Begin
  If(PatErr.Kind=0)and(PatDepth<>0)Then PatFail(2,'unbalanced parentheses');
  If PatErr.Kind=1 Then Begin
   SRules:=Snap;
-  AddStr(SWarnings,'pattern '+Pattern+' is not supported ('+PatErr.Msg+'), accepting any string');
+  AddStr(SWarnings,'pattern '+Pattern+' is not supported ('+PatErr.Msg+
+    '), accepting any string');
   VisitPattern:=AddRule(Name,PrimRule('string'));
   Exit;
  End;
@@ -6532,7 +6877,8 @@ Var
  I:LongInt;
 Begin
  SchemaIsRefBusy:=False;
- For I:=0 to High(SRefsInProgress)do If SRefsInProgress[I]=Ref Then SchemaIsRefBusy:=True;
+ For I:=0 to High(SRefsInProgress)do If SRefsInProgress[I]=Ref Then
+   SchemaIsRefBusy:=True;
 End;
 
 Function ResolveRef(Const Ref:AnsiString):AnsiString;
@@ -6560,7 +6906,8 @@ Begin
  ResolveRef:=RefName;
 End;
 
-Function BuildObjectRule(Const PropNames:TStrArray;Const PropSchemas:Array of PJ;
+Function BuildObjectRule(Const PropNames:TStrArray;Const PropSchemas:Array of
+  PJ;
                          Const Required:TStrArray;Const Name:AnsiString;
                          HasAdd:Boolean;AddSchema:PJ;AddIsAny:Boolean):AnsiString;
 Var
@@ -6575,20 +6922,23 @@ Var
   Q:LongInt;
  Begin
   KvOf:='';
-  For Q:=0 to High(KvNames)do If KvNames[Q].Name=K Then Begin KvOf:=KvNames[Q].Rule;Exit;End;
+  For Q:=0 to High(KvNames)do If KvNames[Q].Name=K Then Begin
+    KvOf:=KvNames[Q].Rule;Exit;End;
  End;
 
  Procedure SetKv(Const K,V:AnsiString);
  Var
   Q:LongInt;
  Begin
-  For Q:=0 to High(KvNames)do If KvNames[Q].Name=K Then Begin KvNames[Q].Rule:=V;Exit;End;
+  For Q:=0 to High(KvNames)do If KvNames[Q].Name=K Then Begin
+    KvNames[Q].Rule:=V;Exit;End;
   Q:=Length(KvNames);
   SetLength(KvNames,Q+1);
   KvNames[Q].Name:=K;KvNames[Q].Rule:=V;
  End;
 
- Function GetRec(Const Ks:TStrArray;First:Integer;FirstIsOpt:Boolean):AnsiString;
+ Function GetRec(Const
+   Ks:TStrArray;First:Integer;FirstIsOpt:Boolean):AnsiString;
  Var
   Res,KvName,CommaRef,K:AnsiString;
   Rest:TStrArray;
@@ -6625,7 +6975,8 @@ Begin
  For I:=0 to High(PropNames)do Begin
   PropRuleName:=SchemaVisit(PropSchemas[I],Pfx+PropNames[I]);
   SetKv(PropNames[I],AddRule(Pfx+PropNames[I]+'-kv',
-        FormatLiteral(JEscapeStr(PropNames[I]))+' space ":" space '+PropRuleName));
+        FormatLiteral(JEscapeStr(PropNames[I]))+' space ":" space '+
+          PropRuleName));
   IsReq:=False;
   For J:=0 to High(Required)do If Required[J]=PropNames[I]Then IsReq:=True;
   If IsReq Then AddStr(ReqProps,PropNames[I])Else AddStr(OptProps,PropNames[I]);
@@ -6689,9 +7040,12 @@ Var
 Begin
  SchemaIsAny:=False;
  If(S=Nil)or(S^.Kind<>JK_OBJ)Then Exit;
- If JHas(S,'$ref')or JHas(S,'oneOf')or JHas(S,'anyOf')or JHas(S,'type')or JHas(S,'const')or
-    JHas(S,'enum')or JHas(S,'properties')or JHas(S,'allOf')or JHas(S,'items')or JHas(S,'prefixItems')or
-    JHas(S,'pattern')or JHas(S,'minLength')or JHas(S,'maxLength')or JHas(S,'format')Then Exit;
+ If JHas(S,'$ref')or JHas(S,'oneOf')or JHas(S,'anyOf')or JHas(S,'type')or
+   JHas(S,'const')or
+    JHas(S,'enum')or JHas(S,'properties')or JHas(S,'allOf')or JHas(S,'items')or
+      JHas(S,'prefixItems')or
+    JHas(S,'pattern')or JHas(S,'minLength')or JHas(S,'maxLength')or JHas(S,
+      'format')Then Exit;
  Ap:=JGet(S,'additionalProperties');
  If(Ap<>Nil)and not JIsTrue(Ap)Then Exit;
  SchemaIsAny:=True;
@@ -6718,7 +7072,8 @@ Begin
  V:=JGet(S,Key);
  If V^.Kind=JK_INT Then GetBound:=V^.I
  Else If V^.Kind=JK_FLOAT Then Begin
-  If RoundUp Then GetBound:=Trunc(FCeil(V^.F))Else GetBound:=Trunc(FFloor(V^.F));
+  If RoundUp Then GetBound:=Trunc(FCeil(V^.F))Else
+    GetBound:=Trunc(FFloor(V^.F));
  End
   Else Begin
    AddStr(SErrors,Key+' must be a number');
@@ -6728,7 +7083,8 @@ End;
 
 Function SchemaVisit(S:PJ;Const Name:AnsiString):AnsiString;
 Var
- RuleName,SubName,TypeName,Key,Rule,ItemRule,Fmt,PrimName,CharRule,Res:AnsiString;
+ RuleName,SubName,TypeName,Key,Rule,ItemRule,Fmt,PrimName,CharRule,
+   Res:AnsiString;
  TV,Alts,Props,Ap,V:PJ;
  EnumKeys:TStrArray;
  EnumCnt:TIntArray;
@@ -6752,7 +7108,8 @@ Var
  Begin
   If Comp=Nil Then Exit;
   If JHas(Comp,'$ref')Then Begin
-   If JGet(Comp,'$ref')^.Kind=JK_STR Then AddComponent(ResolveRefTarget(JGet(Comp,'$ref')^.S),IsReq);
+   If JGet(Comp,'$ref')^.Kind=JK_STR Then
+     AddComponent(ResolveRefTarget(JGet(Comp,'$ref')^.S),IsReq);
    Exit;
   End;
   If JHas(Comp,'enum')and(JGet(Comp,'enum')^.Kind=JK_ARR)Then Begin
@@ -6789,9 +7146,11 @@ Begin
   Exit;
  End;
  If JHas(S,'$ref')Then Begin
-  If JGet(S,'$ref')^.Kind<>JK_STR Then Begin AddStr(SErrors,'$ref must be a string');SchemaVisit:='';Exit;End;
+  If JGet(S,'$ref')^.Kind<>JK_STR Then Begin AddStr(SErrors,
+    '$ref must be a string');SchemaVisit:='';Exit;End;
   If Copy(JGet(S,'$ref')^.S,1,2)<>'#/' Then Begin
-   AddStr(SErrors,'unsupported $ref '+JGet(S,'$ref')^.S+', only references into the same document are supported');
+   AddStr(SErrors,'unsupported $ref '+JGet(S,'$ref')^.S+
+     ', only references into the same document are supported');
    SchemaVisit:='';Exit;
   End;
   SchemaVisit:=AddRule(RuleName,ResolveRef(JGet(S,'$ref')^.S));
@@ -6813,10 +7172,12 @@ Begin
  End;
  TV:=JGet(S,'type');
  If(TV<>Nil)and(TV^.Kind=JK_ARR)Then Begin
-  If Length(TV^.Items)=0 Then Begin AddStr(SErrors,'type must not be empty');SchemaVisit:='';Exit;End;
+  If Length(TV^.Items)=0 Then Begin AddStr(SErrors,
+    'type must not be empty');SchemaVisit:='';Exit;End;
   SetLength(Rules,0);
   For I:=0 to High(TV^.Items)do Begin
-   If TV^.Items[I]^.Kind<>JK_STR Then Begin AddStr(SErrors,'type must be a string or an array of strings');Break;End;
+   If TV^.Items[I]^.Kind<>JK_STR Then Begin AddStr(SErrors,
+     'type must be a string or an array of strings');Break;End;
    If Name='' Then Tmp:='alternative-' Else Tmp:=Name+'-';
    AddStr(Rules,SchemaVisit(CopyObjWithType(S,TV^.Items[I]^.S),Tmp+IStr(I)));
   End;
@@ -6833,12 +7194,14 @@ Begin
    AddStr(SErrors,'enum must be a non-empty array');SchemaVisit:='';Exit;
   End;
   SetLength(Rules,0);
-  For I:=0 to High(Alts^.Items)do AddStr(Rules,FormatLiteral(JDump(Alts^.Items[I])));
+  For I:=0 to High(Alts^.Items)do AddStr(Rules,
+    FormatLiteral(JDump(Alts^.Items[I])));
   SchemaVisit:=AddRule(RuleName,'('+JoinStrs(Rules,' | ')+')');
   Exit;
  End;
  If(TV<>Nil)and(TV^.Kind<>JK_STR)and(TV^.Kind<>JK_NULL)Then Begin
-  AddStr(SErrors,'type must be a string or an array of strings');SchemaVisit:='';Exit;
+  AddStr(SErrors,
+    'type must be a string or an array of strings');SchemaVisit:='';Exit;
  End;
  If(TV<>Nil)and(TV^.Kind=JK_STR)Then TypeName:=TV^.S Else TypeName:='';
  Ap:=JGet(S,'additionalProperties');
@@ -6847,11 +7210,13 @@ Begin
   If HasProps Then TypeName:='object'
   Else If JHas(S,'allOf')Then TypeName:='@allOf'
   Else If JHas(S,'items')or JHas(S,'prefixItems')Then TypeName:='array'
-  Else If JHas(S,'pattern')or JHas(S,'minLength')or JHas(S,'maxLength')or JHas(S,'format')Then TypeName:='string'
+  Else If JHas(S,'pattern')or JHas(S,'minLength')or JHas(S,'maxLength')or
+    JHas(S,'format')Then TypeName:='string'
   Else TypeName:='@any';
  End
   Else If((TypeName='object')and not HasProps)or(TypeName='string')Then Begin
-   If JHas(S,'allOf')and((TypeName='string')or not HasProps)Then TypeName:='@allOf';
+   If JHas(S,'allOf')and((TypeName='string')or not HasProps)Then
+     TypeName:='@allOf';
   End;
  If TypeName='@any' Then Begin
   SchemaVisit:=AddRule(RuleName,PrimRule('value'));
@@ -6867,7 +7232,8 @@ Begin
   For I:=0 to High(Alts^.Items)do Begin
    V:=Alts^.Items[I];
    If JHas(V,'anyOf')Then Begin
-    For J:=0 to High(JGet(V,'anyOf')^.Items)do AddComponent(JGet(V,'anyOf')^.Items[J],False);
+    For J:=0 to High(JGet(V,'anyOf')^.Items)do AddComponent(JGet(V,
+      'anyOf')^.Items[J],False);
    End
     Else AddComponent(V,True);
   End;
@@ -6888,7 +7254,8 @@ Begin
     Exit;
    End;
   End;
-  SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,False,Nil,False));
+  SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,False,Nil,
+    False));
   Exit;
  End;
  If TypeName='object' Then Begin
@@ -6899,7 +7266,8 @@ Begin
   End;
   SetLength(PN,0);SetLength(PS,0);SetLength(Req,0);
   If(Props<>Nil)Then Begin
-   If Props^.Kind<>JK_OBJ Then Begin AddStr(SErrors,'properties must be an object');SchemaVisit:='';Exit;End;
+   If Props^.Kind<>JK_OBJ Then Begin AddStr(SErrors,
+     'properties must be an object');SchemaVisit:='';Exit;End;
    For I:=0 to High(Props^.Keys)do Begin
     AddStr(PN,Props^.Keys[I]);
     SetLength(PS,Length(PN));
@@ -6908,27 +7276,35 @@ Begin
   End;
   V:=JGet(S,'required');
   If(V<>Nil)and(V^.Kind=JK_ARR)Then
-   For I:=0 to High(V^.Items)do If V^.Items[I]^.Kind=JK_STR Then AddStr(Req,V^.Items[I]^.S);
+   For I:=0 to High(V^.Items)do If V^.Items[I]^.Kind=JK_STR Then AddStr(Req,
+     V^.Items[I]^.S);
   If Ap<>Nil Then Begin
    If Ap^.Kind=JK_BOOL Then Begin
-    If Ap^.B Then SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,True,Nil,True))
-             Else SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,False,Nil,False));
+    If Ap^.B Then SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,
+      True,Nil,True))
+             Else SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,
+               False,Nil,False));
    End
     Else If Ap^.Kind=JK_OBJ Then
-     SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,True,Ap,False))
+     SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,True,Ap,
+       False))
     Else Begin
-     AddStr(SErrors,'additionalProperties must be a boolean or a schema');SchemaVisit:='';
+     AddStr(SErrors,
+       'additionalProperties must be a boolean or a schema');SchemaVisit:='';
     End;
   End
    Else Begin
-    If Props=Nil Then SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,True,Nil,True))
-    Else SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,False,Nil,False));
+    If Props=Nil Then SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,
+      Name,True,Nil,True))
+    Else SchemaVisit:=AddRule(RuleName,BuildObjectRule(PN,PS,Req,Name,False,Nil,
+      False));
    End;
   Exit;
  End;
  If TypeName='array' Then Begin
   V:=Nil;
-  If JHas(S,'items')Then Key:='items' Else If JHas(S,'prefixItems')Then Key:='prefixItems' Else Key:='';
+  If JHas(S,'items')Then Key:='items' Else If JHas(S,'prefixItems')Then
+    Key:='prefixItems' Else Key:='';
   If Key<>'' Then V:=JGet(S,Key);
   If SchemaIsAny(V)Then V:=Nil;
   If(V<>Nil)and(V^.Kind=JK_ARR)Then Begin
@@ -6950,18 +7326,22 @@ Begin
   If V=Nil Then ItemRule:=AddRule(SubName+'item',PrimRule('value'))
   Else ItemRule:=SchemaVisit(V,SubName+'item');
   If MaxI<0 Then MaxI:=MaxLongInt;
-  SchemaVisit:=AddRule(RuleName,'"[" space '+BuildRepetition(ItemRule,MinI,MaxI,'"," space')+' space "]"');
+  SchemaVisit:=AddRule(RuleName,'"[" space '+BuildRepetition(ItemRule,MinI,MaxI,
+    '"," space')+' space "]"');
   Exit;
  End;
  If TypeName='string' Then Begin
   If JHas(S,'pattern')Then Begin
-   If JGet(S,'pattern')^.Kind<>JK_STR Then Begin AddStr(SErrors,'pattern must be a string');SchemaVisit:='';Exit;End;
+   If JGet(S,'pattern')^.Kind<>JK_STR Then Begin AddStr(SErrors,
+     'pattern must be a string');SchemaVisit:='';Exit;End;
    SchemaVisit:=VisitPattern(JGet(S,'pattern')^.S,RuleName);
    Exit;
   End;
   Fmt:='';
-  If JHas(S,'format')and(JGet(S,'format')^.Kind=JK_STR)Then Fmt:=JGet(S,'format')^.S;
-  If(Fmt='uuid')or((Length(Fmt)=5)and(Copy(Fmt,1,4)='uuid')and(Fmt[5]in['1'..'5']))Then Begin
+  If JHas(S,'format')and(JGet(S,'format')^.Kind=JK_STR)Then Fmt:=JGet(S,
+    'format')^.S;
+  If(Fmt='uuid')or((Length(Fmt)=5)and(Copy(Fmt,1,
+    4)='uuid')and(Fmt[5]in['1'..'5']))Then Begin
    SchemaVisit:=VisitPrim(RuleName,'uuid');
    Exit;
   End;
@@ -6975,7 +7355,8 @@ Begin
   If(MinL>0)or(MaxL>=0)Then Begin
    CharRule:=PrimRule('char');
    If MaxL<0 Then MaxL:=MaxLongInt;
-   SchemaVisit:=AddRule(RuleName,'"\"" '+BuildRepetition(CharRule,MinL,MaxL,'')+' "\""');
+   SchemaVisit:=AddRule(RuleName,'"\"" '+BuildRepetition(CharRule,MinL,MaxL,'')+
+     ' "\""');
    Exit;
   End;
   SchemaVisit:=VisitPrim(RuleName,'string');
@@ -6984,9 +7365,11 @@ Begin
  If TypeName='integer' Then Begin
   MnV:=I64Min;MxV:=I64Max;
   If JHas(S,'minimum')Then MnV:=GetBound(S,'minimum',True)
-  Else If JHas(S,'exclusiveMinimum')Then MnV:=GetBound(S,'exclusiveMinimum',False)+1;
+  Else If JHas(S,'exclusiveMinimum')Then MnV:=GetBound(S,'exclusiveMinimum',
+    False)+1;
   If JHas(S,'maximum')Then MxV:=GetBound(S,'maximum',False)
-  Else If JHas(S,'exclusiveMaximum')Then MxV:=GetBound(S,'exclusiveMaximum',True)-1;
+  Else If JHas(S,'exclusiveMaximum')Then MxV:=GetBound(S,'exclusiveMaximum',
+    True)-1;
   If(MnV=I64Min)and(MxV=I64Max)Then Begin
    SchemaVisit:=VisitPrim(RuleName,'integer');
    Exit;
@@ -7006,7 +7389,8 @@ Begin
 End;
 
 { Convertit un schema JSON en texte GBNF ; Ok=False en cas d'erreur }
-Function JsonSchemaToGrammar(Const SchemaText:AnsiString;Var Ok:Boolean;Var Err:AnsiString):AnsiString;
+Function JsonSchemaToGrammar(Const SchemaText:AnsiString;Var Ok:Boolean;Var
+  Err:AnsiString):AnsiString;
 Var
  V:PJ;
  I,J:LongInt;
@@ -7017,7 +7401,8 @@ Begin
  V:=JParse(SchemaText);
  If V=Nil Then Begin Err:='JSON schema invalide : '+JErr;Exit;End;
  InitBuiltins;
- SetLength(SRules,0);SetLength(SErrors,0);SetLength(SWarnings,0);SetLength(SRefsInProgress,0);
+ SetLength(SRules,0);SetLength(SErrors,0);SetLength(SWarnings,
+   0);SetLength(SRefsInProgress,0);
  SRoot:=V;SDotAll:=False;
  SetRule('space','| " " | "\n"{1,2} [ \t]{0,20}');
  SchemaVisit(V,'');
@@ -7026,12 +7411,14 @@ Begin
   Exit;
  End;
  If Length(SWarnings)>0 Then
-  LogWrn('WARNING: JSON schema conversion was incomplete: '+JoinStrs(SWarnings,'; ')+#10);
+  LogWrn('WARNING: JSON schema conversion was incomplete: '+JoinStrs(SWarnings,
+    '; ')+#10);
  { tri par nom (comme std::map) }
  For I:=1 to High(SRules)do Begin
   Tmp:=SRules[I];
   J:=I-1;
-  While(J>=0)and(SRules[J].Name>Tmp.Name)do Begin SRules[J+1]:=SRules[J];Dec(J);End;
+  While(J>=0)and(SRules[J].Name>Tmp.Name)do Begin SRules[J+
+    1]:=SRules[J];Dec(J);End;
   SRules[J+1]:=Tmp;
  End;
  R:='';
@@ -7063,7 +7450,8 @@ Type
 
 Const
  GRE_END=0; GRE_ALT=1; GRE_RULE_REF=2; GRE_CHAR=3; GRE_CHAR_NOT=4;
- GRE_CHAR_RNG_UPPER=5; GRE_CHAR_ALT=6; GRE_CHAR_ANY=7; GRE_TOKEN=8; GRE_TOKEN_NOT=9;
+ GRE_CHAR_RNG_UPPER=5; GRE_CHAR_ALT=6; GRE_CHAR_ANY=7; GRE_TOKEN=8;
+   GRE_TOKEN_NOT=9;
  MaxRepetitionThreshold=2000;
 
 Type
@@ -7112,11 +7500,13 @@ Begin
 End;
 
 Function GIsDigit(C:Char):Boolean;Begin GIsDigit:=(C>='0')and(C<='9');End;
-Function GIsWord(C:Char):Boolean;Begin GIsWord:=(C in['a'..'z','A'..'Z','-'])or GIsDigit(C);End;
+Function GIsWord(C:Char):Boolean;Begin GIsWord:=(C in['a'..'z','A'..'Z','-'])or
+  GIsDigit(C);End;
 
 Function GParseSpace(P:LongInt;NewlineOk:Boolean):LongInt;
 Begin
- While(GCh(P)=' ')or(GCh(P)=#9)or(GCh(P)='#')or(NewlineOk and((GCh(P)=#13)or(GCh(P)=#10)))do Begin
+ While(GCh(P)=' ')or(GCh(P)=#9)or(GCh(P)='#')or(NewlineOk
+   and((GCh(P)=#13)or(GCh(P)=#10)))do Begin
   If GCh(P)='#' Then Begin
    While(GCh(P)<>#0)and(GCh(P)<>#13)and(GCh(P)<>#10)do Inc(P);
   End
@@ -7241,7 +7631,8 @@ Begin
  R[N].T:=T;R[N].V:=V;
 End;
 
-Function GParseAlternates(Var G:TGrammar;P:LongInt;Const RuleName:AnsiString;RuleId:LongInt;
+Function GParseAlternates(Var G:TGrammar;P:LongInt;Const
+  RuleName:AnsiString;RuleId:LongInt;
                           Nested:Boolean):LongInt;Forward;
 
 Function GParseToken(P:LongInt;Var TokId:LongWord):LongInt;
@@ -7252,7 +7643,8 @@ Var
  T:TIntArray;
 Begin
  TokId:=0;
- If GCh(P)<>'<' Then Begin GFail('expecting ''<'' at '+Copy(GSrc,P,20));GParseToken:=P;Exit;End;
+ If GCh(P)<>'<' Then Begin GFail('expecting ''<'' at '+Copy(GSrc,P,
+   20));GParseToken:=P;Exit;End;
  Q:=P+1;
  If GCh(Q)='[' Then Begin
   Inc(Q);
@@ -7267,18 +7659,22 @@ Begin
   GParseToken:=Q;
   Exit;
  End;
- If GVocab=Nil Then Begin GFail('no vocab to parse token at '+Copy(GSrc,P,20));GParseToken:=P;Exit;End;
+ If GVocab=Nil Then Begin GFail('no vocab to parse token at '+Copy(GSrc,P,
+   20));GParseToken:=P;Exit;End;
  While(GCh(Q)<>#0)and(GCh(Q)<>'>')do Inc(Q);
- If GCh(Q)<>'>' Then Begin GFail('expecting ''>'' at '+Copy(GSrc,Q,20));GParseToken:=P;Exit;End;
+ If GCh(Q)<>'>' Then Begin GFail('expecting ''>'' at '+Copy(GSrc,Q,
+   20));GParseToken:=P;Exit;End;
  Inc(Q);
  Tx:=Copy(GSrc,P,Q-P);
  T:=VocabTokenize(GVocab^,Tx,False,True);
- If Length(T)<>1 Then Begin GFail('invalid token '''+Tx+'''');GParseToken:=P;Exit;End;
+ If Length(T)<>1 Then Begin GFail('invalid token '''+Tx+
+   '''');GParseToken:=P;Exit;End;
  TokId:=LongWord(T[0]);
  GParseToken:=Q;
 End;
 
-Function GParseSequence(Var G:TGrammar;P:LongInt;Const RuleName:AnsiString;Var Rule:TGRule;
+Function GParseSequence(Var G:TGrammar;P:LongInt;Const RuleName:AnsiString;Var
+  Rule:TGRule;
                         Nested:Boolean):LongInt;
 Var
  LastSymStart:LongInt;
@@ -7316,7 +7712,9 @@ Var
   If(not NoMax_)and(MaxT>0)Then TotalRules:=MaxT
   Else If MinT>0 Then TotalRules:=MinT;
   If NPrevRules*TotalRules>MaxRepetitionThreshold Then Begin
-   GFail('number of rules that are going to be repeated multiplied by the new repetition exceeds sane defaults, please reduce the number of repetitions or rule complexity');
+   GFail('number of rules that are going to be repeated multiplied by the new '+
+     'repetition exceeds sane defaults, please reduce the number of repetition'+
+     's or rule complexity');
    Exit;
   End;
   If MinT=0 Then SetLength(Rule,LastSymStart)
@@ -7407,7 +7805,8 @@ Begin
    LastSymStart:=Length(Rule);
    GPush(Rule,GRE_RULE_REF,SubRuleId);
    If GErr<>'' Then Break;
-   If GCh(Pos_)<>')' Then Begin GFail('expecting '')'' at '+Copy(GSrc,Pos_,20));Break;End;
+   If GCh(Pos_)<>')' Then Begin GFail('expecting '')'' at '+Copy(GSrc,Pos_,
+     20));Break;End;
    Pos_:=GParseSpace(Pos_+1,Nested);
   End
   Else If GCh(Pos_)='.' Then Begin
@@ -7430,7 +7829,8 @@ Begin
   End
   Else If GCh(Pos_)='{' Then Begin
    Pos_:=GParseSpace(Pos_+1,Nested);
-   If not GIsDigit(GCh(Pos_))Then Begin GFail('expecting an int at '+Copy(GSrc,Pos_,20));Break;End;
+   If not GIsDigit(GCh(Pos_))Then Begin GFail('expecting an int at '+Copy(GSrc,
+     Pos_,20));Break;End;
    IntEnd:=GParseInt(Pos_);
    ParseInt(Copy(GSrc,Pos_,IntEnd-Pos_),MinTimes);
    Pos_:=GParseSpace(IntEnd,Nested);
@@ -7446,12 +7846,14 @@ Begin
       ParseInt(Copy(GSrc,Pos_,IntEnd-Pos_),MaxTimes);
       Pos_:=GParseSpace(IntEnd,Nested);
      End;
-     If GCh(Pos_)<>'}' Then Begin GFail('expecting ''}'' at '+Copy(GSrc,Pos_,20));Break;End;
+     If GCh(Pos_)<>'}' Then Begin GFail('expecting ''}'' at '+Copy(GSrc,Pos_,
+       20));Break;End;
      Pos_:=GParseSpace(Pos_+1,Nested);
     End
     Else Begin GFail('expecting '','' at '+Copy(GSrc,Pos_,20));Break;End;
    If MinTimes>MaxRepetitionThreshold Then Begin
-    GFail('number of repetitions exceeds sane defaults, please reduce the number of repetitions');Break;
+    GFail('number of repetitions exceeds sane defaults, please reduce the numb'+
+      'er of repetitions');Break;
    End;
    If(MaxTimes<>-1)and(MaxTimes>MaxRepetitionThreshold)Then MaxTimes:=-1;
    HandleRepetitions(MinTimes,MaxTimes);
@@ -7461,7 +7863,8 @@ Begin
  GParseSequence:=Pos_;
 End;
 
-Function GParseAlternates(Var G:TGrammar;P:LongInt;Const RuleName:AnsiString;RuleId:LongInt;
+Function GParseAlternates(Var G:TGrammar;P:LongInt;Const
+  RuleName:AnsiString;RuleId:LongInt;
                           Nested:Boolean):LongInt;
 Var
  Rule:TGRule;
@@ -7500,7 +7903,8 @@ Begin
   If GCh(Pos_+1)=#10 Then Inc(Pos_,2)Else Inc(Pos_);
  End
   Else If GCh(Pos_)=#10 Then Inc(Pos_)
-  Else If GCh(Pos_)<>#0 Then GFail('expecting newline or end at '+Copy(GSrc,Pos_,20));
+  Else If GCh(Pos_)<>#0 Then GFail('expecting newline or end at '+Copy(GSrc,
+    Pos_,20));
  GParseRule:=GParseSpace(Pos_,True);
 End;
 
@@ -7509,7 +7913,8 @@ Begin
  GIsEndOfSeq:=(R[I].T=GRE_END)or(R[I].T=GRE_ALT);
 End;
 
-Function GDetectLeftRec(Const G:TGrammar;RuleIdx:LongInt;Var Visited,InProgress,MayBeEmpty:TBoolArray):Boolean;
+Function GDetectLeftRec(Const G:TGrammar;RuleIdx:LongInt;Var Visited,InProgress,
+  MayBeEmpty:TBoolArray):Boolean;
 Var
  R:TGRule;
  AtStart,Recurse:Boolean;
@@ -7529,7 +7934,8 @@ Begin
  Recurse:=True;
  For I:=0 to High(R)do Begin
   If(R[I].T=GRE_RULE_REF)and Recurse Then Begin
-   If GDetectLeftRec(G,R[I].V,Visited,InProgress,MayBeEmpty)Then Begin GDetectLeftRec:=True;Exit;End;
+   If GDetectLeftRec(G,R[I].V,Visited,InProgress,MayBeEmpty)Then Begin
+     GDetectLeftRec:=True;Exit;End;
    If not MayBeEmpty[R[I].V]Then Recurse:=False;
   End
    Else If GIsEndOfSeq(R,I)Then Recurse:=True
@@ -7596,7 +8002,8 @@ Function SRule(P:Int64):LongInt;Begin SRule:=LongInt(P shr 32);End;
 Function SElem(P:Int64):LongInt;Begin SElem:=LongInt(P and $FFFFFFFF);End;
 Function SMake(R,E:LongInt):Int64;Begin SMake:=(Int64(R)shl 32)or Int64(E);End;
 
-Procedure GAdvanceStack(Const G:TGrammar;Const Stack:TGStack;Var NewStacks:TGStackList);
+Procedure GAdvanceStack(Const G:TGrammar;Const Stack:TGStack;Var
+  NewStacks:TGStackList);
 Var
  Todo,Seen:TGStackList;
  Cur,Nx:TGStack;
@@ -7641,7 +8048,8 @@ Begin
 End;
 
 { Teste si chr satisfait l'intervalle a la position ; renvoie la position apres }
-Function GMatchChar(Const R:TGRule;E:LongInt;Chr:LongWord;Var After:LongInt):Boolean;
+Function GMatchChar(Const R:TGRule;E:LongInt;Chr:LongWord;Var
+  After:LongInt):Boolean;
 Var
  Found,IsPos:Boolean;
 Begin
@@ -7665,7 +8073,8 @@ Begin
  GMatchChar:=(Found=IsPos);
 End;
 
-Function GMatchPartialChar(Const R:TGRule;E:LongInt;PV:LongWord;PN:LongInt):Boolean;
+Function GMatchPartialChar(Const
+  R:TGRule;E:LongInt;PV:LongWord;PN:LongInt):Boolean;
 Var
  IsPos:Boolean;
  Low,High_:LongWord;
@@ -7680,12 +8089,14 @@ Begin
  End;
  Repeat
   If R[E+1].T=GRE_CHAR_RNG_UPPER Then Begin
-   If(R[E].V<=High_)and(Low<=R[E+1].V)Then Begin GMatchPartialChar:=IsPos;Exit;End;
+   If(R[E].V<=High_)and(Low<=R[E+1].V)Then Begin
+     GMatchPartialChar:=IsPos;Exit;End;
    Inc(E,2);
   End
    Else If R[E].T=GRE_CHAR_ANY Then Begin GMatchPartialChar:=True;Exit;End
    Else Begin
-    If(Low<=R[E].V)and(R[E].V<=High_)Then Begin GMatchPartialChar:=IsPos;Exit;End;
+    If(Low<=R[E].V)and(R[E].V<=High_)Then Begin
+      GMatchPartialChar:=IsPos;Exit;End;
     Inc(E);
    End;
  Until R[E].T<>GRE_CHAR_ALT;
@@ -7698,7 +8109,8 @@ Begin
  Else GMatchToken:=V<>LongWord(Tok);
 End;
 
-Procedure GAcceptChr(Const G:TGrammar;Const Stack:TGStack;Chr:LongWord;Var NewStacks:TGStackList);
+Procedure GAcceptChr(Const G:TGrammar;Const Stack:TGStack;Chr:LongWord;Var
+  NewStacks:TGStackList);
 Var
  Pos_:Int64;
  R,E,After:LongInt;
@@ -7730,9 +8142,11 @@ Begin
  GPoolPtr:=GCpPool[Off];
 End;
 
-Function GRejectCands(Const G:TGrammar;Const Stacks:TGStackList;Const Cands:TGCandArr):TGCandArr;Forward;
+Function GRejectCands(Const G:TGrammar;Const Stacks:TGStackList;Const
+  Cands:TGCandArr):TGCandArr;Forward;
 
-Function GRejectForStack(Const G:TGrammar;Const Stack:TGStack;Const Cands:TGCandArr):TGCandArr;
+Function GRejectForStack(Const G:TGrammar;Const Stack:TGStack;Const
+  Cands:TGCandArr):TGCandArr;
 Var
  Rej,Next,NextRej:TGCandArr;
  NR,NN:LongInt;
@@ -7770,7 +8184,8 @@ Begin
    If GCpPool[Tk.CP]=0 Then Begin
     If Tk.PN<>0 Then AddRej(Tk);
    End
-    Else If not GMatchToken(G.Rules[R][E].T,G.Rules[R][E].V,Tk.Id)Then AddRej(Tk);
+    Else If not GMatchToken(G.Rules[R][E].T,G.Rules[R][E].V,Tk.Id)Then
+      AddRej(Tk);
   End;
   SetLength(Rej,NR);
   GRejectForStack:=Rej;
@@ -7782,7 +8197,8 @@ Begin
   Tk:=Cands[I];
   Cp:=GCpPool[Tk.CP];
   If Cp=0 Then Begin
-   If(Tk.PN<>0)and not GMatchPartialChar(G.Rules[R],E,Tk.PV,Tk.PN)Then AddRej(Tk);
+   If(Tk.PN<>0)and not GMatchPartialChar(G.Rules[R],E,Tk.PV,Tk.PN)Then
+     AddRej(Tk);
   End
    Else If GMatchChar(G.Rules[R],E,Cp,After)Then Begin
     Next[NN]:=Tk;Inc(Next[NN].CP);Inc(NN);
@@ -7792,7 +8208,8 @@ Begin
  SetLength(Next,NN);
  GMatchChar(G.Rules[R],E,0,After);
  StackAfter:=StackPopTop(Stack);
- If not GIsEndOfSeq(G.Rules[R],After)Then StackAfter:=StackPush(StackAfter,SMake(R,After));
+ If not GIsEndOfSeq(G.Rules[R],After)Then StackAfter:=StackPush(StackAfter,
+   SMake(R,After));
  SetLength(NextStacks,0);
  GAdvanceStack(G,StackAfter,NextStacks);
  NextRej:=GRejectCands(G,NextStacks,Next);
@@ -7805,7 +8222,8 @@ Begin
  GRejectForStack:=Rej;
 End;
 
-Function GRejectCands(Const G:TGrammar;Const Stacks:TGStackList;Const Cands:TGCandArr):TGCandArr;
+Function GRejectCands(Const G:TGrammar;Const Stacks:TGStackList;Const
+  Cands:TGCandArr):TGCandArr;
 Var
  Rej:TGCandArr;
  I:LongInt;
@@ -7868,7 +8286,8 @@ Begin
  PV:=Value;PN:=NRemain;
 End;
 
-Function GrammarInit(Const Src,RootName:AnsiString;Var V:TVocab;Var G:TGrammar):Boolean;
+Function GrammarInit(Const Src,RootName:AnsiString;Var V:TVocab;Var
+  G:TGrammar):Boolean;
 Var
  Pos_,I,J,RootId,Start:LongInt;
  Visited,InProg,MayEmpty:TBoolArray;
@@ -7894,7 +8313,8 @@ Begin
     If G.Rules[I][J].T=GRE_RULE_REF Then Begin
      If(G.Rules[I][J].V>=LongWord(Length(G.Rules)))or(Length(G.Rules[G.Rules[I][J].V])=0)Then Begin
       SymName:='?';
-      If G.Rules[I][J].V<LongWord(Length(G.SymNames))Then SymName:=G.SymNames[G.Rules[I][J].V];
+      If G.Rules[I][J].V<LongWord(Length(G.SymNames))Then
+        SymName:=G.SymNames[G.Rules[I][J].V];
       GFail('Undefined rule identifier '''+SymName+'''');
      End;
     End;
@@ -7912,12 +8332,15 @@ Begin
   Exit;
  End;
  G.Root:=RootId;
- SetLength(Visited,Length(G.Rules));SetLength(InProg,Length(G.Rules));SetLength(MayEmpty,Length(G.Rules));
- For I:=0 to High(G.Rules)do Begin Visited[I]:=False;InProg[I]:=False;MayEmpty[I]:=False;End;
+ SetLength(Visited,Length(G.Rules));SetLength(InProg,
+   Length(G.Rules));SetLength(MayEmpty,Length(G.Rules));
+ For I:=0 to High(G.Rules)do Begin
+   Visited[I]:=False;InProg[I]:=False;MayEmpty[I]:=False;End;
  For I:=0 to High(G.Rules)do Begin
   If Visited[I]Then Continue;
   If GDetectLeftRec(G,I,Visited,InProg,MayEmpty)Then Begin
-   LogErr('grammaire non supportée : récursion à gauche détectée pour le non-terminal à l''indice '+IStr(I)+#10);
+   LogErr('grammaire non support'+#130+'e : r'+#130+'cursion '+#133+' gauche d'+
+     #130+'tect'+#130+'e pour le non-terminal '+#133+' l''indice '+IStr(I)+#10);
    Exit;
   End;
  End;
@@ -7954,7 +8377,8 @@ Var
  Id:LongInt;
 Begin
  AllowEog:=False;
- For I:=0 to High(G.Stacks)do If Length(G.Stacks[I])=0 Then Begin AllowEog:=True;Break;End;
+ For I:=0 to High(G.Stacks)do If Length(G.Stacks[I])=0 Then Begin
+   AllowEog:=True;Break;End;
  GCpPoolN:=0;
  SetLength(GCpPool,1024);
  SetLength(Cands,C.N);
@@ -8044,7 +8468,8 @@ Var
  I:LongInt;
 Begin
  GrammarIsComplete:=False;
- For I:=0 to High(G.Stacks)do If Length(G.Stacks[I])=0 Then GrammarIsComplete:=True;
+ For I:=0 to High(G.Stacks)do If Length(G.Stacks[I])=0 Then
+   GrammarIsComplete:=True;
 End;
 
 { ------------------------------------------------------------------ }
@@ -8118,12 +8543,14 @@ Begin
  P.PenaltyLastN:=64;P.PenaltyRepeat:=1.0;P.PenaltyFreq:=0;P.PenaltyPresent:=0;
  P.DryMult:=0;P.DryBase:=1.75;P.DryAllowed:=2;P.DryLastN:=64;
  SetLength(P.DryBreakers,0);
- AddStr(P.DryBreakers,#10);AddStr(P.DryBreakers,':');AddStr(P.DryBreakers,'"');AddStr(P.DryBreakers,'*');
+ AddStr(P.DryBreakers,#10);AddStr(P.DryBreakers,':');AddStr(P.DryBreakers,
+   '"');AddStr(P.DryBreakers,'*');
  P.Mirostat:=0;P.MiroTau:=5.0;P.MiroEta:=0.1;
  P.AdaptiveTarget:=-1;P.AdaptiveDecay:=0.9;
  P.MinKeep:=0;
  SetLength(P.Order,0);
- AddInt(P.Order,SK_PENALTIES);AddInt(P.Order,SK_DRY);AddInt(P.Order,SK_TOPNSIGMA);
+ AddInt(P.Order,SK_PENALTIES);AddInt(P.Order,SK_DRY);AddInt(P.Order,
+   SK_TOPNSIGMA);
  AddInt(P.Order,SK_TOPK);AddInt(P.Order,SK_TYPP);AddInt(P.Order,SK_TOPP);
  AddInt(P.Order,SK_MINP);AddInt(P.Order,SK_XTC);AddInt(P.Order,SK_TEMP);
  SetLength(P.Bias,0);
@@ -8199,7 +8626,8 @@ Begin
    P:=HN;Inc(HN);
    While P>0 do Begin
     Ch:=(P-1)shr 1;
-    If CandBefore(Heap[Ch],Heap[P])Then Begin T:=Heap[Ch];Heap[Ch]:=Heap[P];Heap[P]:=T;P:=Ch;End
+    If CandBefore(Heap[Ch],Heap[P])Then Begin
+      T:=Heap[Ch];Heap[Ch]:=Heap[P];Heap[P]:=T;P:=Ch;End
     Else Break;
    End;
   End
@@ -8210,7 +8638,8 @@ Begin
      Ch:=2*P+1;
      If Ch>=HN Then Break;
      If(Ch+1<HN)and CandBefore(Heap[Ch],Heap[Ch+1])Then Inc(Ch);
-     If CandBefore(Heap[P],Heap[Ch])Then Begin T:=Heap[P];Heap[P]:=Heap[Ch];Heap[Ch]:=T;P:=Ch;End
+     If CandBefore(Heap[P],Heap[Ch])Then Begin
+       T:=Heap[P];Heap[P]:=Heap[Ch];Heap[Ch]:=T;P:=Ch;End
      Else Break;
     End;
    End;
@@ -8302,7 +8731,8 @@ Begin
   If(K>0)and(K>=MinKeep)Then Begin
    SetLength(Tmp,K);
    K:=0;
-   For I:=0 to C.N-1 do If C.D[I].Logit>=MinL Then Begin Tmp[K]:=C.D[I];Inc(K);End;
+   For I:=0 to C.N-1 do If C.D[I].Logit>=MinL Then Begin
+     Tmp[K]:=C.D[I];Inc(K);End;
    For I:=0 to K-1 do C.D[I]:=Tmp[I];
    C.N:=K;
    Applied:=True;
@@ -8341,7 +8771,8 @@ Begin
  { tri par insertion/fusion simplifie : tri a bulles evite -> tri par insertion sur indices (stable) }
  For I:=1 to C.N-1 do Begin
   T:=Idx[I];J:=I-1;
-  While(J>=0)and(Shifted[Idx[J]]>Shifted[T])do Begin Idx[J+1]:=Idx[J];Dec(J);End;
+  While(J>=0)and(Shifted[Idx[J]]>Shifted[T])do Begin Idx[J+
+    1]:=Idx[J];Dec(J);End;
   Idx[J+1]:=T;
  End;
  Cum:=0;Last:=C.N;
@@ -8444,7 +8875,8 @@ Begin
   If Cnt<=0 Then Continue;
   If C.D[I].Logit<=0 Then C.D[I].Logit:=C.D[I].Logit*S.P.PenaltyRepeat
                      Else C.D[I].Logit:=C.D[I].Logit/S.P.PenaltyRepeat;
-  C.D[I].Logit:=C.D[I].Logit-(Cnt*S.P.PenaltyFreq+Ord(Cnt>0)*S.P.PenaltyPresent);
+  C.D[I].Logit:=C.D[I].Logit-(Cnt*S.P.PenaltyFreq+
+    Ord(Cnt>0)*S.P.PenaltyPresent);
  End;
  C.Sorted:=False;
 End;
@@ -8456,7 +8888,8 @@ End;
 
 Procedure ApplyDry(Var C:TCandSet;Var S:TSampler);
 Var
- LastN,RepLimit,I,J,K,Off,Best,SeqLen,LongestMatch,N,Lt,Rt,P,RightPart,Last_,RepeatLen:LongInt;
+ LastN,RepLimit,I,J,K,Off,Best,SeqLen,LongestMatch,N,Lt,Rt,P,RightPart,Last_,
+   RepeatLen:LongInt;
  RepCount:TIntArray;
  MaxTokRepeat:Array of LongInt;       { par identifiant de jeton, 0 = absent }
  Match:Boolean;
@@ -8483,7 +8916,8 @@ Begin
    If(SeqLen>LongestMatch)and(SeqLen<=I)Then Begin
     Match:=True;
     For Off:=0 to SeqLen-1 do
-     If S.DryBr[J].Tail[Off]<>DryRat(S,I-Off-1)Then Begin Match:=False;Break;End;
+     If S.DryBr[J].Tail[Off]<>DryRat(S,I-Off-1)Then Begin
+       Match:=False;Break;End;
     If Match Then LongestMatch:=SeqLen;
    End;
   End;
@@ -8676,7 +9110,8 @@ Begin
        For J:=0 to High(S.DryBr)do
         If(S.DryBr[J].Head=T)and(Length(S.DryBr[J].Tail)=Length(Toks))Then Begin
          Found:=True;
-         For M_:=0 to High(Toks)do If S.DryBr[J].Tail[M_]<>Toks[M_]Then Found:=False;
+         For M_:=0 to High(Toks)do If S.DryBr[J].Tail[M_]<>Toks[M_]Then
+           Found:=False;
          If Found Then Break;
         End;
        If not Found Then Begin
@@ -8708,14 +9143,15 @@ Begin
  S.AdaptiveTargetCur:=S.P.AdaptiveTarget;
 End;
 
-Function SamplerInit(Var S:TSampler;Var V:TVocab;Const P:TSampParams;NVocab:LongInt):Boolean;
+Function SamplerInit(Var S:TSampler;Var V:TVocab;Const
+  P:TSampParams;NVocab:LongInt):Boolean;
 Var
  I:LongInt;
 Begin
  S.P:=P;
  S.NVocab:=NVocab;
  If(S.P.PenaltyRepeat<=0)Then Begin
-  LogErr('erreur : penalty_repeat doit être > 0'+#10);
+  LogErr('erreur : penalty_repeat doit '+#136+'tre > 0'+#10);
   SamplerInit:=False;Exit;
  End;
  SetLength(S.PenCnt,NVocab);
@@ -8727,7 +9163,7 @@ Begin
  S.HasGrammar:=False;
  If S.P.Grammar<>'' Then Begin
   If not GrammarInit(S.P.Grammar,'root',V,S.Gram)Then Begin
-   LogErr('erreur : échec de l''analyse de la grammaire'+#10);
+   LogErr('erreur : '+#130+'chec de l''analyse de la grammaire'+#10);
    SamplerInit:=False;Exit;
   End;
   S.HasGrammar:=True;
@@ -8735,7 +9171,8 @@ Begin
  SamplerInit:=True;
 End;
 
-Procedure SamplerAccept(Var S:TSampler;Var V:TVocab;Tok:LongInt;AcceptGrammar:Boolean);
+Procedure SamplerAccept(Var S:TSampler;Var
+  V:TVocab;Tok:LongInt;AcceptGrammar:Boolean);
 Var
  Old,N:LongInt;
 Begin
@@ -8840,7 +9277,8 @@ Begin
  SamplerSetCands(S,Logits);
  GrammarApply(S.Gram,V,S.Cands);
  Valid:=False;
- For I:=0 to S.Cands.N-1 do If S.Cands.D[I].Logit>NegInf/2 Then Begin Valid:=True;Break;End;
+ For I:=0 to S.Cands.N-1 do If S.Cands.D[I].Logit>NegInf/2 Then Begin
+   Valid:=True;Break;End;
  If not Valid Then Begin SamplerSample:=-1;Exit;End;
  SamplerRunChain(S);
  If S.Cands.Selected<0 Then Begin SamplerSample:=-1;Exit;End;
@@ -8860,11 +9298,16 @@ Type
 Const
  NBuiltinTpl=49;
  BuiltinTplNames:Array[0..NBuiltinTpl-1]of AnsiString=(
-  'bailing','bailing-think','bailing2','chatglm3','chatglm4','chatml','command-r','deepseek','deepseek-ocr',
-  'deepseek2','deepseek3','exaone-moe','exaone3','exaone4','falcon3','gemma','gigachat','glmedge','gpt-oss',
-  'granite','granite-4.0','granite-4.1','grok-2','hunyuan-dense','hunyuan-moe','hunyuan-vl','kimi-k2','llama2',
-  'llama2-sys','llama2-sys-bos','llama2-sys-strip','llama3','llama4','megrez','minicpm','mistral-v1','mistral-v3',
-  'mistral-v3-tekken','mistral-v7','mistral-v7-tekken','monarch','openchat','orion','pangu-embedded','phi3','phi4',
+  'bailing','bailing-think','bailing2','chatglm3','chatglm4','chatml',
+    'command-r','deepseek','deepseek-ocr',
+  'deepseek2','deepseek3','exaone-moe','exaone3','exaone4','falcon3','gemma',
+    'gigachat','glmedge','gpt-oss',
+  'granite','granite-4.0','granite-4.1','grok-2','hunyuan-dense','hunyuan-moe',
+    'hunyuan-vl','kimi-k2','llama2',
+  'llama2-sys','llama2-sys-bos','llama2-sys-strip','llama3','llama4','megrez',
+    'minicpm','mistral-v1','mistral-v3',
+  'mistral-v3-tekken','mistral-v7','mistral-v7-tekken','monarch','openchat',
+    'orion','pangu-embedded','phi3','phi4',
   'rwkv-world','seed_oss','smolvlm');
 
 Function IsBuiltinTemplate(Const N:AnsiString):Boolean;
@@ -8872,8 +9315,10 @@ Var
  I:LongInt;
 Begin
  IsBuiltinTemplate:=False;
- For I:=0 to NBuiltinTpl-1 do If BuiltinTplNames[I]=N Then IsBuiltinTemplate:=True;
- If(N='vicuna')or(N='vicuna-orca')or(N='zephyr')or(N='yandex')or(N='solar-open')Then IsBuiltinTemplate:=True;
+ For I:=0 to NBuiltinTpl-1 do If BuiltinTplNames[I]=N Then
+   IsBuiltinTemplate:=True;
+ If(N='vicuna')or(N='vicuna-orca')or(N='zephyr')or(N='yandex')or(N='solar-ope'+
+   'n')Then IsBuiltinTemplate:=True;
 End;
 
 Function ChatTemplateList:AnsiString;
@@ -8884,7 +9329,8 @@ Var
 Begin
  SetLength(L,0);
  For I:=0 to NBuiltinTpl-1 do AddStr(L,BuiltinTplNames[I]);
- AddStr(L,'solar-open');AddStr(L,'vicuna');AddStr(L,'vicuna-orca');AddStr(L,'yandex');AddStr(L,'zephyr');
+ AddStr(L,'solar-open');AddStr(L,'vicuna');AddStr(L,'vicuna-orca');AddStr(L,
+   'yandex');AddStr(L,'zephyr');
  For I:=1 to High(L)do Begin
   T:=L[I];J:=I-1;
   While(J>=0)and(L[J]>T)do Begin L[J+1]:=L[J];Dec(J);End;
@@ -8927,50 +9373,73 @@ Begin
   Else If C('</s>')Then ChatTemplateDetect:='falcon3'
   Else ChatTemplateDetect:='glmedge';
  End
- Else If C('<|{{ item[''role''] }}|>')and C('<|begin_of_image|>')Then ChatTemplateDetect:='glmedge'
+ Else If C('<|{{ item[''role''] }}|>')and C('<|begin_of_image|>')Then
+   ChatTemplateDetect:='glmedge'
  Else If C('<|user|>')and C('<|endoftext|>')Then ChatTemplateDetect:='zephyr'
  Else If C('bos_token + message[''role'']')Then ChatTemplateDetect:='monarch'
  Else If C('<start_of_turn>')Then ChatTemplateDetect:='gemma'
  Else If C('''\n\nAssistant: '' + eos_token')Then ChatTemplateDetect:='orion'
  Else If C('GPT4 Correct ')Then ChatTemplateDetect:='openchat'
  Else If C('USER: ')and C('ASSISTANT: ')Then Begin
-  If C('SYSTEM: ')Then ChatTemplateDetect:='vicuna-orca' Else ChatTemplateDetect:='vicuna';
+  If C('SYSTEM: ')Then ChatTemplateDetect:='vicuna-orca' Else
+    ChatTemplateDetect:='vicuna';
  End
- Else If C('### Instruction:')and C('<|EOT|>')Then ChatTemplateDetect:='deepseek'
- Else If C('<|START_OF_TURN_TOKEN|>')and C('<|USER_TOKEN|>')Then ChatTemplateDetect:='command-r'
- Else If C('<|start_header_id|>')and C('<|end_header_id|>')Then ChatTemplateDetect:='llama3'
+ Else If C('### Instruction:')and C('<|EOT|>')Then
+   ChatTemplateDetect:='deepseek'
+ Else If C('<|START_OF_TURN_TOKEN|>')and C('<|USER_TOKEN|>')Then
+   ChatTemplateDetect:='command-r'
+ Else If C('<|start_header_id|>')and C('<|end_header_id|>')Then
+   ChatTemplateDetect:='llama3'
  Else If C('[gMASK]sop')Then ChatTemplateDetect:='chatglm3'
  Else If C('<用户>')Then ChatTemplateDetect:='minicpm'
- Else If C('''Assistant: '' + message[''content''] + eos_token')Then ChatTemplateDetect:='deepseek2'
- Else If C('<｜Assistant｜>')and C('<｜User｜>')and C('<｜end▁of▁sentence｜>')Then ChatTemplateDetect:='deepseek3'
+ Else If C('''Assistant: '' + message[''content''] + eos_token')Then
+   ChatTemplateDetect:='deepseek2'
+ Else If C('<｜Assistant｜>')and C('<｜User｜>')and C('<｜end▁of▁sentence｜>')Then
+   ChatTemplateDetect:='deepseek3'
  Else If C('[|system|]')and C('[|assistant|]')and C('[|endofturn|]')Then Begin
-  If C('[|tool|]')Then ChatTemplateDetect:='exaone4' Else ChatTemplateDetect:='exaone3';
+  If C('[|tool|]')Then ChatTemplateDetect:='exaone4' Else
+    ChatTemplateDetect:='exaone3';
  End
- Else If C('rwkv-world')or C('{{- ''User: '' + message[''content'']|trim + ''\n\n'' -}}')Then ChatTemplateDetect:='rwkv-world'
+ Else If C('rwkv-world')or
+   C('{{- ''User: '' + message[''content'']|trim + ''\n\n'' -}}')Then
+   ChatTemplateDetect:='rwkv-world'
  Else If C('<|start_of_role|>')Then Begin
   If C('<tool_call>')or C('<tools>')Then Begin
-   If C('g4_default_system_message')Then ChatTemplateDetect:='granite-4.0' Else ChatTemplateDetect:='granite-4.1';
+   If C('g4_default_system_message')Then ChatTemplateDetect:='granite-4.0' Else
+     ChatTemplateDetect:='granite-4.1';
   End
    Else ChatTemplateDetect:='granite';
  End
- Else If C('message[''role''] + additional_special_tokens[0] + message[''content''] + additional_special_tokens[1]')Then
+ Else If
+   C('message[''role''] + additional_special_tokens[0] + message[''content''] '+
+   '+ additional_special_tokens[1]')Then
   ChatTemplateDetect:='gigachat'
  Else If C('<|role_start|>')Then ChatTemplateDetect:='megrez'
  Else If C(' Ассистент:')Then ChatTemplateDetect:='yandex'
- Else If C('<role>ASSISTANT</role>')and C('''HUMAN''')Then ChatTemplateDetect:='bailing'
- Else If C('<role>ASSISTANT</role>')and C('"HUMAN"')and C('<think>')Then ChatTemplateDetect:='bailing-think'
- Else If C('<role>ASSISTANT</role>')and C('<role>HUMAN</role>')and C('<|role_end|>')Then ChatTemplateDetect:='bailing2'
- Else If C('<|header_start|>')and C('<|header_end|>')Then ChatTemplateDetect:='llama4'
+ Else If C('<role>ASSISTANT</role>')and C('''HUMAN''')Then
+   ChatTemplateDetect:='bailing'
+ Else If C('<role>ASSISTANT</role>')and C('"HUMAN"')and C('<think>')Then
+   ChatTemplateDetect:='bailing-think'
+ Else If C('<role>ASSISTANT</role>')and C('<role>HUMAN</role>')and
+   C('<|role_end|>')Then ChatTemplateDetect:='bailing2'
+ Else If C('<|header_start|>')and C('<|header_end|>')Then
+   ChatTemplateDetect:='llama4'
  Else If C('<|endofuserprompt|>')Then ChatTemplateDetect:='dots1'
- Else If C('<|extra_0|>')and C('<|extra_4|>')Then ChatTemplateDetect:='hunyuan-moe'
+ Else If C('<|extra_0|>')and C('<|extra_4|>')Then
+   ChatTemplateDetect:='hunyuan-moe'
  Else If C('<|start|>')and C('<|channel|>')Then ChatTemplateDetect:='gpt-oss'
- Else If C('<｜hy_Assistant｜>')and C('<｜hy_begin▁of▁sentence｜>')Then ChatTemplateDetect:='hunyuan-vl'
- Else If C('<｜hy_Assistant｜>')and C('<｜hy_place▁holder▁no▁3｜>')Then ChatTemplateDetect:='hunyuan-dense'
- Else If C('<|im_assistant|>assistant<|im_middle|>')Then ChatTemplateDetect:='kimi-k2'
+ Else If C('<｜hy_Assistant｜>')and C('<｜hy_begin▁of▁sentence｜>')Then
+   ChatTemplateDetect:='hunyuan-vl'
+ Else If C('<｜hy_Assistant｜>')and C('<｜hy_place▁holder▁no▁3｜>')Then
+   ChatTemplateDetect:='hunyuan-dense'
+ Else If C('<|im_assistant|>assistant<|im_middle|>')Then
+   ChatTemplateDetect:='kimi-k2'
  Else If C('<seed:bos>')Then ChatTemplateDetect:='seed_oss'
- Else If C('''Assistant: ''  + message[''content''] + ''<|separator|>')Then ChatTemplateDetect:='grok-2'
+ Else If C('''Assistant: ''  + message[''content''] + ''<|separator|>')Then
+   ChatTemplateDetect:='grok-2'
  Else If C('[unused9]系统：[unused10]')Then ChatTemplateDetect:='pangu-embedded'
- Else If C('<|begin|>')and C('<|end|>')and C('<|content|>')Then ChatTemplateDetect:='solar-open';
+ Else If C('<|begin|>')and C('<|end|>')and C('<|content|>')Then
+   ChatTemplateDetect:='solar-open';
 End;
 
 Function UpFirst(Const S:AnsiString):AnsiString;
@@ -8978,7 +9447,8 @@ Begin
  If S='' Then UpFirst:=S Else UpFirst:=UpStr(Copy(S,1,1))+Copy(S,2,Length(S));
 End;
 
-Function ChatTemplateApply(Const Tpl:AnsiString;Const Chat:TChatMsgs;AddAss:Boolean;Var Dest:AnsiString):Boolean;
+Function ChatTemplateApply(Const Tpl:AnsiString;Const
+  Chat:TChatMsgs;AddAss:Boolean;Var Dest:AnsiString):Boolean;
 Var
  SS:AnsiString;
  I:LongInt;
@@ -8990,19 +9460,22 @@ Begin
  SS:='';
  ChatTemplateApply:=True;
  If Tpl='chatml' Then Begin
-  For I:=0 to High(Chat)do SS:=SS+'<|im_start|>'+Chat[I].Role+#10+Chat[I].Content+'<|im_end|>'#10;
+  For I:=0 to High(Chat)do SS:=SS+'<|im_start|>'+Chat[I].Role+#10+
+    Chat[I].Content+'<|im_end|>'#10;
   If AddAss Then SS:=SS+'<|im_start|>assistant'#10;
  End
  Else If(Tpl='mistral-v7')or(Tpl='mistral-v7-tekken')Then Begin
   If Tpl='mistral-v7' Then Trail:=' ' Else Trail:='';
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;Content:=Chat[I].Content;
-   If Role='system' Then SS:=SS+'[SYSTEM_PROMPT]'+Trail+Content+'[/SYSTEM_PROMPT]'
+   If Role='system' Then SS:=SS+'[SYSTEM_PROMPT]'+Trail+Content+
+     '[/SYSTEM_PROMPT]'
    Else If Role='user' Then SS:=SS+'[INST]'+Trail+Content+'[/INST]'
    Else SS:=SS+Trail+Content+'</s>';
   End;
  End
- Else If(Tpl='mistral-v1')or(Tpl='mistral-v3')or(Tpl='mistral-v3-tekken')Then Begin
+ Else If(Tpl='mistral-v1')or(Tpl='mistral-v3')or(Tpl='mistral-v3-tekken')Then
+   Begin
   If Tpl='mistral-v1' Then Lead:=' ' Else Lead:='';
   If Tpl='mistral-v3-tekken' Then Trail:='' Else Trail:=' ';
   TrimAsst:=Tpl='mistral-v3';
@@ -9013,19 +9486,23 @@ Begin
    If Role='system' Then SS:=SS+Content+#10#10
    Else If Role='user' Then SS:=SS+Content+Lead+'[/INST]'
    Else Begin
-    If TrimAsst Then SS:=SS+Trail+TrimS(Content)+'</s>' Else SS:=SS+Trail+Content+'</s>';
+    If TrimAsst Then SS:=SS+Trail+TrimS(Content)+'</s>' Else SS:=SS+Trail+
+      Content+'</s>';
     Inside:=False;
    End;
   End;
  End
- Else If(Tpl='llama2')or(Tpl='llama2-sys')or(Tpl='llama2-sys-bos')or(Tpl='llama2-sys-strip')Then Begin
+ Else
+   If(Tpl='llama2')or(Tpl='llama2-sys')or(Tpl='llama2-sys-bos')or(Tpl='llama2-'+
+   'sys-strip')Then Begin
   SupportSys:=Tpl<>'llama2';
   BosInside:=Tpl='llama2-sys-bos';
   StripMsg:=Tpl='llama2-sys-strip';
   Inside:=True;
   SS:='[INST] ';
   For I:=0 to High(Chat)do Begin
-   If StripMsg Then Content:=TrimS(Chat[I].Content)Else Content:=Chat[I].Content;
+   If StripMsg Then Content:=TrimS(Chat[I].Content)Else
+     Content:=Chat[I].Content;
    Role:=Chat[I].Role;
    If not Inside Then Begin
     Inside:=True;
@@ -9040,11 +9517,13 @@ Begin
   End;
  End
  Else If Tpl='phi3' Then Begin
-  For I:=0 to High(Chat)do SS:=SS+'<|'+Chat[I].Role+'|>'#10+Chat[I].Content+'<|end|>'#10;
+  For I:=0 to High(Chat)do SS:=SS+'<|'+Chat[I].Role+'|>'#10+Chat[I].Content+
+    '<|end|>'#10;
   If AddAss Then SS:=SS+'<|assistant|>'#10;
  End
  Else If Tpl='phi4' Then Begin
-  For I:=0 to High(Chat)do SS:=SS+'<|im_start|>'+Chat[I].Role+'<|im_sep|>'+Chat[I].Content+'<|im_end|>';
+  For I:=0 to High(Chat)do SS:=SS+'<|im_start|>'+Chat[I].Role+'<|im_sep|>'+
+    Chat[I].Content+'<|im_end|>';
   If AddAss Then SS:=SS+'<|im_start|>assistant<|im_sep|>';
  End
  Else If Tpl='falcon3' Then Begin
@@ -9052,7 +9531,8 @@ Begin
   If AddAss Then SS:=SS+'<|assistant|>'#10;
  End
  Else If Tpl='zephyr' Then Begin
-  For I:=0 to High(Chat)do SS:=SS+'<|'+Chat[I].Role+'|>'#10+Chat[I].Content+'<|endoftext|>'#10;
+  For I:=0 to High(Chat)do SS:=SS+'<|'+Chat[I].Role+'|>'#10+Chat[I].Content+
+    '<|endoftext|>'#10;
   If AddAss Then SS:=SS+'<|assistant|>'#10;
  End
  Else If Tpl='monarch' Then Begin
@@ -9066,10 +9546,12 @@ Begin
   SysPrompt:='';
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If Role='system' Then Begin SysPrompt:=SysPrompt+TrimS(Chat[I].Content);Continue;End;
+   If Role='system' Then Begin SysPrompt:=SysPrompt+
+     TrimS(Chat[I].Content);Continue;End;
    If Role='assistant' Then Role:='model';
    SS:=SS+'<start_of_turn>'+Role+#10;
-   If(SysPrompt<>'')and(Role<>'model')Then Begin SS:=SS+SysPrompt+#10#10;SysPrompt:='';End;
+   If(SysPrompt<>'')and(Role<>'model')Then Begin SS:=SS+SysPrompt+
+     #10#10;SysPrompt:='';End;
    SS:=SS+TrimS(Chat[I].Content)+'<end_of_turn>'#10;
   End;
   If AddAss Then SS:=SS+'<start_of_turn>model'#10;
@@ -9091,7 +9573,8 @@ Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
    If Role='system' Then SS:=SS+Chat[I].Content+'<|end_of_turn|>'
-   Else SS:=SS+'GPT4 Correct '+UpFirst(Role)+': '+Chat[I].Content+'<|end_of_turn|>';
+   Else SS:=SS+'GPT4 Correct '+UpFirst(Role)+': '+Chat[I].Content+
+     '<|end_of_turn|>';
   End;
   If AddAss Then SS:=SS+'GPT4 Correct Assistant:';
  End
@@ -9112,22 +9595,28 @@ Begin
    Role:=Chat[I].Role;
    If Role='system' Then SS:=SS+Chat[I].Content
    Else If Role='user' Then SS:=SS+'### Instruction:'#10+Chat[I].Content+#10
-   Else If Role='assistant' Then SS:=SS+'### Response:'#10+Chat[I].Content+#10'<|EOT|>'#10;
+   Else If Role='assistant' Then SS:=SS+'### Response:'#10+Chat[I].Content+
+     #10'<|EOT|>'#10;
   End;
   If AddAss Then SS:=SS+'### Response:'#10;
  End
  Else If Tpl='command-r' Then Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If Role='system' Then SS:=SS+'<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>'+TrimS(Chat[I].Content)+'<|END_OF_TURN_TOKEN|>'
-   Else If Role='user' Then SS:=SS+'<|START_OF_TURN_TOKEN|><|USER_TOKEN|>'+TrimS(Chat[I].Content)+'<|END_OF_TURN_TOKEN|>'
-   Else If Role='assistant' Then SS:=SS+'<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>'+TrimS(Chat[I].Content)+'<|END_OF_TURN_TOKEN|>';
+   If Role='system' Then SS:=SS+'<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>'+
+     TrimS(Chat[I].Content)+'<|END_OF_TURN_TOKEN|>'
+   Else If Role='user' Then SS:=SS+'<|START_OF_TURN_TOKEN|><|USER_TOKEN|>'+
+     TrimS(Chat[I].Content)+'<|END_OF_TURN_TOKEN|>'
+   Else If Role='assistant' Then SS:=SS+
+     '<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>'+TrimS(Chat[I].Content)+
+     '<|END_OF_TURN_TOKEN|>';
   End;
   If AddAss Then SS:=SS+'<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>';
  End
  Else If Tpl='llama3' Then Begin
   For I:=0 to High(Chat)do
-   SS:=SS+'<|start_header_id|>'+Chat[I].Role+'<|end_header_id|>'#10#10+TrimS(Chat[I].Content)+'<|eot_id|>';
+   SS:=SS+'<|start_header_id|>'+Chat[I].Role+'<|end_header_id|>'#10#10+
+     TrimS(Chat[I].Content)+'<|eot_id|>';
   If AddAss Then SS:=SS+'<|start_header_id|>assistant<|end_header_id|>'#10#10;
  End
  Else If Tpl='chatglm3' Then Begin
@@ -9155,7 +9644,8 @@ Begin
    Role:=Chat[I].Role;
    If Role='system' Then SS:=SS+Chat[I].Content+#10#10
    Else If Role='user' Then SS:=SS+'User: '+Chat[I].Content+#10#10
-   Else If Role='assistant' Then SS:=SS+'Assistant: '+Chat[I].Content+'<｜end▁of▁sentence｜>';
+   Else If Role='assistant' Then SS:=SS+'Assistant: '+Chat[I].Content+
+     '<｜end▁of▁sentence｜>';
   End;
   If AddAss Then SS:=SS+'Assistant:';
  End
@@ -9164,7 +9654,8 @@ Begin
    Role:=Chat[I].Role;
    If Role='system' Then SS:=SS+Chat[I].Content+#10#10
    Else If Role='user' Then SS:=SS+'<｜User｜>'+Chat[I].Content
-   Else If Role='assistant' Then SS:=SS+'<｜Assistant｜>'+Chat[I].Content+'<｜end▁of▁sentence｜>';
+   Else If Role='assistant' Then SS:=SS+'<｜Assistant｜>'+Chat[I].Content+
+     '<｜end▁of▁sentence｜>';
   End;
   If AddAss Then SS:=SS+'<｜Assistant｜>';
  End
@@ -9174,10 +9665,13 @@ Begin
  Else If(Tpl='exaone3')or(Tpl='exaone4')Then Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If Role='system' Then SS:=SS+'[|system|]'+TrimS(Chat[I].Content)+'[|endofturn|]'#10
+   If Role='system' Then SS:=SS+'[|system|]'+TrimS(Chat[I].Content)+
+     '[|endofturn|]'#10
    Else If Role='user' Then SS:=SS+'[|user|]'+TrimS(Chat[I].Content)+#10
-   Else If Role='assistant' Then SS:=SS+'[|assistant|]'+TrimS(Chat[I].Content)+'[|endofturn|]'#10
-   Else If(Role='tool')and(Tpl='exaone4')Then SS:=SS+'[|tool|]'+TrimS(Chat[I].Content)+'[|endofturn|]'#10;
+   Else If Role='assistant' Then SS:=SS+'[|assistant|]'+TrimS(Chat[I].Content)+
+     '[|endofturn|]'#10
+   Else If(Role='tool')and(Tpl='exaone4')Then SS:=SS+'[|tool|]'+
+     TrimS(Chat[I].Content)+'[|endofturn|]'#10;
   End;
   If AddAss Then SS:=SS+'[|assistant|]';
  End
@@ -9197,7 +9691,8 @@ Begin
     SS:=SS+'User: '+TrimS(Chat[I].Content)+#10#10;
     If I=High(Chat)Then SS:=SS+'Assistant:';
    End
-   Else If Role='assistant' Then SS:=SS+'Assistant: '+TrimS(Chat[I].Content)+#10#10;
+   Else If Role='assistant' Then SS:=SS+'Assistant: '+TrimS(Chat[I].Content)+
+     #10#10;
   End;
  End
  Else If(Tpl='granite')or(Tpl='granite-4.0')or(Tpl='granite-4.1')Then Begin
@@ -9208,7 +9703,8 @@ Begin
     If Role='assistant_tool_call' Then SS:=SS+'<|tool_call|>';
    End
     Else Begin
-     If Role='assistant_tool_call' Then SS:=SS+'<|start_of_role|>assistant<|end_of_role|><|tool_call|>'
+     If Role='assistant_tool_call' Then SS:=SS+
+       '<|start_of_role|>assistant<|end_of_role|><|tool_call|>'
      Else SS:=SS+'<|start_of_role|>'+Role+'<|end_of_role|>';
     End;
    SS:=SS+Chat[I].Content+'<|end_of_text|>'#10;
@@ -9220,13 +9716,16 @@ Begin
   If HasSys Then SS:='<s>'+Chat[0].Content+'<|message_sep|>' Else SS:='<s>';
   For I:=Ord(HasSys)to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If Role='user' Then SS:=SS+'user<|role_sep|>'+Chat[I].Content+'<|message_sep|>available functions<|role_sep|>[]<|message_sep|>'
-   Else If Role='assistant' Then SS:=SS+'assistant<|role_sep|>'+Chat[I].Content+'<|message_sep|>';
+   If Role='user' Then SS:=SS+'user<|role_sep|>'+Chat[I].Content+
+     '<|message_sep|>available functions<|role_sep|>[]<|message_sep|>'
+   Else If Role='assistant' Then SS:=SS+'assistant<|role_sep|>'+Chat[I].Content+
+     '<|message_sep|>';
   End;
   If AddAss Then SS:=SS+'assistant<|role_sep|>';
  End
  Else If Tpl='megrez' Then Begin
-  For I:=0 to High(Chat)do SS:=SS+'<|role_start|>'+Chat[I].Role+'<|role_end|>'+Chat[I].Content+'<|turn_end|>';
+  For I:=0 to High(Chat)do SS:=SS+'<|role_start|>'+Chat[I].Role+'<|role_end|>'+
+    Chat[I].Content+'<|turn_end|>';
   If AddAss Then SS:=SS+'<|role_start|>assistant<|role_end|>';
  End
  Else If Tpl='yandex' Then Begin
@@ -9260,7 +9759,8 @@ Begin
  End
  Else If Tpl='llama4' Then Begin
   For I:=0 to High(Chat)do
-   SS:=SS+'<|header_start|>'+Chat[I].Role+'<|header_end|>'#10#10+TrimS(Chat[I].Content)+'<|eot|>';
+   SS:=SS+'<|header_start|>'+Chat[I].Role+'<|header_end|>'#10#10+
+     TrimS(Chat[I].Content)+'<|eot|>';
   If AddAss Then SS:=SS+'<|header_start|>assistant<|header_end|>'#10#10;
  End
  Else If Tpl='smolvlm' Then Begin
@@ -9268,7 +9768,8 @@ Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
    If Role='system' Then SS:=SS+Chat[I].Content+#10#10
-   Else If Role='user' Then SS:=SS+'User: '+Chat[I].Content+'<end_of_utterance>'#10
+   Else If Role='user' Then SS:=SS+'User: '+Chat[I].Content+
+     '<end_of_utterance>'#10
    Else SS:=SS+'Assistant: '+Chat[I].Content+'<end_of_utterance>'#10;
   End;
   If AddAss Then SS:=SS+'Assistant:';
@@ -9277,7 +9778,8 @@ Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
    If Role='system' Then SS:=SS+'<|system|>'+Chat[I].Content+'<|endofsystem|>'
-   Else If Role='user' Then SS:=SS+'<|userprompt|>'+Chat[I].Content+'<|endofuserprompt|>'
+   Else If Role='user' Then SS:=SS+'<|userprompt|>'+Chat[I].Content+
+     '<|endofuserprompt|>'
    Else SS:=SS+'<|response|>'+Chat[I].Content+'<|endofresponse|>';
   End;
   If AddAss Then SS:=SS+'<|response|>';
@@ -9301,16 +9803,20 @@ Begin
  Else If Tpl='hunyuan-dense' Then Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If(I=0)and(Role='system')Then SS:=SS+Chat[I].Content+'<｜hy_place▁holder▁no▁3｜>';
-   If Role='assistant' Then SS:=SS+'<｜hy_Assistant｜>'+Chat[I].Content+'<｜hy_place▁holder▁no▁2｜>'
-   Else If Role='user' Then SS:=SS+'<｜hy_User｜>'+Chat[I].Content+'<｜hy_Assistant｜>';
+   If(I=0)and(Role='system')Then SS:=SS+Chat[I].Content+
+     '<｜hy_place▁holder▁no▁3｜>';
+   If Role='assistant' Then SS:=SS+'<｜hy_Assistant｜>'+Chat[I].Content+
+     '<｜hy_place▁holder▁no▁2｜>'
+   Else If Role='user' Then SS:=SS+'<｜hy_User｜>'+Chat[I].Content+
+     '<｜hy_Assistant｜>';
   End;
  End
  Else If Tpl='hunyuan-vl' Then Begin
   SS:='<｜hy_begin▁of▁sentence｜>';
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If(I=0)and(Role='system')Then Begin SS:=SS+Chat[I].Content+'<｜hy_place▁holder▁no▁3｜>';Continue;End;
+   If(I=0)and(Role='system')Then Begin SS:=SS+Chat[I].Content+
+     '<｜hy_place▁holder▁no▁3｜>';Continue;End;
    If Role='user' Then SS:=SS+Chat[I].Content+'<｜hy_User｜>'
    Else If Role='assistant' Then SS:=SS+Chat[I].Content+'<｜hy_Assistant｜>';
   End;
@@ -9329,7 +9835,8 @@ Begin
  Else If Tpl='seed_oss' Then Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If Role='assistant' Then SS:=SS+'<seed:bos>'+Role+#10+TrimS(Chat[I].Content)+'<seed:eos>'
+   If Role='assistant' Then SS:=SS+'<seed:bos>'+Role+#10+TrimS(Chat[I].Content)+
+     '<seed:eos>'
    Else SS:=SS+'<seed:bos>'+Role+#10+Chat[I].Content+'<seed:eos>';
   End;
   If AddAss Then SS:=SS+'<seed:bos>assistant'#10;
@@ -9337,9 +9844,12 @@ Begin
  Else If Tpl='grok-2' Then Begin
   For I:=0 to High(Chat)do Begin
    Role:=Chat[I].Role;
-   If Role='system' Then SS:=SS+'System: '+TrimS(Chat[I].Content)+'<|separator|>'#10#10
-   Else If Role='user' Then SS:=SS+'Human: '+TrimS(Chat[I].Content)+'<|separator|>'#10#10
-   Else If Role='assistant' Then SS:=SS+'Assistant: '+Chat[I].Content+'<|separator|>'#10#10;
+   If Role='system' Then SS:=SS+'System: '+TrimS(Chat[I].Content)+
+     '<|separator|>'#10#10
+   Else If Role='user' Then SS:=SS+'Human: '+TrimS(Chat[I].Content)+
+     '<|separator|>'#10#10
+   Else If Role='assistant' Then SS:=SS+'Assistant: '+Chat[I].Content+
+     '<|separator|>'#10#10;
   End;
   If AddAss Then SS:=SS+'Assistant:';
  End
@@ -9356,7 +9866,8 @@ Begin
   If AddAss Then SS:=SS+'[unused9]助手：';
  End
  Else If Tpl='solar-open' Then Begin
-  For I:=0 to High(Chat)do SS:=SS+'<|begin|>'+Chat[I].Role+'<|content|>'+Chat[I].Content+'<|end|>';
+  For I:=0 to High(Chat)do SS:=SS+'<|begin|>'+Chat[I].Role+'<|content|>'+
+    Chat[I].Content+'<|end|>';
   If AddAss Then SS:=SS+'<|begin|>assistant';
  End
  Else ChatTemplateApply:=False;
@@ -9368,23 +9879,36 @@ End;
 { ------------------------------------------------------------------ }
 
 {$IFDEF WINDOWS}
-Function GetStdHandle(nStdHandle:LongWord):PtrUInt;stdcall;external 'kernel32.dll' name 'GetStdHandle';
-Function GetConsoleMode(hConsole:PtrUInt;Var Mode:LongWord):LongInt;stdcall;external 'kernel32.dll' name 'GetConsoleMode';
-Function SetConsoleMode(hConsole:PtrUInt;Mode:LongWord):LongInt;stdcall;external 'kernel32.dll' name 'SetConsoleMode';
-Function SetConsoleOutputCP(CP:LongWord):LongInt;stdcall;external 'kernel32.dll' name 'SetConsoleOutputCP';
-Function SetConsoleCP(CP:LongWord):LongInt;stdcall;external 'kernel32.dll' name 'SetConsoleCP';
-Function GetFileType(hFile:PtrUInt):LongWord;stdcall;external 'kernel32.dll' name 'GetFileType';
+Function GetStdHandle(nStdHandle:LongWord):PtrUInt;stdcall;external
+  'kernel32.dll' name 'GetStdHandle';
+Function GetConsoleMode(hConsole:PtrUInt;Var
+  Mode:LongWord):LongInt;stdcall;external 'kernel32.dll' name 'GetConsoleMode';
+Function
+  SetConsoleMode(hConsole:PtrUInt;Mode:LongWord):LongInt;stdcall;external
+  'kernel32.dll' name 'SetConsoleMode';
+Function SetConsoleOutputCP(CP:LongWord):LongInt;stdcall;external
+  'kernel32.dll' name 'SetConsoleOutputCP';
+Function SetConsoleCP(CP:LongWord):LongInt;stdcall;external 'kernel32.dll' name
+  'SetConsoleCP';
+Function GetFileType(hFile:PtrUInt):LongWord;stdcall;external 'kernel32.dll'
+  name 'GetFileType';
 
-Function InternetOpenA(Agent:PChar;AccessType:LongWord;Proxy,Bypass:PChar;Flags:LongWord):Pointer;
+Function InternetOpenA(Agent:PChar;AccessType:LongWord;Proxy,
+  Bypass:PChar;Flags:LongWord):Pointer;
  stdcall;external 'wininet.dll' name 'InternetOpenA';
-Function InternetOpenUrlA(H:Pointer;Url,Headers:PChar;HeadersLen:LongWord;Flags:LongWord;Ctx:PtrUInt):Pointer;
+Function InternetOpenUrlA(H:Pointer;Url,
+  Headers:PChar;HeadersLen:LongWord;Flags:LongWord;Ctx:PtrUInt):Pointer;
  stdcall;external 'wininet.dll' name 'InternetOpenUrlA';
-Function InternetReadFile(H:Pointer;Buf:Pointer;ToRead:LongWord;Var Got:LongWord):LongInt;
+Function InternetReadFile(H:Pointer;Buf:Pointer;ToRead:LongWord;Var
+  Got:LongWord):LongInt;
  stdcall;external 'wininet.dll' name 'InternetReadFile';
-Function InternetCloseHandle(H:Pointer):LongInt;stdcall;external 'wininet.dll' name 'InternetCloseHandle';
-Function HttpQueryInfoA(H:Pointer;InfoLevel:LongWord;Buf:Pointer;Var BufLen:LongWord;Index:Pointer):LongInt;
+Function InternetCloseHandle(H:Pointer):LongInt;stdcall;external 'wininet.dll'
+  name 'InternetCloseHandle';
+Function HttpQueryInfoA(H:Pointer;InfoLevel:LongWord;Buf:Pointer;Var
+  BufLen:LongWord;Index:Pointer):LongInt;
  stdcall;external 'wininet.dll' name 'HttpQueryInfoA';
-Function InternetSetOptionA(H:Pointer;Opt:LongWord;Buf:Pointer;BufLen:LongWord):LongInt;
+Function
+  InternetSetOptionA(H:Pointer;Opt:LongWord;Buf:Pointer;BufLen:LongWord):LongInt;
  stdcall;external 'wininet.dll' name 'InternetSetOptionA';
 {$ELSE}
  {$IFDEF UNIX}
@@ -9426,19 +9950,98 @@ End;
  {$ENDIF}
 {$ENDIF}
 
+{$IFDEF WINDOWS}
+Function GetConsoleOutputCP:LongWord;stdcall;external 'kernel32.dll' name
+  'GetConsoleOutputCP';
+Function GetConsoleCP:LongWord;stdcall;external 'kernel32.dll' name
+  'GetConsoleCP';
+
+Var
+ SavedOutCP,SavedInCP:LongWord;
+ OldExitProc:Pointer;
+
+{ remet la page de codes d'origine de la console a la fin du programme }
+Procedure RestoreConsole;
+Begin
+ ExitProc:=OldExitProc;
+ SetConsoleOutputCP(SavedOutCP);
+ SetConsoleCP(SavedInCP);
+End;
+
+Function MultiByteToWideChar(CP,
+  Flags:LongWord;S:PChar;N:LongInt;W:PWideChar;WN:LongInt):LongInt;
+ stdcall;external 'kernel32.dll' name 'MultiByteToWideChar';
+Function WideCharToMultiByte(CP,
+  Flags:LongWord;W:PWideChar;WN:LongInt;S:PChar;N:LongInt;Def:PChar;Used:Pointer):LongInt;
+ stdcall;external 'kernel32.dll' name 'WideCharToMultiByte';
+
+Function IsValidUtf8(Const S:AnsiString):Boolean;
+Var
+ I,N,C,Need,K:LongInt;
+Begin
+ IsValidUtf8:=False;
+ I:=1;N:=Length(S);
+ While I<=N do Begin
+  C:=Ord(S[I]);
+  Need:=0;
+  If C>=$80 Then Begin
+   If(C>=$C2)and(C<=$DF)Then Need:=1
+    Else If(C>=$E0)and(C<=$EF)Then Need:=2
+    Else If(C>=$F0)and(C<=$F4)Then Need:=3
+    Else Exit;
+   If I+Need>N Then Exit;
+   For K:=1 to Need do If(Ord(S[I+K])and $C0)<>$80 Then Exit;
+  End;
+  Inc(I,Need+1);
+ End;
+ IsValidUtf8:=True;
+End;
+
+{ argument de la ligne de commande en UTF-8 (Windows le fournit en page ANSI) }
+Function ArgStr(I:LongInt):AnsiString;
+Var
+ S:AnsiString;
+ W:Array of Word;
+ N,M:LongInt;
+Begin
+ S:=ParamStr(I);
+ ArgStr:=S;
+ If IsValidUtf8(S)Then Exit;
+ SetLength(W,Length(S)+1);
+ N:=MultiByteToWideChar(0,0,PChar(S),Length(S),PWideChar(@W[0]),Length(S)+1);
+ If N<=0 Then Exit;
+ M:=WideCharToMultiByte(65001,0,PWideChar(@W[0]),N,Nil,0,Nil,Nil);
+ If M<=0 Then Exit;
+ SetLength(S,M);
+ WideCharToMultiByte(65001,0,PWideChar(@W[0]),N,PChar(S),M,Nil,Nil);
+ ArgStr:=S;
+End;
+{$ELSE}
+Function ArgStr(I:LongInt):AnsiString;
+Begin
+ ArgStr:=ParamStr(I);
+End;
+{$ENDIF}
+
 Procedure InitConsole;
 {$IFDEF WINDOWS}
 Var
  H:PtrUInt;
  Mode:LongWord;
 Begin
+ SavedOutCP:=GetConsoleOutputCP;
+ SavedInCP:=GetConsoleCP;
  SetConsoleOutputCP(65001);
  SetConsoleCP(65001);
+ OldExitProc:=ExitProc;
+ ExitProc:=@RestoreConsole;
  H:=GetStdHandle(LongWord(-11));
  If GetConsoleMode(H,Mode)<>0 Then SetConsoleMode(H,Mode or 4);
+ InstallUtf8Output;
 End;
 {$ELSE}
 Begin
+ InstallUtf8Output;
 End;
 {$ENDIF}
 
@@ -9482,7 +10085,8 @@ Begin
 End;
 
 {$IFDEF WINDOWS}
-Function HttpOpen(Const Url,Token:AnsiString;From:Int64;Var Status:LongInt;Var ContentLen:Int64;Var Sess:Pointer):Pointer;
+Function HttpOpen(Const Url,Token:AnsiString;From:Int64;Var Status:LongInt;Var
+  ContentLen:Int64;Var Sess:Pointer):Pointer;
 Var
  Hdr:AnsiString;
  Flags:LongWord;
@@ -9510,12 +10114,14 @@ Begin
  If HttpQueryInfoA(H,19 or $20000000,@Buf,L,Nil)<>0 Then Status:=Buf;
  FillChar(SBuf,SizeOf(SBuf),0);
  L:=SizeOf(SBuf)-1;
- If HttpQueryInfoA(H,5,@SBuf[0],L,Nil)<>0 Then Val(AnsiString(PChar(@SBuf[0])),ContentLen,Code);
+ If HttpQueryInfoA(H,5,@SBuf[0],L,Nil)<>0 Then Val(AnsiString(PChar(@SBuf[0])),
+   ContentLen,Code);
  HttpOpen:=H;
 End;
 {$ENDIF}
 
-Function HttpGetString(Const Url,Token:AnsiString;Var Body:AnsiString;Var Status:LongInt):Boolean;
+Function HttpGetString(Const Url,Token:AnsiString;Var Body:AnsiString;Var
+  Status:LongInt):Boolean;
 {$IFDEF WINDOWS}
 Var
  H,Sess:Pointer;
@@ -9548,7 +10154,8 @@ Begin
 End;
 {$ENDIF}
 
-Function HttpDownload(Const Url,Token,Dest:AnsiString;Var Err:AnsiString):Boolean;
+Function HttpDownload(Const Url,Token,Dest:AnsiString;Var
+  Err:AnsiString):Boolean;
 {$IFDEF WINDOWS}
 Const
  MaxTries=10;
@@ -9574,7 +10181,8 @@ Begin
  If IOResult=0 Then Begin
   Done:=FileSize(F);
   Close(F);
-  If Done>0 Then Write(StdErr,'reprise du t'+#130+'l'+#130+'chargement '+#133+' '+HumanBytes(Done)+#10);
+  If Done>0 Then Write(StdErr,'reprise du t'+#130+'l'+#130+'chargement '+#133+
+    ' '+HumanBytes(Done)+#10);
  End;
  Fin:=False;Fatal:=False;Try_:=0;
  While(not Fin)and(not Fatal)and(Try_<MaxTries)do Begin
@@ -9582,25 +10190,31 @@ Begin
   If Try_>1 Then Begin
    Wait:=Try_*2;
    if Wait>20 Then Wait:=20;
-   Write(StdErr,#10'nouvelle tentative '+IStr(Try_)+'/'+IStr(MaxTries)+' dans '+IStr(Wait)+' s ('+Err+')'#10);
+   Write(StdErr,#10'nouvelle tentative '+IStr(Try_)+'/'+IStr(MaxTries)+' dans '+
+     IStr(Wait)+' s ('+Err+')'#10);
    Flush(StdErr);
    WinSleep(LongWord(Wait)*1000);
   End;
   Err:='';
   H:=HttpOpen(Url,Token,Done,Status,Cl,Sess);
-  If H=Nil Then Begin Err:=#144+'chec de la connexion '+#133+' '+Url;Continue;End;
+  If H=Nil Then Begin Err:=#144+'chec de la connexion '+#133+' '+
+    Url;Continue;End;
   If Status=416 Then Begin
    { le fichier partiel est deja complet ou invalide }
    InternetCloseHandle(H);InternetCloseHandle(Sess);
-   If Total>0 Then Fin:=(Done=Total) Else Begin Done:=0;Assign(F,Tmp);Erase(F);If IOResult<>0 Then;End;
-   If not Fin Then Err:='plage refus'+#130+'e par le serveur, red'+#130+'marrage';
+   If Total>0 Then Fin:=(Done=Total) Else Begin Done:=0;Assign(F,
+     Tmp);Erase(F);If IOResult<>0 Then;End;
+   If not Fin Then Err:='plage refus'+#130+'e par le serveur, red'+#130+
+     'marrage';
    Continue;
   End;
   If(Status<200)or(Status>=300)Then Begin
-   Err:='le serveur a r'+#130+'pondu avec le code HTTP '+IStr(Status)+' pour '+Url;
+   Err:='le serveur a r'+#130+'pondu avec le code HTTP '+IStr(Status)+' pour '+
+     Url;
    InternetCloseHandle(H);InternetCloseHandle(Sess);
    { les erreurs 4xx (hors 408/429) ne se corrigent pas en reessayant }
-   If(Status>=400)and(Status<500)and(Status<>408)and(Status<>429)Then Fatal:=True;
+   If(Status>=400)and(Status<500)and(Status<>408)and(Status<>429)Then
+     Fatal:=True;
    Continue;
   End;
   Assign(F,Tmp);
@@ -9623,7 +10237,8 @@ Begin
   LastPc:=-1;
   Repeat
    Got:=0;
-   If InternetReadFile(H,@Buf[0],SizeOf(Buf),Got)=0 Then Begin Err:='erreur de lecture réseau';Break;End;
+   If InternetReadFile(H,@Buf[0],SizeOf(Buf),Got)=0 Then Begin
+     Err:='erreur de lecture r'+#130+'seau';Break;End;
    If Got>0 Then Begin
     BlockWrite(F,Buf[0],Got);
     Inc(Done,Got);
@@ -9631,7 +10246,8 @@ Begin
      Pc:=(Done*100)div Total;
      If Pc<>LastPc Then Begin
       LastPc:=Pc;
-      Write(StdErr,#13'T'+#130+'l'+#130+'chargement de '+PathLastPart(Dest)+' : '+IStr(Pc)+'% ('+HumanBytes(Done)+')');
+      Write(StdErr,#13'T'+#130+'l'+#130+'chargement de '+PathLastPart(Dest)+
+        ' : '+IStr(Pc)+'% ('+HumanBytes(Done)+')');
       Flush(StdErr);
      End;
     End;
@@ -9648,13 +10264,15 @@ Begin
  Write(StdErr,#10);
  If not Fin Then Begin
   If Err='' Then Err:=#144+'chec du t'+#130+'l'+#130+'chargement';
-  Err:=Err+' ; relancez la m'+#136+'me commande pour reprendre '+#133+' '+HumanBytes(Done);
+  Err:=Err+' ; relancez la m'+#136+'me commande pour reprendre '+#133+' '+
+    HumanBytes(Done);
   Exit;
  End;
  If FileExistsP(Dest)Then Begin Assign(F,Dest);Erase(F);If IOResult<>0 Then;End;
  Assign(F,Tmp);
  Rename(F,Dest);
- If IOResult<>0 Then Begin Err:='impossible de renommer le fichier t'+#130+'l'+#130+'charg'+#130;Exit;End;
+ If IOResult<>0 Then Begin Err:='impossible de renommer le fichier t'+#130+'l'+
+   #130+'charg'+#130;Exit;End;
  HttpDownload:=True;
 End;
 {$ELSE}
@@ -9674,7 +10292,8 @@ Var
  R:AnsiString;
 Begin
  R:=S;
- For I:=1 to Length(R)do If R[I]in['/','\',':','*','?','"','<','>','|']Then R[I]:='_';
+ For I:=1 to Length(R)do If R[I]in['/','\',':','*','?','"','<','>','|']Then
+   R[I]:='_';
  SafeCacheName:=R;
 End;
 
@@ -9693,20 +10312,24 @@ Begin
 End;
 
 { Telecharge (si necessaire) un modele depuis une URL ; renvoie le chemin local }
-Function ResolveModelUrl(Const Url,Token:AnsiString;Offline:Boolean;Var Local:AnsiString):Boolean;
+Function ResolveModelUrl(Const Url,Token:AnsiString;Offline:Boolean;Var
+  Local:AnsiString):Boolean;
 Var
  Err:AnsiString;
 Begin
  ResolveModelUrl:=False;
  Local:=CacheDir+PathSep+SafeCacheName(UrlFileName(Url));
  If FileExistsP(Local)Then Begin ResolveModelUrl:=True;Exit;End;
- If Offline Then Begin LogErr('erreur : mode hors ligne et modèle absent du cache : '+Local+#10);Exit;End;
+ If Offline Then Begin LogErr('erreur : mode hors ligne et mod'+#138+
+   'le absent du cache : '+Local+#10);Exit;End;
  If not NetSupported Then Begin
-  LogErr('erreur : le téléchargement (-mu / -hf) n''est disponible que sous Windows.'+#10);
-  LogErr('        Téléchargez le fichier GGUF manuellement puis utilisez -m FICHIER.'+#10);
+  LogErr('erreur : le t'+#130+'l'+#130+
+    'chargement (-mu / -hf) n''est disponible que sous Windows.'+#10);
+  LogErr('        T'+#130+'l'+#130+
+    'chargez le fichier GGUF manuellement puis utilisez -m FICHIER.'+#10);
   Exit;
  End;
- LogInf('téléchargement de '+Url+' vers '+Local+#10);
+ LogInf('t'+#130+'l'+#130+'chargement de '+Url+' vers '+Local+#10);
  If not HttpDownload(Url,Token,Local,Err)Then Begin
   LogErr('erreur : '+Err+#10);
   Exit;
@@ -9714,7 +10337,8 @@ Begin
  ResolveModelUrl:=True;
 End;
 
-Function ResolveModelHF(Const RepoSpec,FileOverride,Token:AnsiString;Offline:Boolean;Var Local:AnsiString):Boolean;
+Function ResolveModelHF(Const RepoSpec,FileOverride,
+  Token:AnsiString;Offline:Boolean;Var Local:AnsiString):Boolean;
 Var
  Repo,Quant,Body,Err,FName,Url,Cand,UQ:AnsiString;
  P,I,Status:LongInt;
@@ -9727,9 +10351,11 @@ Begin
  ResolveModelHF:=False;
  Repo:=RepoSpec;Quant:='';
  P:=Pos(':',Repo);
- If P>0 Then Begin Quant:=Copy(Repo,P+1,Length(Repo));Repo:=Copy(Repo,1,P-1);End;
+ If P>0 Then Begin Quant:=Copy(Repo,P+1,Length(Repo));Repo:=Copy(Repo,1,
+   P-1);End;
  If(Pos('/',Repo)=0)Then Begin
-  LogErr('erreur : le dépôt Hugging Face doit être de la forme <utilisateur>/<modèle>[:quant]'+#10);
+  LogErr('erreur : le d'+#130+'p'+#147+'t Hugging Face doit '+#136+
+    'tre de la forme <utilisateur>/<mod'+#138+'le>[:quant]'+#10);
   Exit;
  End;
  FName:=FileOverride;
@@ -9743,7 +10369,8 @@ Begin
    Pat:=CacheDir+PathSep+SafeCacheName(Repo)+'_*';
    FindFirst(Pat,AnyFile,SR);
    While DosError=0 do Begin
-    If EndsWith(LoStr(SR.Name),'.gguf')and(Pos(UQ,UpStr(SR.Name))>0)and(Pos('mmproj',LoStr(SR.Name))=0)Then Begin
+    If EndsWith(LoStr(SR.Name),'.gguf')and(Pos(UQ,
+      UpStr(SR.Name))>0)and(Pos('mmproj',LoStr(SR.Name))=0)Then Begin
      Local:=CacheDir+PathSep+SR.Name;
      FindClose(SR);
      ResolveModelHF:=True;
@@ -9753,34 +10380,43 @@ Begin
    End;
    FindClose(SR);
   End;
- If Offline Then Begin LogErr('erreur : mode hors ligne et modèle absent du cache'+#10);Exit;End;
+ If Offline Then Begin LogErr('erreur : mode hors ligne et mod'+#138+
+   'le absent du cache'+#10);Exit;End;
  If not NetSupported Then Begin
-  LogErr('erreur : l''option -hf n''est disponible que sous Windows (appels réseau).'+#10);
-  LogErr('        Téléchargez le fichier GGUF manuellement puis utilisez -m FICHIER.'+#10);
+  LogErr('erreur : l''option -hf n''est disponible que sous Windows (appels r'+
+    #130+'seau).'+#10);
+  LogErr('        T'+#130+'l'+#130+
+    'chargez le fichier GGUF manuellement puis utilisez -m FICHIER.'+#10);
   Exit;
  End;
  If FName='' Then Begin
   Url:='https://huggingface.co/api/models/'+Repo+'/tree/main?recursive=true';
   If not HttpGetString(Url,Token,Body,Status)Then Begin
-   LogErr('erreur : impossible de lister les fichiers du dépôt '+Repo+' (HTTP '+IStr(Status)+')'+#10);
+   LogErr('erreur : impossible de lister les fichiers du d'+#130+'p'+#147+'t '+
+     Repo+' (HTTP '+IStr(Status)+')'+#10);
    Exit;
   End;
   Tree:=JParse(Body);
-  If(Tree=Nil)or(Tree^.Kind<>JK_ARR)Then Begin LogErr('erreur : réponse invalide de Hugging Face'+#10);Exit;End;
+  If(Tree=Nil)or(Tree^.Kind<>JK_ARR)Then Begin LogErr('erreur : r'+#130+
+    'ponse invalide de Hugging Face'+#10);Exit;End;
   SetLength(Files,0);
   For I:=0 to High(Tree^.Items)do Begin
    E:=JGet(Tree^.Items[I],'path');
-   If(E<>Nil)and(E^.Kind=JK_STR)and EndsWith(LoStr(E^.S),'.gguf')and(Pos('mmproj',LoStr(E^.S))=0)Then
+   If(E<>Nil)and(E^.Kind=JK_STR)and EndsWith(LoStr(E^.S),
+     '.gguf')and(Pos('mmproj',LoStr(E^.S))=0)Then
     AddStr(Files,E^.S);
   End;
-  If Length(Files)=0 Then Begin LogErr('erreur : aucun fichier GGUF dans le dépôt '+Repo+#10);Exit;End;
+  If Length(Files)=0 Then Begin LogErr('erreur : aucun fichier GGUF dans le d'+
+    #130+'p'+#147+'t '+Repo+#10);Exit;End;
   If Quant='' Then UQ:='Q4_K_M' Else UQ:=UpStr(Quant);
   Best:=-1;
   For I:=0 to High(Files)do
-   If(Pos(UQ,UpStr(Files[I]))>0)and((Best<0)or(Pos('-00001-of-',Files[I])>0))Then Best:=I;
+   If(Pos(UQ,UpStr(Files[I]))>0)and((Best<0)or(Pos('-00001-of-',
+     Files[I])>0))Then Best:=I;
   If Best<0 Then Begin
    If Quant<>'' Then Begin
-    LogErr('erreur : aucun fichier GGUF correspondant à la quantification '+Quant+' dans '+Repo+#10);
+    LogErr('erreur : aucun fichier GGUF correspondant '+#133+
+      ' la quantification '+Quant+' dans '+Repo+#10);
     Exit;
    End;
    Best:=0;
@@ -9790,17 +10426,20 @@ Begin
  Local:=CacheDir+PathSep+SafeCacheName(Repo+'_'+FName);
  If FileExistsP(Local)Then Begin ResolveModelHF:=True;Exit;End;
  Url:='https://huggingface.co/'+Repo+'/resolve/main/'+FName;
- LogInf('téléchargement de '+Url+#10);
- If not HttpDownload(Url,Token,Local,Err)Then Begin LogErr('erreur : '+Err+#10);Exit;End;
+ LogInf('t'+#130+'l'+#130+'chargement de '+Url+#10);
+ If not HttpDownload(Url,Token,Local,Err)Then Begin LogErr('erreur : '+Err+
+   #10);Exit;End;
  { parties supplementaires d'un modele fractionne }
  P:=Pos('-00001-of-',FName);
  If P>0 Then Begin
   I:=2;
   While True do Begin
-   Cand:=Copy(FName,1,P-1)+'-'+Copy('00000'+IStr(I),Length(IStr(I))+1,5)+Copy(FName,P+6,Length(FName));
+   Cand:=Copy(FName,1,P-1)+'-'+Copy('00000'+IStr(I),Length(IStr(I))+1,5)+
+     Copy(FName,P+6,Length(FName));
    If I>StrToIntDef(Copy(FName,P+10,5),1)Then Break;
    Url:='https://huggingface.co/'+Repo+'/resolve/main/'+Cand;
-   If not HttpDownload(Url,Token,CacheDir+PathSep+SafeCacheName(Repo+'_'+Cand),Err)Then Begin
+   If not HttpDownload(Url,Token,CacheDir+PathSep+SafeCacheName(Repo+'_'+Cand),
+     Err)Then Begin
     LogErr('erreur : '+Err+#10);Exit;
    End;
    Inc(I);
@@ -9850,7 +10489,8 @@ Type
 Var
  Opts:Array of TOpt;
 
-Procedure Opt(Const NamesS,Hint,Hint2,Env:AnsiString;Id,Sec:LongInt;Const Help:AnsiString);
+Procedure Opt(Const NamesS,Hint,Hint2,Env:AnsiString;Id,Sec:LongInt;Const
+  Help:AnsiString);
 Var
  N:LongInt;
 Begin
@@ -9862,217 +10502,507 @@ Begin
 End;
 
 Const
- O_HELP=1; O_VERSION=2; O_CACHELIST=3; O_THREADS=4; O_THREADSB=5; O_CPUMASK=6; O_CPURANGE=7;
- O_CPUSTRICT=8; O_PRIO=9; O_POLL=10; O_CPUMASKB=11; O_CPURANGEB=12; O_CPUSTRICTB=13; O_PRIOB=14;
- O_POLLB=15; O_CTX=16; O_PREDICT=17; O_BATCH=18; O_UBATCH=19; O_KEEP=20; O_SWAFULL=21; O_FA=22;
- O_PROMPT=23; O_PERF=24; O_NOPERF=25; O_FILE=26; O_BINFILE=27; O_ESCAPE=28; O_NOESCAPE=29;
- O_ROPESCALING=30; O_ROPESCALE=31; O_ROPEBASE=32; O_ROPEFSCALE=33; O_YARNORIG=34; O_YARNEXT=35;
- O_YARNATTN=36; O_YARNSLOW=37; O_YARNFAST=38; O_KVOFFLOAD=39; O_NOKVOFFLOAD=40; O_REPACK=41;
- O_NOREPACK=42; O_NOHOST=43; O_CTK=44; O_CTV=45; O_DEFRAG=46; O_PARALLEL=47; O_RPC=48; O_LOADMODE=49;
- O_LAZYMODE=50; O_NUMA=51; O_DEVICE=52; O_LISTDEVICES=53; O_OVERRIDETENSOR=54; O_CPUMOE=55;
- O_NCPUMOE=56; O_NCPUFFN=57; O_NGL=58; O_SM=59; O_TS=60; O_MG=61; O_FIT=62; O_FITT=63; O_FITC=64;
- O_CHECKTENSORS=65; O_OVERRIDEKV=66; O_OPOFFLOAD=67; O_NOOPOFFLOAD=68; O_LORA=69; O_LORASCALED=70;
- O_CVEC=71; O_CVECSCALED=72; O_CVECRANGE=73; O_MODEL=74; O_MODELURL=75; O_DOCKER=76; O_HFREPO=77;
- O_HFFILE=78; O_HFTOKEN=79; O_LOGDISABLE=80; O_LOGFILE=81; O_LOGJSONL=82; O_NOLOGJSONL=83;
- O_LOGCOLORS=84; O_VERBOSE=85; O_OFFLINE=86; O_VERBOSITY=87; O_LOGPREFIX=88; O_NOLOGPREFIX=89;
- O_LOGTS=90; O_NOLOGTS=91; O_SAMPLERS=92; O_SEED=93; O_SAMPLERSEQ=94; O_IGNOREEOS=95; O_TEMP=96;
- O_TOPK=97; O_TOPP=98; O_MINP=99; O_TOPNSIGMA=100; O_XTCP=101; O_XTCT=102; O_TYPICAL=103;
- O_REPEATLASTN=104; O_REPEATPEN=105; O_PRESENCEPEN=106; O_FREQPEN=107; O_DRYMULT=108; O_DRYBASE=109;
- O_DRYALLOWED=110; O_DRYLASTN=111; O_DRYBREAK=112; O_ADAPTTARGET=113; O_ADAPTDECAY=114;
- O_DYNRANGE=115; O_DYNEXP=116; O_MIROSTAT=117; O_MIROLR=118; O_MIROENT=119; O_LOGITBIAS=120;
- O_GRAMMAR=121; O_GRAMMARFILE=122; O_JSONSCHEMA=123; O_JSONSCHEMAFILE=124; O_BACKENDSAMPLING=125;
- O_SERVERBASE=126; O_VERBOSEPROMPT=127; O_DISPLAYPROMPT=128; O_NODISPLAYPROMPT=129; O_COLOR=130;
- O_CTXCP=131; O_CRAM=132; O_CONTEXTSHIFT=133; O_NOCONTEXTSHIFT=134; O_SYSPROMPT=135;
- O_SHOWTIMINGS=136; O_NOSHOWTIMINGS=137; O_SYSFILE=138; O_INFILE=139; O_PTC=140; O_PROMPTCACHE=141;
- O_PROMPTCACHEALL=142; O_PROMPTCACHERO=143; O_REVERSE=144; O_SPECIAL=145; O_CNV=146; O_NOCNV=147;
- O_SINGLETURN=148; O_INTERACTIVE=149; O_INTERACTIVEFIRST=150; O_MULTILINE=151; O_INPREFIXBOS=152;
- O_INPREFIX=153; O_INSUFFIX=154; O_WARMUP=155; O_NOWARMUP=156; O_MMPROJ=157; O_MMPROJURL=158;
- O_NOMMPROJ=159; O_IMAGE=160; O_OUTPUT=161; O_CHATKWARGS=162; O_JINJA=163; O_NOJINJA=164;
- O_REASONINGFMT=165; O_REASONING=166; O_REASONINGEFFORT=167; O_REASONINGBUDGET=168;
- O_REASONINGBUDGETMSG=169; O_REASONINGPRESERVE=170; O_NOREASONINGPRESERVE=171; O_CHATTEMPLATE=172;
- O_CHATTEMPLATEFILE=173; O_SKIPCHATPARSING=174; O_NOSKIPCHATPARSING=175; O_SIMPLEIO=176;
+ O_HELP=1; O_VERSION=2; O_CACHELIST=3; O_THREADS=4; O_THREADSB=5; O_CPUMASK=6;
+   O_CPURANGE=7;
+ O_CPUSTRICT=8; O_PRIO=9; O_POLL=10; O_CPUMASKB=11; O_CPURANGEB=12;
+   O_CPUSTRICTB=13; O_PRIOB=14;
+ O_POLLB=15; O_CTX=16; O_PREDICT=17; O_BATCH=18; O_UBATCH=19; O_KEEP=20;
+   O_SWAFULL=21; O_FA=22;
+ O_PROMPT=23; O_PERF=24; O_NOPERF=25; O_FILE=26; O_BINFILE=27; O_ESCAPE=28;
+   O_NOESCAPE=29;
+ O_ROPESCALING=30; O_ROPESCALE=31; O_ROPEBASE=32; O_ROPEFSCALE=33;
+   O_YARNORIG=34; O_YARNEXT=35;
+ O_YARNATTN=36; O_YARNSLOW=37; O_YARNFAST=38; O_KVOFFLOAD=39; O_NOKVOFFLOAD=40;
+   O_REPACK=41;
+ O_NOREPACK=42; O_NOHOST=43; O_CTK=44; O_CTV=45; O_DEFRAG=46; O_PARALLEL=47;
+   O_RPC=48; O_LOADMODE=49;
+ O_LAZYMODE=50; O_NUMA=51; O_DEVICE=52; O_LISTDEVICES=53; O_OVERRIDETENSOR=54;
+   O_CPUMOE=55;
+ O_NCPUMOE=56; O_NCPUFFN=57; O_NGL=58; O_SM=59; O_TS=60; O_MG=61; O_FIT=62;
+   O_FITT=63; O_FITC=64;
+ O_CHECKTENSORS=65; O_OVERRIDEKV=66; O_OPOFFLOAD=67; O_NOOPOFFLOAD=68;
+   O_LORA=69; O_LORASCALED=70;
+ O_CVEC=71; O_CVECSCALED=72; O_CVECRANGE=73; O_MODEL=74; O_MODELURL=75;
+   O_DOCKER=76; O_HFREPO=77;
+ O_HFFILE=78; O_HFTOKEN=79; O_LOGDISABLE=80; O_LOGFILE=81; O_LOGJSONL=82;
+   O_NOLOGJSONL=83;
+ O_LOGCOLORS=84; O_VERBOSE=85; O_OFFLINE=86; O_VERBOSITY=87; O_LOGPREFIX=88;
+   O_NOLOGPREFIX=89;
+ O_LOGTS=90; O_NOLOGTS=91; O_SAMPLERS=92; O_SEED=93; O_SAMPLERSEQ=94;
+   O_IGNOREEOS=95; O_TEMP=96;
+ O_TOPK=97; O_TOPP=98; O_MINP=99; O_TOPNSIGMA=100; O_XTCP=101; O_XTCT=102;
+   O_TYPICAL=103;
+ O_REPEATLASTN=104; O_REPEATPEN=105; O_PRESENCEPEN=106; O_FREQPEN=107;
+   O_DRYMULT=108; O_DRYBASE=109;
+ O_DRYALLOWED=110; O_DRYLASTN=111; O_DRYBREAK=112; O_ADAPTTARGET=113;
+   O_ADAPTDECAY=114;
+ O_DYNRANGE=115; O_DYNEXP=116; O_MIROSTAT=117; O_MIROLR=118; O_MIROENT=119;
+   O_LOGITBIAS=120;
+ O_GRAMMAR=121; O_GRAMMARFILE=122; O_JSONSCHEMA=123; O_JSONSCHEMAFILE=124;
+   O_BACKENDSAMPLING=125;
+ O_SERVERBASE=126; O_VERBOSEPROMPT=127; O_DISPLAYPROMPT=128;
+   O_NODISPLAYPROMPT=129; O_COLOR=130;
+ O_CTXCP=131; O_CRAM=132; O_CONTEXTSHIFT=133; O_NOCONTEXTSHIFT=134;
+   O_SYSPROMPT=135;
+ O_SHOWTIMINGS=136; O_NOSHOWTIMINGS=137; O_SYSFILE=138; O_INFILE=139;
+   O_PTC=140; O_PROMPTCACHE=141;
+ O_PROMPTCACHEALL=142; O_PROMPTCACHERO=143; O_REVERSE=144; O_SPECIAL=145;
+   O_CNV=146; O_NOCNV=147;
+ O_SINGLETURN=148; O_INTERACTIVE=149; O_INTERACTIVEFIRST=150; O_MULTILINE=151;
+   O_INPREFIXBOS=152;
+ O_INPREFIX=153; O_INSUFFIX=154; O_WARMUP=155; O_NOWARMUP=156; O_MMPROJ=157;
+   O_MMPROJURL=158;
+ O_NOMMPROJ=159; O_IMAGE=160; O_OUTPUT=161; O_CHATKWARGS=162; O_JINJA=163;
+   O_NOJINJA=164;
+ O_REASONINGFMT=165; O_REASONING=166; O_REASONINGEFFORT=167;
+   O_REASONINGBUDGET=168;
+ O_REASONINGBUDGETMSG=169; O_REASONINGPRESERVE=170; O_NOREASONINGPRESERVE=171;
+   O_CHATTEMPLATE=172;
+ O_CHATTEMPLATEFILE=173; O_SKIPCHATPARSING=174; O_NOSKIPCHATPARSING=175;
+   O_SIMPLEIO=176;
  O_LOGPROMPTSDIR=177; O_MODELDRAFT=178;
 
 Procedure RegisterOptions;
 Begin
  Opt('-h|--help|--usage|/?','','','',O_HELP,0,'affiche l''aide et quitte');
- Opt('--version','','','',O_VERSION,0,'affiche la version et les informations de compilation');
- Opt('-cl|--cache-list','','','',O_CACHELIST,0,'affiche la liste des modèles présents dans le cache');
- Opt('-t|--threads','N','','LLAMA_ARG_THREADS',O_THREADS,0,'nombre de threads CPU pour la génération (défaut : -1) ; ce clone calcule sur un seul fil');
- Opt('-tb|--threads-batch','N','','',O_THREADSB,0,'nombre de threads pour le traitement des lots et du prompt (défaut : identique à --threads)');
- Opt('-C|--cpu-mask','M','','',O_CPUMASK,0,'masque d''affinité CPU : hexadécimal de longueur arbitraire (ignoré)');
- Opt('-Cr|--cpu-range','lo-hi','','',O_CPURANGE,0,'plage de processeurs pour l''affinité (ignoré)');
- Opt('--cpu-strict','<0|1>','','',O_CPUSTRICT,0,'placement strict des threads (défaut : 0, ignoré)');
- Opt('--prio','N','','',O_PRIO,0,'priorité du processus/thread : bas(-1), normal(0), moyen(1), haut(2), temps réel(3) (ignoré)');
- Opt('--poll','<0...100>','','',O_POLL,0,'niveau d''attente active (défaut : 50, ignoré)');
- Opt('-Cb|--cpu-mask-batch','M','','',O_CPUMASKB,0,'masque d''affinité CPU pour le traitement par lots (ignoré)');
- Opt('-Crb|--cpu-range-batch','lo-hi','','',O_CPURANGEB,0,'plage de CPU pour le traitement par lots (ignoré)');
- Opt('--cpu-strict-batch','<0|1>','','',O_CPUSTRICTB,0,'placement strict pour le traitement par lots (ignoré)');
- Opt('--prio-batch','N','','',O_PRIOB,0,'priorité pour le traitement par lots (ignoré)');
- Opt('--poll-batch','<0|1>','','',O_POLLB,0,'attente active pour le traitement par lots (ignoré)');
- Opt('-c|--ctx-size','N','','LLAMA_ARG_CTX_SIZE',O_CTX,0,'taille du contexte du prompt (défaut : 0 = valeur du modèle, plafonnée selon la mémoire)');
- Opt('-n|--predict|--n-predict','N','','LLAMA_ARG_N_PREDICT',O_PREDICT,0,'nombre de jetons à générer (défaut : -1 = infini, -2 = jusqu''à remplir le contexte)');
- Opt('-b|--batch-size','N','','LLAMA_ARG_BATCH',O_BATCH,0,'taille logique maximale d''un lot (défaut : 2048)');
- Opt('-ub|--ubatch-size','N','','LLAMA_ARG_UBATCH',O_UBATCH,0,'taille physique maximale d''un lot (défaut : 512)');
- Opt('--keep','N','','',O_KEEP,0,'nombre de jetons à conserver du prompt initial (défaut : 0, -1 = tous)');
- Opt('--swa-full','','','',O_SWAFULL,0,'utilise un cache SWA de taille complète (ignoré)');
- Opt('-fa|--flash-attn','[on|off|auto]','','LLAMA_ARG_FLASH_ATTN',O_FA,0,'active Flash Attention (ignoré : l''attention est calculée sur le CPU)');
- Opt('-p|--prompt','PROMPT','','',O_PROMPT,0,'prompt de départ pour la génération ; pour un message système, utiliser -sys');
- Opt('--perf','','','',O_PERF,0,'active les mesures de performance internes (défaut : désactivé)');
- Opt('--no-perf','','','',O_NOPERF,0,'désactive les mesures de performance internes');
- Opt('-f|--file','FNAME','','',O_FILE,0,'fichier contenant le prompt (défaut : aucun)');
- Opt('-bf|--binary-file','FNAME','','',O_BINFILE,0,'fichier binaire contenant le prompt (défaut : aucun)');
- Opt('-e|--escape','','','',O_ESCAPE,0,'traite les séquences d''échappement (\n, \r, \t, \'', \", \\) (défaut : activé)');
- Opt('--no-escape','','','',O_NOESCAPE,0,'ne traite pas les séquences d''échappement');
- Opt('--rope-scaling','{none,linear,yarn}','','LLAMA_ARG_ROPE_SCALING_TYPE',O_ROPESCALING,0,'méthode de mise à l''échelle des fréquences RoPE (défaut : valeur du modèle)');
- Opt('--rope-scale','N','','LLAMA_ARG_ROPE_SCALE',O_ROPESCALE,0,'facteur d''extension du contexte RoPE : étend le contexte d''un facteur N');
- Opt('--rope-freq-base','N','','LLAMA_ARG_ROPE_FREQ_BASE',O_ROPEBASE,0,'fréquence de base RoPE, utilisée par la mise à l''échelle NTK (défaut : valeur du modèle)');
- Opt('--rope-freq-scale','N','','LLAMA_ARG_ROPE_FREQ_SCALE',O_ROPEFSCALE,0,'facteur de fréquence RoPE : étend le contexte d''un facteur 1/N');
- Opt('--yarn-orig-ctx','N','','LLAMA_ARG_YARN_ORIG_CTX',O_YARNORIG,0,'YaRN : taille de contexte d''origine du modèle (défaut : 0 = contexte d''entraînement)');
- Opt('--yarn-ext-factor','N','','LLAMA_ARG_YARN_EXT_FACTOR',O_YARNEXT,0,'YaRN : facteur de mélange d''extrapolation (défaut : -1,00 ; 0,0 = interpolation complète)');
- Opt('--yarn-attn-factor','N','','LLAMA_ARG_YARN_ATTN_FACTOR',O_YARNATTN,0,'YaRN : échelle sqrt(t) ou amplitude de l''attention (défaut : -1,00)');
- Opt('--yarn-beta-slow','N','','LLAMA_ARG_YARN_BETA_SLOW',O_YARNSLOW,0,'YaRN : dimension de correction haute ou alpha (défaut : -1,00)');
- Opt('--yarn-beta-fast','N','','LLAMA_ARG_YARN_BETA_FAST',O_YARNFAST,0,'YaRN : dimension de correction basse ou bêta (défaut : -1,00)');
- Opt('-kvo|--kv-offload','','','',O_KVOFFLOAD,0,'déport du cache KV (sans effet : le cache KV reste en mémoire centrale)');
- Opt('-nkvo|--no-kv-offload','','','',O_NOKVOFFLOAD,0,'désactive le déport du cache KV (sans effet)');
- Opt('--repack','','','',O_REPACK,0,'réorganisation des poids (sans effet)');
- Opt('-nr|--no-repack','','','',O_NOREPACK,0,'désactive la réorganisation des poids (sans effet)');
- Opt('--no-host','','','',O_NOHOST,0,'évite les tampons mémoire de l''hôte (sans effet)');
- Opt('-ctk|--cache-type-k','TYPE','','LLAMA_ARG_CACHE_TYPE_K',O_CTK,0,'type de données du cache KV pour K : f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1 (ce clone stocke toujours en f32)');
- Opt('-ctv|--cache-type-v','TYPE','','LLAMA_ARG_CACHE_TYPE_V',O_CTV,0,'type de données du cache KV pour V (ce clone stocke toujours en f32)');
- Opt('-dt|--defrag-thold','N','','',O_DEFRAG,0,'seuil de défragmentation du cache KV (obsolète, ignoré)');
- Opt('-np|--parallel','N','','LLAMA_ARG_N_PARALLEL',O_PARALLEL,0,'nombre de séquences décodées en parallèle (défaut : 1)');
- Opt('--rpc','SERVERS','','LLAMA_ARG_RPC',O_RPC,0,'liste de serveurs RPC séparés par des virgules (non supporté)');
- Opt('-lm|--load-mode','MODE','','LLAMA_ARG_LOAD_MODE',O_LOADMODE,0,'mode de chargement du modèle : auto, none, mmap, mlock, mmap+mlock, dio (ce clone charge toujours en mémoire)');
- Opt('-lzm|--lazy-mode','MODE','','LLAMA_ARG_LAZY_MODE',O_LAZYMODE,0,'lecture à la demande de certains tenseurs (ignoré)');
- Opt('--numa','TYPE','','LLAMA_ARG_NUMA',O_NUMA,0,'optimisations NUMA : distribute, isolate, numactl (ignoré)');
- Opt('-dev|--device','<dev1,dev2,..>','','LLAMA_ARG_DEVICE',O_DEVICE,0,'périphérique GPU utilisé (D3D0, D3D1, ... ; un seul GPU) ; none désactive le GPU ; voir --list-devices');
- Opt('--list-devices','','','',O_LISTDEVICES,0,'affiche la liste des périphériques disponibles et quitte');
- Opt('-ot|--override-tensor','<motif>=<tampon>,...','','LLAMA_ARG_OVERRIDE_TENSOR',O_OVERRIDETENSOR,0,'remplace le type de tampon d''un tenseur (ignoré)');
- Opt('-cmoe|--cpu-moe','','','',O_CPUMOE,0,'garde tous les poids MoE sur le CPU (toujours le cas ici)');
- Opt('-ncmoe|--n-cpu-moe','N','','',O_NCPUMOE,0,'garde les poids MoE des N premières couches sur le CPU (toujours le cas ici)');
- Opt('-ncffn|--n-cpu-ffn','N','','',O_NCPUFFN,0,'garde les poids FFN denses des N premières couches sur le CPU (toujours le cas ici)');
- Opt('-ngl|--gpu-layers|--n-gpu-layers','N','','LLAMA_ARG_N_GPU_LAYERS',O_NGL,0,'nombre de couches à placer en VRAM : N, auto (défaut, selon la VRAM libre) ou all ; 0 désactive le GPU');
- Opt('-sm|--split-mode','{none,layer,row,tensor}','','LLAMA_ARG_SPLIT_MODE',O_SM,0,'répartition du modèle sur plusieurs GPU (ignoré : un seul GPU est utilisé)');
- Opt('-ts|--tensor-split','N0,N1,N2,...','','LLAMA_ARG_TENSOR_SPLIT',O_TS,0,'fraction du modèle à placer sur chaque GPU (ignoré : un seul GPU est utilisé)');
- Opt('-mg|--main-gpu','INDEX','','LLAMA_ARG_MAIN_GPU',O_MG,0,'GPU principal : indice dans --list-devices (défaut : le GPU avec le plus de VRAM dédiée)');
- Opt('-fit|--fit','[on|off]','','LLAMA_ARG_FIT',O_FIT,0,'ajuste le nombre de couches déportées (-ngl auto) à la VRAM libre ; off : toutes les couches');
- Opt('-fitt|--fit-target','MiB0,MiB1,...','','LLAMA_ARG_FIT_TARGET',O_FITT,0,'marge cible par périphérique pour --fit (ignoré)');
- Opt('-fitc|--fit-ctx','N','','LLAMA_ARG_FIT_CTX',O_FITC,0,'taille de contexte minimale pour --fit (ignoré)');
- Opt('--check-tensors','','','',O_CHECKTENSORS,0,'vérifie la validité des données des tenseurs');
- Opt('--override-kv','CLÉ=TYPE:VALEUR,...','','',O_OVERRIDEKV,0,'remplace des métadonnées du modèle ; types : int, float, bool, str');
- Opt('--op-offload','','','',O_OPOFFLOAD,0,'déport des opérations vers un périphérique (sans effet)');
- Opt('--no-op-offload','','','',O_NOOPOFFLOAD,0,'désactive le déport des opérations (sans effet)');
- Opt('--lora','FNAME','','',O_LORA,0,'adaptateur LoRA (non supporté, ignoré avec un avertissement)');
- Opt('--lora-scaled','FNAME:ÉCHELLE,...','','',O_LORASCALED,0,'adaptateur LoRA avec échelle (non supporté, ignoré)');
- Opt('--control-vector','FNAME','','',O_CVEC,0,'vecteur de contrôle (non supporté, ignoré)');
- Opt('--control-vector-scaled','FNAME:ÉCHELLE,...','','',O_CVECSCALED,0,'vecteur de contrôle avec échelle (non supporté, ignoré)');
- Opt('--control-vector-layer-range','DÉBUT','FIN','',O_CVECRANGE,0,'plage de couches du vecteur de contrôle (ignoré)');
- Opt('-m|--model','FNAME','','LLAMA_ARG_MODEL',O_MODEL,0,'chemin du modèle GGUF à charger');
- Opt('-mu|--model-url','URL_MODÈLE','','LLAMA_ARG_MODEL_URL',O_MODELURL,0,'URL de téléchargement du modèle (Windows uniquement)');
- Opt('-dr|--docker-repo','[<dépôt>/]<modèle>[:quant]','','LLAMA_ARG_DOCKER_REPO',O_DOCKER,0,'dépôt Docker Hub (non supporté)');
- Opt('-hf|-hfr|--hf-repo','<utilisateur>/<modèle>[:quant]','','LLAMA_ARG_HF_REPO',O_HFREPO,0,'dépôt Hugging Face ; la quantification est facultative (défaut : Q4_K_M, sinon premier fichier) ; téléchargement disponible sous Windows uniquement');
- Opt('-hff|--hf-file','FILE','','LLAMA_ARG_HF_FILE',O_HFFILE,0,'fichier du dépôt Hugging Face ; remplace la quantification de --hf-repo');
- Opt('-hft|--hf-token','TOKEN','','HF_TOKEN',O_HFTOKEN,0,'jeton d''accès Hugging Face (défaut : variable d''environnement HF_TOKEN)');
- Opt('--log-disable','','','',O_LOGDISABLE,0,'désactive les journaux');
- Opt('--log-file','FNAME','','LLAMA_ARG_LOG_FILE',O_LOGFILE,0,'écrit aussi les journaux dans un fichier');
- Opt('--log-jsonl','','','',O_LOGJSONL,0,'journaux au format JSONL (ignoré)');
- Opt('--no-log-jsonl','','','',O_NOLOGJSONL,0,'journaux au format texte (défaut)');
- Opt('--log-colors','[on|off|auto]','','LLAMA_ARG_LOG_COLORS',O_LOGCOLORS,0,'couleurs dans les journaux (défaut : auto)');
- Opt('-v|--verbose|--log-verbose','','','',O_VERBOSE,0,'niveau de verbosité maximal (tous les messages, utile pour le débogage)');
- Opt('--offline','','','',O_OFFLINE,0,'mode hors ligne : force l''utilisation du cache et interdit l''accès réseau');
- Opt('-lv|--verbosity|--log-verbosity','N','','LLAMA_ARG_LOG_VERBOSITY',O_VERBOSITY,0,'seuil de verbosité : 0 générique, 1 erreur, 2 avertissement, 3 info, 4 trace, 5 débogage (défaut : 3)');
- Opt('--log-prefix','','','',O_LOGPREFIX,0,'préfixe dans les messages de journal');
- Opt('--no-log-prefix','','','',O_NOLOGPREFIX,0,'pas de préfixe dans les messages de journal');
- Opt('--log-timestamps','','','',O_LOGTS,0,'horodatage dans les messages de journal');
- Opt('--no-log-timestamps','','','',O_NOLOGTS,0,'pas d''horodatage dans les messages de journal');
- Opt('--samplers','ÉCHANTILLONNEURS','','',O_SAMPLERS,1,'échantillonneurs utilisés, dans l''ordre, séparés par « ; » (défaut : penalties;dry;top_n_sigma;top_k;typ_p;top_p;min_p;xtc;temperature)');
- Opt('-s|--seed','GRAINE','','',O_SEED,1,'graine du générateur aléatoire (défaut : -1 = graine aléatoire)');
- Opt('--sampler-seq|--sampling-seq','SÉQUENCE','','',O_SAMPLERSEQ,1,'séquence simplifiée d''échantillonneurs (défaut : edskypmxt)');
- Opt('--ignore-eos','','','',O_IGNOREEOS,1,'ignore le jeton de fin de séquence et continue la génération (revient à --logit-bias EOS-inf)');
- Opt('--temp|--temperature','N','','LLAMA_ARG_TEMPERATURE',O_TEMP,1,'température (défaut : 0,80)');
- Opt('--top-k','N','','LLAMA_ARG_TOP_K',O_TOPK,1,'échantillonnage top-k (défaut : 40, 0 = désactivé)');
- Opt('--top-p','N','','LLAMA_ARG_TOP_P',O_TOPP,1,'échantillonnage top-p (défaut : 0,95, 1,0 = désactivé)');
- Opt('--min-p','N','','LLAMA_ARG_MIN_P',O_MINP,1,'échantillonnage min-p (défaut : 0,05, 0,0 = désactivé)');
- Opt('--top-nsigma|--top-n-sigma','N','','',O_TOPNSIGMA,1,'échantillonnage top-n-sigma (défaut : -1,00, -1,0 = désactivé)');
- Opt('--xtc-probability','N','','',O_XTCP,1,'probabilité XTC (défaut : 0,00, 0,0 = désactivé)');
- Opt('--xtc-threshold','N','','',O_XTCT,1,'seuil XTC (défaut : 0,10, 1,0 = désactivé)');
- Opt('--typical|--typical-p','N','','',O_TYPICAL,1,'échantillonnage typique localement, paramètre p (défaut : 1,00, 1,0 = désactivé)');
- Opt('--repeat-last-n','N','','',O_REPEATLASTN,1,'nombre de derniers jetons pris en compte pour la pénalité (défaut : 64, 0 = désactivé, -1 = taille du contexte)');
- Opt('--repeat-penalty','N','','LLAMA_ARG_REPEAT_PENALTY',O_REPEATPEN,1,'pénalise les séquences répétées de jetons (défaut : 1,00, 1,0 = désactivé)');
- Opt('--presence-penalty','N','','LLAMA_ARG_PRESENCE_PENALTY',O_PRESENCEPEN,1,'pénalité de présence (défaut : 0,00, 0,0 = désactivé)');
- Opt('--frequency-penalty','N','','LLAMA_ARG_FREQUENCY_PENALTY',O_FREQPEN,1,'pénalité de fréquence (défaut : 0,00, 0,0 = désactivé)');
- Opt('--dry-multiplier','N','','',O_DRYMULT,1,'multiplicateur de l''échantillonnage DRY (défaut : 0,00, 0,0 = désactivé)');
- Opt('--dry-base','N','','',O_DRYBASE,1,'valeur de base de l''échantillonnage DRY (défaut : 1,75)');
- Opt('--dry-allowed-length','N','','',O_DRYALLOWED,1,'longueur autorisée pour DRY (défaut : 2)');
- Opt('--dry-penalty-last-n','N','','',O_DRYLASTN,1,'pénalité DRY sur les N derniers jetons (défaut : 64, 0 = désactivé, -1 = taille du contexte)');
- Opt('--dry-sequence-breaker','CHAÎNE','','',O_DRYBREAK,1,'ajoute une séquence de rupture pour DRY et supprime celles par défaut (\n, :, ", *) ; « none » désactive les séquences de rupture');
- Opt('--adaptive-target','N','','',O_ADAPTTARGET,1,'adaptive-p : probabilité cible des jetons choisis (0,0 à 1,0 ; négatif = désactivé) (défaut : -1,00)');
- Opt('--adaptive-decay','N','','',O_ADAPTDECAY,1,'adaptive-p : taux de décroissance de l''adaptation de la cible (0,0 à 0,99) (défaut : 0,90)');
- Opt('--dynatemp-range','N','','',O_DYNRANGE,1,'plage de température dynamique (défaut : 0,00, 0,0 = désactivé)');
- Opt('--dynatemp-exp','N','','',O_DYNEXP,1,'exposant de température dynamique (défaut : 1,00)');
- Opt('--mirostat','N','','',O_MIROSTAT,1,'utilise l''échantillonnage Mirostat (défaut : 0, 0 = désactivé, 1 = Mirostat, 2 = Mirostat 2.0) ; top-k, nucleus et typical sont alors ignorés');
- Opt('--mirostat-lr','N','','',O_MIROLR,1,'taux d''apprentissage de Mirostat, paramètre eta (défaut : 0,10)');
- Opt('--mirostat-ent','N','','',O_MIROENT,1,'entropie cible de Mirostat, paramètre tau (défaut : 5,00)');
- Opt('-l|--logit-bias','JETON_ID(+/-)BIAIS','','',O_LOGITBIAS,1,'modifie la probabilité d''apparition d''un jeton, par ex. --logit-bias 15043+1 ou --logit-bias 15043-1');
- Opt('--grammar','GRAMMAIRE','','',O_GRAMMAR,1,'grammaire de type BNF (GBNF) pour contraindre la génération');
- Opt('--grammar-file','FNAME','','',O_GRAMMARFILE,1,'fichier contenant la grammaire');
- Opt('-j|--json-schema','SCHÉMA','','',O_JSONSCHEMA,1,'schéma JSON pour contraindre la génération (https://json-schema.org/), par ex. {"type": "object"}');
- Opt('-jf|--json-schema-file','FICHIER','','',O_JSONSCHEMAFILE,1,'fichier contenant un schéma JSON pour contraindre la génération');
- Opt('-bs|--backend-sampling','','','',O_BACKENDSAMPLING,1,'échantillonnage sur le backend (ignoré)');
- Opt('--server-base','URL','','',O_SERVERBASE,2,'se connecte à un serveur existant (non supporté dans ce clone)');
- Opt('--verbose-prompt','','','',O_VERBOSEPROMPT,2,'affiche un prompt détaillé avant la génération (défaut : désactivé)');
- Opt('--display-prompt','','','',O_DISPLAYPROMPT,2,'affiche le prompt pendant la génération (défaut : activé)');
- Opt('--no-display-prompt','','','',O_NODISPLAYPROMPT,2,'n''affiche pas le prompt pendant la génération');
- Opt('-co|--color','[on|off|auto]','','',O_COLOR,2,'colore la sortie pour distinguer le prompt et la saisie de la génération (défaut : auto)');
- Opt('-ctxcp|--ctx-checkpoints|--swa-checkpoints','N','','LLAMA_ARG_CTX_CHECKPOINTS',O_CTXCP,2,'nombre maximal de points de contrôle de contexte (ignoré)');
- Opt('-cram|--cache-ram','N','','LLAMA_ARG_CACHE_RAM',O_CRAM,2,'taille maximale du cache en Mio (ignoré)');
- Opt('--context-shift','','','',O_CONTEXTSHIFT,2,'décale le contexte lors d''une génération infinie (défaut : désactivé)');
- Opt('--no-context-shift','','','',O_NOCONTEXTSHIFT,2,'ne décale pas le contexte (le programme s''arrête quand le contexte est plein)');
- Opt('-sys|--system-prompt','PROMPT','','',O_SYSPROMPT,2,'prompt système à utiliser avec le modèle (si le modèle de conversation le permet)');
- Opt('--show-timings','','','',O_SHOWTIMINGS,2,'affiche les temps après chaque réponse (défaut : activé)');
- Opt('--no-show-timings','','','',O_NOSHOWTIMINGS,2,'n''affiche pas les temps d''exécution');
- Opt('-sysf|--system-prompt-file','FNAME','','',O_SYSFILE,2,'fichier contenant le prompt système (défaut : aucun)');
- Opt('--in-file','FNAME','','',O_INFILE,2,'fichier(s) d''entrée (ignoré)');
- Opt('-ptc|--print-token-count','N','','',O_PTC,2,'affiche le nombre de jetons tous les N jetons (défaut : -1)');
- Opt('--prompt-cache','FNAME','','',O_PROMPTCACHE,2,'fichier de cache du prompt (non supporté, ignoré)');
- Opt('--prompt-cache-all','','','',O_PROMPTCACHEALL,2,'sauvegarde aussi les entrées et sorties dans le cache (non supporté)');
- Opt('--prompt-cache-ro','','','',O_PROMPTCACHERO,2,'cache du prompt en lecture seule (non supporté)');
- Opt('-r|--reverse-prompt','PROMPT','','',O_REVERSE,2,'arrête la génération à ce texte et rend la main en mode interactif');
- Opt('-sp|--special','','','',O_SPECIAL,2,'affiche les jetons spéciaux (défaut : désactivé)');
- Opt('-cnv|--conversation','','','',O_CNV,2,'mode conversation (activé automatiquement si le modèle contient un modèle de conversation)');
- Opt('-no-cnv|--no-conversation','','','',O_NOCNV,2,'désactive le mode conversation');
- Opt('-st|--single-turn','','','',O_SINGLETURN,2,'une seule tour de conversation puis quitte ; non interactif si le premier tour est fourni par --prompt');
+ Opt('--version','','','',O_VERSION,0,
+   'affiche la version et les informations de compilation');
+ Opt('-cl|--cache-list','','','',O_CACHELIST,0,'affiche la liste des mod'+#138+
+   'les pr'+#130+'sents dans le cache');
+ Opt('-t|--threads','N','','LLAMA_ARG_THREADS',O_THREADS,0,
+   'nombre de threads CPU pour la g'+#130+'n'+#130+'ration (d'+#130+
+   'faut : -1) ; ce clone calcule sur un seul fil');
+ Opt('-tb|--threads-batch','N','','',O_THREADSB,0,
+   'nombre de threads pour le traitement des lots et du prompt (d'+#130+
+   'faut : identique '+#133+' --threads)');
+ Opt('-C|--cpu-mask','M','','',O_CPUMASK,0,'masque d''affinit'+#130+
+   ' CPU : hexad'+#130+'cimal de longueur arbitraire (ignor'+#130+')');
+ Opt('-Cr|--cpu-range','lo-hi','','',O_CPURANGE,0,
+   'plage de processeurs pour l''affinit'+#130+' (ignor'+#130+')');
+ Opt('--cpu-strict','<0|1>','','',O_CPUSTRICT,0,
+   'placement strict des threads (d'+#130+'faut : 0, ignor'+#130+')');
+ Opt('--prio','N','','',O_PRIO,0,'priorit'+#130+
+   ' du processus/thread : bas(-1), normal(0), moyen(1), haut(2), temps r'+#130+
+   'el(3) (ignor'+#130+')');
+ Opt('--poll','<0...100>','','',O_POLL,0,'niveau d''attente active (d'+#130+
+   'faut : 50, ignor'+#130+')');
+ Opt('-Cb|--cpu-mask-batch','M','','',O_CPUMASKB,0,'masque d''affinit'+#130+
+   ' CPU pour le traitement par lots (ignor'+#130+')');
+ Opt('-Crb|--cpu-range-batch','lo-hi','','',O_CPURANGEB,0,
+   'plage de CPU pour le traitement par lots (ignor'+#130+')');
+ Opt('--cpu-strict-batch','<0|1>','','',O_CPUSTRICTB,0,
+   'placement strict pour le traitement par lots (ignor'+#130+')');
+ Opt('--prio-batch','N','','',O_PRIOB,0,'priorit'+#130+
+   ' pour le traitement par lots (ignor'+#130+')');
+ Opt('--poll-batch','<0|1>','','',O_POLLB,0,
+   'attente active pour le traitement par lots (ignor'+#130+')');
+ Opt('-c|--ctx-size','N','','LLAMA_ARG_CTX_SIZE',O_CTX,0,
+   'taille du contexte du prompt (d'+#130+'faut : 0 = valeur du mod'+#138+
+   'le, plafonn'+#130+'e selon la m'+#130+'moire)');
+ Opt('-n|--predict|--n-predict','N','','LLAMA_ARG_N_PREDICT',O_PREDICT,0,
+   'nombre de jetons '+#133+' g'+#130+'n'+#130+'rer (d'+#130+
+   'faut : -1 = infini, -2 = jusqu'''+#133+' remplir le contexte)');
+ Opt('-b|--batch-size','N','','LLAMA_ARG_BATCH',O_BATCH,0,
+   'taille logique maximale d''un lot (d'+#130+'faut : 2048)');
+ Opt('-ub|--ubatch-size','N','','LLAMA_ARG_UBATCH',O_UBATCH,0,
+   'taille physique maximale d''un lot (d'+#130+'faut : 512)');
+ Opt('--keep','N','','',O_KEEP,0,'nombre de jetons '+#133+
+   ' conserver du prompt initial (d'+#130+'faut : 0, -1 = tous)');
+ Opt('--swa-full','','','',O_SWAFULL,0,'utilise un cache SWA de taille compl'+
+   #138+'te (ignor'+#130+')');
+ Opt('-fa|--flash-attn','[on|off|auto]','','LLAMA_ARG_FLASH_ATTN',O_FA,0,
+   'active Flash Attention (ignor'+#130+' : l''attention est calcul'+#130+
+   'e sur le CPU)');
+ Opt('-p|--prompt','PROMPT','','',O_PROMPT,0,'prompt de d'+#130+
+   'part pour la g'+#130+'n'+#130+'ration ; pour un message syst'+#138+
+   'me, utiliser -sys');
+ Opt('--perf','','','',O_PERF,0,'active les mesures de performance internes (d'+
+   #130+'faut : d'+#130+'sactiv'+#130+')');
+ Opt('--no-perf','','','',O_NOPERF,0,'d'+#130+
+   'sactive les mesures de performance internes');
+ Opt('-f|--file','FNAME','','',O_FILE,0,'fichier contenant le prompt (d'+#130+
+   'faut : aucun)');
+ Opt('-bf|--binary-file','FNAME','','',O_BINFILE,0,
+   'fichier binaire contenant le prompt (d'+#130+'faut : aucun)');
+ Opt('-e|--escape','','','',O_ESCAPE,0,'traite les s'+#130+'quences d'''+#130+
+   'chappement (\n, \r, \t, \'', \", \\) (d'+#130+'faut : activ'+#130+')');
+ Opt('--no-escape','','','',O_NOESCAPE,0,'ne traite pas les s'+#130+
+   'quences d'''+#130+'chappement');
+ Opt('--rope-scaling','{none,linear,yarn}','','LLAMA_ARG_ROPE_SCALING_TYPE',
+   O_ROPESCALING,0,'m'+#130+'thode de mise '+#133+' l'''+#130+'chelle des fr'+
+   #130+'quences RoPE (d'+#130+'faut : valeur du mod'+#138+'le)');
+ Opt('--rope-scale','N','','LLAMA_ARG_ROPE_SCALE',O_ROPESCALE,0,
+   'facteur d''extension du contexte RoPE : '+#130+
+   'tend le contexte d''un facteur N');
+ Opt('--rope-freq-base','N','','LLAMA_ARG_ROPE_FREQ_BASE',O_ROPEBASE,0,'fr'+
+   #130+'quence de base RoPE, utilis'+#130+'e par la mise '+#133+' l'''+#130+
+   'chelle NTK (d'+#130+'faut : valeur du mod'+#138+'le)');
+ Opt('--rope-freq-scale','N','','LLAMA_ARG_ROPE_FREQ_SCALE',O_ROPEFSCALE,0,
+   'facteur de fr'+#130+'quence RoPE : '+#130+
+   'tend le contexte d''un facteur 1/N');
+ Opt('--yarn-orig-ctx','N','','LLAMA_ARG_YARN_ORIG_CTX',O_YARNORIG,0,
+   'YaRN : taille de contexte d''origine du mod'+#138+'le (d'+#130+
+   'faut : 0 = contexte d''entra'+#140+'nement)');
+ Opt('--yarn-ext-factor','N','','LLAMA_ARG_YARN_EXT_FACTOR',O_YARNEXT,0,
+   'YaRN : facteur de m'+#130+'lange d''extrapolation (d'+#130+
+   'faut : -1,00 ; 0,0 = interpolation compl'+#138+'te)');
+ Opt('--yarn-attn-factor','N','','LLAMA_ARG_YARN_ATTN_FACTOR',O_YARNATTN,0,
+   'YaRN : '+#130+'chelle sqrt(t) ou amplitude de l''attention (d'+#130+
+   'faut : -1,00)');
+ Opt('--yarn-beta-slow','N','','LLAMA_ARG_YARN_BETA_SLOW',O_YARNSLOW,0,
+   'YaRN : dimension de correction haute ou alpha (d'+#130+'faut : -1,00)');
+ Opt('--yarn-beta-fast','N','','LLAMA_ARG_YARN_BETA_FAST',O_YARNFAST,0,
+   'YaRN : dimension de correction basse ou b'+#136+'ta (d'+#130+
+   'faut : -1,00)');
+ Opt('-kvo|--kv-offload','','','',O_KVOFFLOAD,0,'d'+#130+
+   'port du cache KV (sans effet : le cache KV reste en m'+#130+
+   'moire centrale)');
+ Opt('-nkvo|--no-kv-offload','','','',O_NOKVOFFLOAD,0,'d'+#130+'sactive le d'+
+   #130+'port du cache KV (sans effet)');
+ Opt('--repack','','','',O_REPACK,0,'r'+#130+
+   'organisation des poids (sans effet)');
+ Opt('-nr|--no-repack','','','',O_NOREPACK,0,'d'+#130+'sactive la r'+#130+
+   'organisation des poids (sans effet)');
+ Opt('--no-host','','','',O_NOHOST,0,#130+'vite les tampons m'+#130+
+   'moire de l''h'+#147+'te (sans effet)');
+ Opt('-ctk|--cache-type-k','TYPE','','LLAMA_ARG_CACHE_TYPE_K',O_CTK,0,
+   'type de donn'+#130+
+   'es du cache KV pour K : f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5'+
+   '_1 (ce clone stocke toujours en f32)');
+ Opt('-ctv|--cache-type-v','TYPE','','LLAMA_ARG_CACHE_TYPE_V',O_CTV,0,
+   'type de donn'+#130+
+   'es du cache KV pour V (ce clone stocke toujours en f32)');
+ Opt('-dt|--defrag-thold','N','','',O_DEFRAG,0,'seuil de d'+#130+
+   'fragmentation du cache KV (obsol'+#138+'te, ignor'+#130+')');
+ Opt('-np|--parallel','N','','LLAMA_ARG_N_PARALLEL',O_PARALLEL,0,'nombre de s'+
+   #130+'quences d'+#130+'cod'+#130+'es en parall'+#138+'le (d'+#130+
+   'faut : 1)');
+ Opt('--rpc','SERVERS','','LLAMA_ARG_RPC',O_RPC,0,'liste de serveurs RPC s'+
+   #130+'par'+#130+'s par des virgules (non support'+#130+')');
+ Opt('-lm|--load-mode','MODE','','LLAMA_ARG_LOAD_MODE',O_LOADMODE,0,
+   'mode de chargement du mod'+#138+
+   'le : auto, none, mmap, mlock, mmap+mlock, dio (ce clone charge toujours en'+
+   ' m'+#130+'moire)');
+ Opt('-lzm|--lazy-mode','MODE','','LLAMA_ARG_LAZY_MODE',O_LAZYMODE,0,'lecture '+
+   #133+' la demande de certains tenseurs (ignor'+#130+')');
+ Opt('--numa','TYPE','','LLAMA_ARG_NUMA',O_NUMA,0,
+   'optimisations NUMA : distribute, isolate, numactl (ignor'+#130+')');
+ Opt('-dev|--device','<dev1,dev2,..>','','LLAMA_ARG_DEVICE',O_DEVICE,0,'p'+#130+
+   'riph'+#130+'rique GPU utilis'+#130+
+   ' (D3D0, D3D1, ... ; un seul GPU) ; none d'+#130+
+   'sactive le GPU ; voir --list-devices');
+ Opt('--list-devices','','','',O_LISTDEVICES,0,'affiche la liste des p'+#130+
+   'riph'+#130+'riques disponibles et quitte');
+ Opt('-ot|--override-tensor','<motif>=<tampon>,...','',
+   'LLAMA_ARG_OVERRIDE_TENSOR',O_OVERRIDETENSOR,0,
+   'remplace le type de tampon d''un tenseur (ignor'+#130+')');
+ Opt('-cmoe|--cpu-moe','','','',O_CPUMOE,0,
+   'garde tous les poids MoE sur le CPU (toujours le cas ici)');
+ Opt('-ncmoe|--n-cpu-moe','N','','',O_NCPUMOE,0,
+   'garde les poids MoE des N premi'+#138+
+   'res couches sur le CPU (toujours le cas ici)');
+ Opt('-ncffn|--n-cpu-ffn','N','','',O_NCPUFFN,0,
+   'garde les poids FFN denses des N premi'+#138+
+   'res couches sur le CPU (toujours le cas ici)');
+ Opt('-ngl|--gpu-layers|--n-gpu-layers','N','','LLAMA_ARG_N_GPU_LAYERS',O_NGL,0,
+   'nombre de couches '+#133+' placer en VRAM : N, auto (d'+#130+
+   'faut, selon la VRAM libre) ou all ; 0 d'+#130+'sactive le GPU');
+ Opt('-sm|--split-mode','{none,layer,row,tensor}','','LLAMA_ARG_SPLIT_MODE',
+   O_SM,0,'r'+#130+'partition du mod'+#138+'le sur plusieurs GPU (ignor'+#130+
+   ' : un seul GPU est utilis'+#130+')');
+ Opt('-ts|--tensor-split','N0,N1,N2,...','','LLAMA_ARG_TENSOR_SPLIT',O_TS,0,
+   'fraction du mod'+#138+'le '+#133+' placer sur chaque GPU (ignor'+#130+
+   ' : un seul GPU est utilis'+#130+')');
+ Opt('-mg|--main-gpu','INDEX','','LLAMA_ARG_MAIN_GPU',O_MG,0,
+   'GPU principal : indice dans --list-devices (d'+#130+
+   'faut : le GPU avec le plus de VRAM d'+#130+'di'+#130+'e)');
+ Opt('-fit|--fit','[on|off]','','LLAMA_ARG_FIT',O_FIT,0,
+   'ajuste le nombre de couches d'+#130+'port'+#130+'es (-ngl auto) '+#133+
+   ' la VRAM libre ; off : toutes les couches');
+ Opt('-fitt|--fit-target','MiB0,MiB1,...','','LLAMA_ARG_FIT_TARGET',O_FITT,0,
+   'marge cible par p'+#130+'riph'+#130+'rique pour --fit (ignor'+#130+')');
+ Opt('-fitc|--fit-ctx','N','','LLAMA_ARG_FIT_CTX',O_FITC,0,
+   'taille de contexte minimale pour --fit (ignor'+#130+')');
+ Opt('--check-tensors','','','',O_CHECKTENSORS,0,'v'+#130+'rifie la validit'+
+   #130+' des donn'+#130+'es des tenseurs');
+ Opt('--override-kv','CL'+#144+'=TYPE:VALEUR,...','','',O_OVERRIDEKV,0,
+   'remplace des m'+#130+'tadonn'+#130+'es du mod'+#138+
+   'le ; types : int, float, bool, str');
+ Opt('--op-offload','','','',O_OPOFFLOAD,0,'d'+#130+'port des op'+#130+
+   'rations vers un p'+#130+'riph'+#130+'rique (sans effet)');
+ Opt('--no-op-offload','','','',O_NOOPOFFLOAD,0,'d'+#130+'sactive le d'+#130+
+   'port des op'+#130+'rations (sans effet)');
+ Opt('--lora','FNAME','','',O_LORA,0,'adaptateur LoRA (non support'+#130+
+   ', ignor'+#130+' avec un avertissement)');
+ Opt('--lora-scaled','FNAME:'+#144+'CHELLE,...','','',O_LORASCALED,0,
+   'adaptateur LoRA avec '+#130+'chelle (non support'+#130+', ignor'+#130+')');
+ Opt('--control-vector','FNAME','','',O_CVEC,0,'vecteur de contr'+#147+
+   'le (non support'+#130+', ignor'+#130+')');
+ Opt('--control-vector-scaled','FNAME:'+#144+'CHELLE,...','','',O_CVECSCALED,0,
+   'vecteur de contr'+#147+'le avec '+#130+'chelle (non support'+#130+', ignor'+
+   #130+')');
+ Opt('--control-vector-layer-range','D'+#144+'BUT','FIN','',O_CVECRANGE,0,
+   'plage de couches du vecteur de contr'+#147+'le (ignor'+#130+')');
+ Opt('-m|--model','FNAME','','LLAMA_ARG_MODEL',O_MODEL,0,'chemin du mod'+#138+
+   'le GGUF '+#133+' charger');
+ Opt('-mu|--model-url','URL_MODELE','','LLAMA_ARG_MODEL_URL',O_MODELURL,0,
+   'URL de t'+#130+'l'+#130+'chargement du mod'+#138+'le (Windows uniquement)');
+ Opt('-dr|--docker-repo','[<d'+#130+'p'+#147+'t>/]<mod'+#138+'le>[:quant]','',
+   'LLAMA_ARG_DOCKER_REPO',O_DOCKER,0,'d'+#130+'p'+#147+
+   't Docker Hub (non support'+#130+')');
+ Opt('-hf|-hfr|--hf-repo','<utilisateur>/<mod'+#138+'le>[:quant]','',
+   'LLAMA_ARG_HF_REPO',O_HFREPO,0,'d'+#130+'p'+#147+
+   't Hugging Face ; la quantification est facultative (d'+#130+
+   'faut : Q4_K_M, sinon premier fichier) ; t'+#130+'l'+#130+
+   'chargement disponible sous Windows uniquement');
+ Opt('-hff|--hf-file','FILE','','LLAMA_ARG_HF_FILE',O_HFFILE,0,'fichier du d'+
+   #130+'p'+#147+'t Hugging Face ; remplace la quantification de --hf-repo');
+ Opt('-hft|--hf-token','TOKEN','','HF_TOKEN',O_HFTOKEN,0,'jeton d''acc'+#138+
+   's Hugging Face (d'+#130+'faut : variable d''environnement HF_TOKEN)');
+ Opt('--log-disable','','','',O_LOGDISABLE,0,'d'+#130+'sactive les journaux');
+ Opt('--log-file','FNAME','','LLAMA_ARG_LOG_FILE',O_LOGFILE,0,#130+
+   'crit aussi les journaux dans un fichier');
+ Opt('--log-jsonl','','','',O_LOGJSONL,0,'journaux au format JSONL (ignor'+#130+
+   ')');
+ Opt('--no-log-jsonl','','','',O_NOLOGJSONL,0,'journaux au format texte (d'+
+   #130+'faut)');
+ Opt('--log-colors','[on|off|auto]','','LLAMA_ARG_LOG_COLORS',O_LOGCOLORS,0,
+   'couleurs dans les journaux (d'+#130+'faut : auto)');
+ Opt('-v|--verbose|--log-verbose','','','',O_VERBOSE,0,'niveau de verbosit'+
+   #130+' maximal (tous les messages, utile pour le d'+#130+'bogage)');
+ Opt('--offline','','','',O_OFFLINE,0,
+   'mode hors ligne : force l''utilisation du cache et interdit l''acc'+#138+
+   's r'+#130+'seau');
+ Opt('-lv|--verbosity|--log-verbosity','N','','LLAMA_ARG_LOG_VERBOSITY',
+   O_VERBOSITY,0,'seuil de verbosit'+#130+' : 0 g'+#130+'n'+#130+
+   'rique, 1 erreur, 2 avertissement, 3 info, 4 trace, 5 d'+#130+'bogage (d'+
+   #130+'faut : 3)');
+ Opt('--log-prefix','','','',O_LOGPREFIX,0,'pr'+#130+
+   'fixe dans les messages de journal');
+ Opt('--no-log-prefix','','','',O_NOLOGPREFIX,0,'pas de pr'+#130+
+   'fixe dans les messages de journal');
+ Opt('--log-timestamps','','','',O_LOGTS,0,
+   'horodatage dans les messages de journal');
+ Opt('--no-log-timestamps','','','',O_NOLOGTS,0,
+   'pas d''horodatage dans les messages de journal');
+ Opt('--samplers',#144+'CHANTILLONNEURS','','',O_SAMPLERS,1,#130+
+   'chantillonneurs utilis'+#130+'s, dans l''ordre, s'+#130+'par'+#130+'s par '+
+   #174+' ; '+#175+' (d'+#130+
+   'faut : penalties;dry;top_n_sigma;top_k;typ_p;top_p;min_p;xtc;temperature)');
+ Opt('-s|--seed','GRAINE','','',O_SEED,1,'graine du g'+#130+'n'+#130+
+   'rateur al'+#130+'atoire (d'+#130+'faut : -1 = graine al'+#130+'atoire)');
+ Opt('--sampler-seq|--sampling-seq','S'+#144+'QUENCE','','',O_SAMPLERSEQ,1,'s'+
+   #130+'quence simplifi'+#130+'e d'''+#130+'chantillonneurs (d'+#130+
+   'faut : edskypmxt)');
+ Opt('--ignore-eos','','','',O_IGNOREEOS,1,'ignore le jeton de fin de s'+#130+
+   'quence et continue la g'+#130+'n'+#130+'ration (revient '+#133+
+   ' --logit-bias EOS-inf)');
+ Opt('--temp|--temperature','N','','LLAMA_ARG_TEMPERATURE',O_TEMP,1,'temp'+#130+
+   'rature (d'+#130+'faut : 0,80)');
+ Opt('--top-k','N','','LLAMA_ARG_TOP_K',O_TOPK,1,#130+'chantillonnage top-k (d'+
+   #130+'faut : 40, 0 = d'+#130+'sactiv'+#130+')');
+ Opt('--top-p','N','','LLAMA_ARG_TOP_P',O_TOPP,1,#130+'chantillonnage top-p (d'+
+   #130+'faut : 0,95, 1,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--min-p','N','','LLAMA_ARG_MIN_P',O_MINP,1,#130+'chantillonnage min-p (d'+
+   #130+'faut : 0,05, 0,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--top-nsigma|--top-n-sigma','N','','',O_TOPNSIGMA,1,#130+
+   'chantillonnage top-n-sigma (d'+#130+'faut : -1,00, -1,0 = d'+#130+'sactiv'+
+   #130+')');
+ Opt('--xtc-probability','N','','',O_XTCP,1,'probabilit'+#130+' XTC (d'+#130+
+   'faut : 0,00, 0,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--xtc-threshold','N','','',O_XTCT,1,'seuil XTC (d'+#130+
+   'faut : 0,10, 1,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--typical|--typical-p','N','','',O_TYPICAL,1,#130+
+   'chantillonnage typique localement, param'+#138+'tre p (d'+#130+
+   'faut : 1,00, 1,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--repeat-last-n','N','','',O_REPEATLASTN,1,
+   'nombre de derniers jetons pris en compte pour la p'+#130+'nalit'+#130+' (d'+
+   #130+'faut : 64, 0 = d'+#130+'sactiv'+#130+', -1 = taille du contexte)');
+ Opt('--repeat-penalty','N','','LLAMA_ARG_REPEAT_PENALTY',O_REPEATPEN,1,'p'+
+   #130+'nalise les s'+#130+'quences r'+#130+'p'+#130+'t'+#130+
+   'es de jetons (d'+#130+'faut : 1,00, 1,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--presence-penalty','N','','LLAMA_ARG_PRESENCE_PENALTY',O_PRESENCEPEN,1,
+   'p'+#130+'nalit'+#130+' de pr'+#130+'sence (d'+#130+'faut : 0,00, 0,0 = d'+
+   #130+'sactiv'+#130+')');
+ Opt('--frequency-penalty','N','','LLAMA_ARG_FREQUENCY_PENALTY',O_FREQPEN,1,'p'+
+   #130+'nalit'+#130+' de fr'+#130+'quence (d'+#130+'faut : 0,00, 0,0 = d'+#130+
+   'sactiv'+#130+')');
+ Opt('--dry-multiplier','N','','',O_DRYMULT,1,'multiplicateur de l'''+#130+
+   'chantillonnage DRY (d'+#130+'faut : 0,00, 0,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--dry-base','N','','',O_DRYBASE,1,'valeur de base de l'''+#130+
+   'chantillonnage DRY (d'+#130+'faut : 1,75)');
+ Opt('--dry-allowed-length','N','','',O_DRYALLOWED,1,'longueur autoris'+#130+
+   'e pour DRY (d'+#130+'faut : 2)');
+ Opt('--dry-penalty-last-n','N','','',O_DRYLASTN,1,'p'+#130+'nalit'+#130+
+   ' DRY sur les N derniers jetons (d'+#130+'faut : 64, 0 = d'+#130+'sactiv'+
+   #130+', -1 = taille du contexte)');
+ Opt('--dry-sequence-breaker','CHAINE','','',O_DRYBREAK,1,'ajoute une s'+#130+
+   'quence de rupture pour DRY et supprime celles par d'+#130+
+   'faut (\n, :, ", *) ; '+#174+' none '+#175+' d'+#130+'sactive les s'+#130+
+   'quences de rupture');
+ Opt('--adaptive-target','N','','',O_ADAPTTARGET,1,'adaptive-p : probabilit'+
+   #130+' cible des jetons choisis (0,0 '+#133+' 1,0 ; n'+#130+'gatif = d'+#130+
+   'sactiv'+#130+') (d'+#130+'faut : -1,00)');
+ Opt('--adaptive-decay','N','','',O_ADAPTDECAY,1,'adaptive-p : taux de d'+#130+
+   'croissance de l''adaptation de la cible (0,0 '+#133+' 0,99) (d'+#130+
+   'faut : 0,90)');
+ Opt('--dynatemp-range','N','','',O_DYNRANGE,1,'plage de temp'+#130+
+   'rature dynamique (d'+#130+'faut : 0,00, 0,0 = d'+#130+'sactiv'+#130+')');
+ Opt('--dynatemp-exp','N','','',O_DYNEXP,1,'exposant de temp'+#130+
+   'rature dynamique (d'+#130+'faut : 1,00)');
+ Opt('--mirostat','N','','',O_MIROSTAT,1,'utilise l'''+#130+
+   'chantillonnage Mirostat (d'+#130+'faut : 0, 0 = d'+#130+'sactiv'+#130+
+   ', 1 = Mirostat, 2 = Mirostat 2.0) ; top-k, nucleus et typical sont alors i'+
+   'gnor'+#130+'s');
+ Opt('--mirostat-lr','N','','',O_MIROLR,1,
+   'taux d''apprentissage de Mirostat, param'+#138+'tre eta (d'+#130+
+   'faut : 0,10)');
+ Opt('--mirostat-ent','N','','',O_MIROENT,1,'entropie cible de Mirostat, param'+
+   #138+'tre tau (d'+#130+'faut : 5,00)');
+ Opt('-l|--logit-bias','JETON_ID(+/-)BIAIS','','',O_LOGITBIAS,1,
+   'modifie la probabilit'+#130+
+   ' d''apparition d''un jeton, par ex. --logit-bias 15043+1 ou --logit-bias 1'+
+   '5043-1');
+ Opt('--grammar','GRAMMAIRE','','',O_GRAMMAR,1,
+   'grammaire de type BNF (GBNF) pour contraindre la g'+#130+'n'+#130+'ration');
+ Opt('--grammar-file','FNAME','','',O_GRAMMARFILE,1,
+   'fichier contenant la grammaire');
+ Opt('-j|--json-schema','SCH'+#144+'MA','','',O_JSONSCHEMA,1,'sch'+#130+
+   'ma JSON pour contraindre la g'+#130+'n'+#130+
+   'ration (https://json-schema.org/), par ex. {"type": "object"}');
+ Opt('-jf|--json-schema-file','FICHIER','','',O_JSONSCHEMAFILE,1,
+   'fichier contenant un sch'+#130+'ma JSON pour contraindre la g'+#130+'n'+
+   #130+'ration');
+ Opt('-bs|--backend-sampling','','','',O_BACKENDSAMPLING,1,#130+
+   'chantillonnage sur le backend (ignor'+#130+')');
+ Opt('--server-base','URL','','',O_SERVERBASE,2,'se connecte '+#133+
+   ' un serveur existant (non support'+#130+' dans ce clone)');
+ Opt('--verbose-prompt','','','',O_VERBOSEPROMPT,2,'affiche un prompt d'+#130+
+   'taill'+#130+' avant la g'+#130+'n'+#130+'ration (d'+#130+'faut : d'+#130+
+   'sactiv'+#130+')');
+ Opt('--display-prompt','','','',O_DISPLAYPROMPT,2,
+   'affiche le prompt pendant la g'+#130+'n'+#130+'ration (d'+#130+
+   'faut : activ'+#130+')');
+ Opt('--no-display-prompt','','','',O_NODISPLAYPROMPT,2,
+   'n''affiche pas le prompt pendant la g'+#130+'n'+#130+'ration');
+ Opt('-co|--color','[on|off|auto]','','',O_COLOR,2,
+   'colore la sortie pour distinguer le prompt et la saisie de la g'+#130+'n'+
+   #130+'ration (d'+#130+'faut : auto)');
+ Opt('-ctxcp|--ctx-checkpoints|--swa-checkpoints','N','',
+   'LLAMA_ARG_CTX_CHECKPOINTS',O_CTXCP,2,'nombre maximal de points de contr'+
+   #147+'le de contexte (ignor'+#130+')');
+ Opt('-cram|--cache-ram','N','','LLAMA_ARG_CACHE_RAM',O_CRAM,2,
+   'taille maximale du cache en Mio (ignor'+#130+')');
+ Opt('--context-shift','','','',O_CONTEXTSHIFT,2,'d'+#130+
+   'cale le contexte lors d''une g'+#130+'n'+#130+'ration infinie (d'+#130+
+   'faut : d'+#130+'sactiv'+#130+')');
+ Opt('--no-context-shift','','','',O_NOCONTEXTSHIFT,2,'ne d'+#130+
+   'cale pas le contexte (le programme s''arr'+#136+
+   'te quand le contexte est plein)');
+ Opt('-sys|--system-prompt','PROMPT','','',O_SYSPROMPT,2,'prompt syst'+#138+
+   'me '+#133+' utiliser avec le mod'+#138+'le (si le mod'+#138+
+   'le de conversation le permet)');
+ Opt('--show-timings','','','',O_SHOWTIMINGS,2,'affiche les temps apr'+#138+
+   's chaque r'+#130+'ponse (d'+#130+'faut : activ'+#130+')');
+ Opt('--no-show-timings','','','',O_NOSHOWTIMINGS,2,
+   'n''affiche pas les temps d''ex'+#130+'cution');
+ Opt('-sysf|--system-prompt-file','FNAME','','',O_SYSFILE,2,
+   'fichier contenant le prompt syst'+#138+'me (d'+#130+'faut : aucun)');
+ Opt('--in-file','FNAME','','',O_INFILE,2,'fichier(s) d''entr'+#130+'e (ignor'+
+   #130+')');
+ Opt('-ptc|--print-token-count','N','','',O_PTC,2,
+   'affiche le nombre de jetons tous les N jetons (d'+#130+'faut : -1)');
+ Opt('--prompt-cache','FNAME','','',O_PROMPTCACHE,2,
+   'fichier de cache du prompt (non support'+#130+', ignor'+#130+')');
+ Opt('--prompt-cache-all','','','',O_PROMPTCACHEALL,2,
+   'sauvegarde aussi les entr'+#130+'es et sorties dans le cache (non support'+
+   #130+')');
+ Opt('--prompt-cache-ro','','','',O_PROMPTCACHERO,2,
+   'cache du prompt en lecture seule (non support'+#130+')');
+ Opt('-r|--reverse-prompt','PROMPT','','',O_REVERSE,2,'arr'+#136+'te la g'+#130+
+   'n'+#130+'ration '+#133+' ce texte et rend la main en mode interactif');
+ Opt('-sp|--special','','','',O_SPECIAL,2,'affiche les jetons sp'+#130+
+   'ciaux (d'+#130+'faut : d'+#130+'sactiv'+#130+')');
+ Opt('-cnv|--conversation','','','',O_CNV,2,'mode conversation (activ'+#130+
+   ' automatiquement si le mod'+#138+'le contient un mod'+#138+
+   'le de conversation)');
+ Opt('-no-cnv|--no-conversation','','','',O_NOCNV,2,'d'+#130+
+   'sactive le mode conversation');
+ Opt('-st|--single-turn','','','',O_SINGLETURN,2,
+   'une seule tour de conversation puis quitte ; non interactif si le premier '+
+   'tour est fourni par --prompt');
  Opt('-i|--interactive','','','',O_INTERACTIVE,2,'mode interactif');
- Opt('-if|--interactive-first','','','',O_INTERACTIVEFIRST,2,'mode interactif, en attendant d''abord la saisie de l''utilisateur');
- Opt('-mli|--multiline-input','','','',O_MULTILINE,2,'permet d''écrire ou de coller plusieurs lignes sans terminer chacune par « \ »');
- Opt('--in-prefix-bos','','','',O_INPREFIXBOS,2,'ajoute le jeton BOS avant le préfixe de saisie');
- Opt('--in-prefix','CHAÎNE','','',O_INPREFIX,2,'préfixe ajouté devant chaque saisie de l''utilisateur');
- Opt('--in-suffix','CHAÎNE','','',O_INSUFFIX,2,'suffixe ajouté après chaque saisie de l''utilisateur');
- Opt('--warmup','','','',O_WARMUP,2,'effectue un préchauffage avec un passage à vide (défaut : activé)');
- Opt('--no-warmup','','','',O_NOWARMUP,2,'désactive le préchauffage');
- Opt('-mm|--mmproj','FILE','','LLAMA_ARG_MMPROJ',O_MMPROJ,2,'projecteur multimodal (non supporté, ignoré)');
- Opt('-mmu|--mmproj-url','URL','','LLAMA_ARG_MMPROJ_URL',O_MMPROJURL,2,'URL d''un projecteur multimodal (non supporté, ignoré)');
- Opt('--no-mmproj|--no-mmproj-auto','','','',O_NOMMPROJ,2,'désactive le projecteur multimodal');
- Opt('--image|--audio|--video','FILE','','',O_IMAGE,2,'fichier image, audio ou vidéo (non supporté, ignoré)');
- Opt('-o|--output|--output-file','FNAME','','',O_OUTPUT,2,'fichier de sortie : journal de la conversation (défaut : aucun)');
- Opt('--chat-template-kwargs','CHAÎNE','','LLAMA_ARG_CHAT_TEMPLATE_KWARGS',O_CHATKWARGS,2,'paramètres supplémentaires pour le modèle de conversation (objet JSON), par ex. {"enable_thinking":false}');
- Opt('--jinja','','','',O_JINJA,2,'utilise le moteur de modèles Jinja pour la conversation (défaut : activé)');
- Opt('--no-jinja','','','',O_NOJINJA,2,'n''utilise pas Jinja : modèles intégrés uniquement');
- Opt('--reasoning-format','FORMAT','','LLAMA_ARG_THINK',O_REASONINGFMT,2,'contrôle l''extraction des balises de réflexion : none, deepseek, deepseek-legacy (défaut : auto)');
- Opt('-rea|--reasoning','[on|off|auto]','','LLAMA_ARG_REASONING',O_REASONING,2,'utilise le raisonnement dans la conversation (défaut : auto, détecté depuis le modèle)');
- Opt('--reasoning-effort','NIVEAU','','LLAMA_ARG_REASONING_EFFORT',O_REASONINGEFFORT,2,'niveau d''effort de raisonnement transmis au modèle de conversation (défaut : default)');
- Opt('--reasoning-budget','N','','LLAMA_ARG_THINK_BUDGET',O_REASONINGBUDGET,2,'budget de jetons de réflexion : -1 illimité, 0 arrêt immédiat, N>0 budget (défaut : -1)');
- Opt('--reasoning-budget-message','MESSAGE','','LLAMA_ARG_THINK_BUDGET_MESSAGE',O_REASONINGBUDGETMSG,2,'message injecté avant la balise de fin de réflexion quand le budget est épuisé');
- Opt('--reasoning-preserve','','','',O_REASONINGPRESERVE,2,'conserve les traces de raisonnement dans l''historique (défaut : activé)');
- Opt('--no-reasoning-preserve','','','',O_NOREASONINGPRESERVE,2,'ne conserve pas les traces de raisonnement dans l''historique');
- Opt('--chat-template','MODÈLE_JINJA','','LLAMA_ARG_CHAT_TEMPLATE',O_CHATTEMPLATE,2,'modèle de conversation personnalisé (défaut : celui des métadonnées du modèle) ; modèles intégrés : @TEMPLATES@');
- Opt('--chat-template-file','FICHIER_MODÈLE_JINJA','','LLAMA_ARG_CHAT_TEMPLATE_FILE',O_CHATTEMPLATEFILE,2,'fichier contenant un modèle de conversation personnalisé');
- Opt('--skip-chat-parsing','','','',O_SKIPCHATPARSING,2,'force un analyseur de contenu simple (ignoré)');
- Opt('--no-skip-chat-parsing','','','',O_NOSKIPCHATPARSING,2,'analyse structurée des réponses (défaut)');
- Opt('--simple-io','','','',O_SIMPLEIO,2,'entrées/sorties simplifiées pour une meilleure compatibilité (sous-processus, consoles limitées)');
- Opt('--log-prompts-dir','CHEMIN','','',O_LOGPROMPTSDIR,2,'journalise les prompts dans un répertoire (débogage)');
- Opt('-md|--model-draft|--spec-draft-model','FNAME','','',O_MODELDRAFT,2,'modèle auxiliaire pour le décodage spéculatif (non supporté, ignoré)');
+ Opt('-if|--interactive-first','','','',O_INTERACTIVEFIRST,2,
+   'mode interactif, en attendant d''abord la saisie de l''utilisateur');
+ Opt('-mli|--multiline-input','','','',O_MULTILINE,2,'permet d'''+#130+
+   'crire ou de coller plusieurs lignes sans terminer chacune par '+#174+' \ '+
+   #175);
+ Opt('--in-prefix-bos','','','',O_INPREFIXBOS,2,
+   'ajoute le jeton BOS avant le pr'+#130+'fixe de saisie');
+ Opt('--in-prefix','CHAINE','','',O_INPREFIX,2,'pr'+#130+'fixe ajout'+#130+
+   ' devant chaque saisie de l''utilisateur');
+ Opt('--in-suffix','CHAINE','','',O_INSUFFIX,2,'suffixe ajout'+#130+' apr'+#138+
+   's chaque saisie de l''utilisateur');
+ Opt('--warmup','','','',O_WARMUP,2,'effectue un pr'+#130+
+   'chauffage avec un passage '+#133+' vide (d'+#130+'faut : activ'+#130+')');
+ Opt('--no-warmup','','','',O_NOWARMUP,2,'d'+#130+'sactive le pr'+#130+
+   'chauffage');
+ Opt('-mm|--mmproj','FILE','','LLAMA_ARG_MMPROJ',O_MMPROJ,2,
+   'projecteur multimodal (non support'+#130+', ignor'+#130+')');
+ Opt('-mmu|--mmproj-url','URL','','LLAMA_ARG_MMPROJ_URL',O_MMPROJURL,2,
+   'URL d''un projecteur multimodal (non support'+#130+', ignor'+#130+')');
+ Opt('--no-mmproj|--no-mmproj-auto','','','',O_NOMMPROJ,2,'d'+#130+
+   'sactive le projecteur multimodal');
+ Opt('--image|--audio|--video','FILE','','',O_IMAGE,2,
+   'fichier image, audio ou vid'+#130+'o (non support'+#130+', ignor'+#130+')');
+ Opt('-o|--output|--output-file','FNAME','','',O_OUTPUT,2,
+   'fichier de sortie : journal de la conversation (d'+#130+'faut : aucun)');
+ Opt('--chat-template-kwargs','CHAINE','','LLAMA_ARG_CHAT_TEMPLATE_KWARGS',
+   O_CHATKWARGS,2,'param'+#138+'tres suppl'+#130+'mentaires pour le mod'+#138+
+   'le de conversation (objet JSON), par ex. {"enable_thinking":false}');
+ Opt('--jinja','','','',O_JINJA,2,'utilise le moteur de mod'+#138+
+   'les Jinja pour la conversation (d'+#130+'faut : activ'+#130+')');
+ Opt('--no-jinja','','','',O_NOJINJA,2,'n''utilise pas Jinja : mod'+#138+
+   'les int'+#130+'gr'+#130+'s uniquement');
+ Opt('--reasoning-format','FORMAT','','LLAMA_ARG_THINK',O_REASONINGFMT,2,
+   'contr'+#147+'le l''extraction des balises de r'+#130+
+   'flexion : none, deepseek, deepseek-legacy (d'+#130+'faut : auto)');
+ Opt('-rea|--reasoning','[on|off|auto]','','LLAMA_ARG_REASONING',O_REASONING,2,
+   'utilise le raisonnement dans la conversation (d'+#130+'faut : auto, d'+#130+
+   'tect'+#130+' depuis le mod'+#138+'le)');
+ Opt('--reasoning-effort','NIVEAU','','LLAMA_ARG_REASONING_EFFORT',
+   O_REASONINGEFFORT,2,'niveau d''effort de raisonnement transmis au mod'+#138+
+   'le de conversation (d'+#130+'faut : default)');
+ Opt('--reasoning-budget','N','','LLAMA_ARG_THINK_BUDGET',O_REASONINGBUDGET,2,
+   'budget de jetons de r'+#130+'flexion : -1 illimit'+#130+', 0 arr'+#136+
+   't imm'+#130+'diat, N>0 budget (d'+#130+'faut : -1)');
+ Opt('--reasoning-budget-message','MESSAGE','','LLAMA_ARG_THINK_BUDGET_MESSAGE',
+   O_REASONINGBUDGETMSG,2,'message inject'+#130+' avant la balise de fin de r'+
+   #130+'flexion quand le budget est '+#130+'puis'+#130);
+ Opt('--reasoning-preserve','','','',O_REASONINGPRESERVE,2,
+   'conserve les traces de raisonnement dans l''historique (d'+#130+
+   'faut : activ'+#130+')');
+ Opt('--no-reasoning-preserve','','','',O_NOREASONINGPRESERVE,2,
+   'ne conserve pas les traces de raisonnement dans l''historique');
+ Opt('--chat-template','MODELE_JINJA','','LLAMA_ARG_CHAT_TEMPLATE',
+   O_CHATTEMPLATE,2,'mod'+#138+'le de conversation personnalis'+#130+' (d'+#130+
+   'faut : celui des m'+#130+'tadonn'+#130+'es du mod'+#138+'le) ; mod'+#138+
+   'les int'+#130+'gr'+#130+'s : @TEMPLATES@');
+ Opt('--chat-template-file','FICHIER_MODELE_JINJA','',
+   'LLAMA_ARG_CHAT_TEMPLATE_FILE',O_CHATTEMPLATEFILE,2,
+   'fichier contenant un mod'+#138+'le de conversation personnalis'+#130);
+ Opt('--skip-chat-parsing','','','',O_SKIPCHATPARSING,2,
+   'force un analyseur de contenu simple (ignor'+#130+')');
+ Opt('--no-skip-chat-parsing','','','',O_NOSKIPCHATPARSING,2,'analyse structur'+
+   #130+'e des r'+#130+'ponses (d'+#130+'faut)');
+ Opt('--simple-io','','','',O_SIMPLEIO,2,'entr'+#130+'es/sorties simplifi'+#130+
+   'es pour une meilleure compatibilit'+#130+' (sous-processus, consoles limit'+
+   #130+'es)');
+ Opt('--log-prompts-dir','CHEMIN','','',O_LOGPROMPTSDIR,2,
+   'journalise les prompts dans un r'+#130+'pertoire (d'+#130+'bogage)');
+ Opt('-md|--model-draft|--spec-draft-model','FNAME','','',O_MODELDRAFT,2,'mod'+
+   #138+'le auxiliaire pour le d'+#130+'codage sp'+#130+'culatif (non support'+
+   #130+', ignor'+#130+')');
 End;
 
 Function FindOpt(Const Arg:AnsiString):LongInt;
@@ -10219,12 +11149,17 @@ Var
 Begin
  Titles[0]:='----- param'+#138+'tres communs -----';
  Titles[1]:='----- param'+#138+'tres d'''+#130+'chantillonnage -----';
- Titles[2]:='----- param'+#138+'tres sp'+#130+'cifiques '+#133+' llama-cli -----';
- WriteLn(HelpToCP437('LLAMA-CLI : Cette commande permet de lancer un chargement de mod'+#138+'le GGUF et de g'+#130+'n'+#130+'rer du texte ou de converser.'));
+ Titles[2]:='----- param'+#138+'tres sp'+#130+'cifiques '+#133+
+   ' llama-cli -----';
+ WriteLn('LLAMA-CLI : Cette commande permet de lancer un chargement de mod'+
+   #138+'le GGUF et de g'+#130+'n'+#130+'rer du texte ou de converser.');
+ WriteLn;
  WriteLn('Syntaxe: llama-cli [options]');
  WriteLn;
- WriteLn('exemple : llama-cli -m modele.gguf -p "Explique-moi la gravitation" -n 512');
- WriteLn('Exemple : llama-cli -hf bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M -p "Explique-moi la gravitation" -n 512');
+ WriteLn('exemple : llama-cli -m modele.gguf -p "Explique-moi la gravitation" '+
+   '-n 512');
+ WriteLn('Exemple : llama-cli -hf bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M '+
+   '-p "Explique-moi la gravitation" -n 512');
  WriteLn;
  For Sec:=0 to 2 do Begin
   WriteLn(HelpToCP437(Titles[Sec]));
@@ -10250,7 +11185,8 @@ Type
   Antiprompt:TStrArray;
   Interactive,InteractiveFirst:Boolean;
   ConvMode:LongInt;
-  SingleTurn,Multiline,Special,VerbosePrompt,DisplayPrompt,CtxShift,Warmup,ShowTimings,Perf,Escape:Boolean;
+  SingleTurn,Multiline,Special,VerbosePrompt,DisplayPrompt,CtxShift,Warmup,
+    ShowTimings,Perf,Escape:Boolean;
   InPrefix,InSuffix:AnsiString;
   InPrefixBos:Boolean;
   ColorMode:LongInt;
@@ -10279,7 +11215,8 @@ Procedure ParamsDefaults(Var P:TParams);
 Begin
  FillChar(P.Rope,SizeOf(P.Rope),0);
  P.Rope.ScalingType:=-1;P.Rope.ExtFactor:=-1;P.Rope.AttnFactor:=-1;P.Rope.BetaFast:=-1;P.Rope.BetaSlow:=-1;
- P.ModelPath:='';P.ModelUrl:='';P.HfRepo:='';P.HfFile:='';P.HfToken:=GetEnv('HF_TOKEN');
+ P.ModelPath:='';P.ModelUrl:='';P.HfRepo:='';P.HfFile:='';P.HfToken:=GetEnv('H'+
+   'F_TOKEN');
  P.Prompt:='';P.PromptFile:='';P.SysPrompt:='';P.SysFile:='';P.PromptSet:=False;
  P.NPredict:=-1;P.NCtx:=0;P.NBatch:=2048;P.NUBatch:=512;P.NKeep:=0;P.NThreads:=-1;P.NPrint:=-1;
  SampDefaults(P.Samp);
@@ -10346,7 +11283,8 @@ Function ArgInt(Const Arg,V:AnsiString):Int64;
 Var
  N:Int64;
 Begin
- If not ParseInt(V,N)Then ArgError('valeur entière invalide pour '+Arg+' : '+V);
+ If not ParseInt(V,N)Then ArgError('valeur enti'+#138+'re invalide pour '+Arg+
+   ' : '+V);
  ArgInt:=N;
 End;
 
@@ -10356,7 +11294,8 @@ Var
  T:AnsiString;
 Begin
  T:=ReplaceAll(V,',','.');
- If not ParseFloat(T,D)Then ArgError('valeur numérique invalide pour '+Arg+' : '+V);
+ If not ParseFloat(T,D)Then ArgError('valeur num'+#130+'rique invalide pour '+
+   Arg+' : '+V);
  ArgFloat:=D;
 End;
 
@@ -10368,15 +11307,19 @@ Begin
  SamplerKindByName:=0;
  If L='dry' Then SamplerKindByName:=SK_DRY
  Else If(L='top_k')or(L='top-k')or(L='topk')Then SamplerKindByName:=SK_TOPK
- Else If(L='top_p')or(L='top-p')or(L='topp')or(L='nucleus')Then SamplerKindByName:=SK_TOPP
- Else If(L='top_n_sigma')or(L='top-n-sigma')or(L='topnsigma')Then SamplerKindByName:=SK_TOPNSIGMA
- Else If(L='typ_p')or(L='typ-p')or(L='typp')or(L='typ')Then SamplerKindByName:=SK_TYPP
+ Else If(L='top_p')or(L='top-p')or(L='topp')or(L='nucleus')Then
+   SamplerKindByName:=SK_TOPP
+ Else If(L='top_n_sigma')or(L='top-n-sigma')or(L='topnsigma')Then
+   SamplerKindByName:=SK_TOPNSIGMA
+ Else If(L='typ_p')or(L='typ-p')or(L='typp')or(L='typ')Then
+   SamplerKindByName:=SK_TYPP
  Else If(L='min_p')or(L='min-p')or(L='minp')Then SamplerKindByName:=SK_MINP
  Else If(L='temperature')or(L='temp')Then SamplerKindByName:=SK_TEMP
  Else If L='xtc' Then SamplerKindByName:=SK_XTC
  Else If L='infill' Then SamplerKindByName:=SK_INFILL
  Else If L='penalties' Then SamplerKindByName:=SK_PENALTIES
- Else If(L='adaptive_p')or(L='adaptive-p')or(L='adaptivep')Then SamplerKindByName:=SK_ADAPTIVE;
+ Else If(L='adaptive_p')or(L='adaptive-p')or(L='adaptivep')Then
+   SamplerKindByName:=SK_ADAPTIVE;
 End;
 
 Function SamplerKindByChar(C:Char):LongInt;
@@ -10403,7 +11346,8 @@ Var
 Begin
  L:=LoStr(V);
  If(L='on')or(L='1')or(L='true')or(L='yes')or(L='enabled')Then ParseOnOffAuto:=1
- Else If(L='off')or(L='0')or(L='false')or(L='no')or(L='disabled')Then ParseOnOffAuto:=-1
+ Else If(L='off')or(L='0')or(L='false')or(L='no')or(L='disabled')Then
+   ParseOnOffAuto:=-1
  Else If L='auto' Then ParseOnOffAuto:=0
  Else Begin
   ArgError('valeur invalide pour '+Arg+' : '+V+' (attendu : on, off ou auto)');
@@ -10434,12 +11378,18 @@ Begin
   O_VERSION:Prm.VersionReq:=True;
   O_CACHELIST:Prm.CacheListReq:=True;
   O_THREADS:Begin Prm.NThreads:=ArgInt(Arg,V1);End;
-  O_THREADSB,O_CPUMASK,O_CPURANGE,O_CPUSTRICT,O_PRIO,O_POLL,O_CPUMASKB,O_CPURANGEB,O_CPUSTRICTB,
-  O_PRIOB,O_POLLB,O_SWAFULL,O_FA,O_KVOFFLOAD,O_NOKVOFFLOAD,O_REPACK,O_NOREPACK,O_NOHOST,O_DEFRAG,
-  O_LOADMODE,O_LAZYMODE,O_NUMA,O_OVERRIDETENSOR,O_CPUMOE,O_NCPUMOE,O_NCPUFFN,O_SM,O_TS,
-  O_FITT,O_FITC,O_CHECKTENSORS,O_OPOFFLOAD,O_NOOPOFFLOAD,O_BACKENDSAMPLING,O_CTXCP,O_CRAM,
-  O_INFILE,O_LOGJSONL,O_NOLOGJSONL,O_LOGPREFIX,O_NOLOGPREFIX,O_LOGTS,O_NOLOGTS,O_SKIPCHATPARSING,
-  O_NOSKIPCHATPARSING,O_REASONINGFMT,O_REASONINGEFFORT,O_REASONINGBUDGETMSG,O_REASONINGPRESERVE,
+  O_THREADSB,O_CPUMASK,O_CPURANGE,O_CPUSTRICT,O_PRIO,O_POLL,O_CPUMASKB,
+    O_CPURANGEB,O_CPUSTRICTB,
+  O_PRIOB,O_POLLB,O_SWAFULL,O_FA,O_KVOFFLOAD,O_NOKVOFFLOAD,O_REPACK,O_NOREPACK,
+    O_NOHOST,O_DEFRAG,
+  O_LOADMODE,O_LAZYMODE,O_NUMA,O_OVERRIDETENSOR,O_CPUMOE,O_NCPUMOE,O_NCPUFFN,
+    O_SM,O_TS,
+  O_FITT,O_FITC,O_CHECKTENSORS,O_OPOFFLOAD,O_NOOPOFFLOAD,O_BACKENDSAMPLING,
+    O_CTXCP,O_CRAM,
+  O_INFILE,O_LOGJSONL,O_NOLOGJSONL,O_LOGPREFIX,O_NOLOGPREFIX,O_LOGTS,O_NOLOGTS,
+    O_SKIPCHATPARSING,
+  O_NOSKIPCHATPARSING,O_REASONINGFMT,O_REASONINGEFFORT,O_REASONINGBUDGETMSG,
+    O_REASONINGPRESERVE,
   O_NOREASONINGPRESERVE,O_LOGPROMPTSDIR,O_CVECRANGE:Begin
    { options acceptees mais sans effet dans ce clone }
   End;
@@ -10453,23 +11403,31 @@ Begin
   O_MG:Prm.MainGpu:=ArgInt(Arg,V1);
   O_FIT:Prm.Fit:=LoStr(V1)<>'off';
   O_PARALLEL:Begin
-   If ArgInt(Arg,V1)>1 Then LogWrn('avertissement : -np > 1 non supporté, une seule séquence est utilisée'+#10);
+   If ArgInt(Arg,V1)>1 Then LogWrn('avertissement : -np > 1 non support'+#130+
+     ', une seule s'+#130+'quence est utilis'+#130+'e'+#10);
   End;
-  O_RPC:LogWrn('avertissement : --rpc non supporté, ignoré'+#10);
+  O_RPC:LogWrn('avertissement : --rpc non support'+#130+', ignor'+#130+#10);
   O_LISTDEVICES:Prm.ListDevicesReq:=True;
   O_CTK,O_CTV:Begin
    T:=LoStr(V1);
-   If not((T='f32')or(T='f16')or(T='bf16')or(T='q8_0')or(T='q4_0')or(T='q4_1')or(T='iq4_nl')or(T='q5_0')or(T='q5_1'))Then
-    ArgError('type de cache KV non supporté : '+V1);
+   If
+     not((T='f32')or(T='f16')or(T='bf16')or(T='q8_0')or(T='q4_0')or(T='q4_'+
+     '1')or(T='iq4_nl')or(T='q5_0')or(T='q5_1'))Then
+    ArgError('type de cache KV non support'+#130+' : '+V1);
    If(T<>'f32')and(T<>'f16')Then
-    LogWrn('avertissement : le cache KV quantifié n''est pas supporté, f32 est utilisé'+#10);
+    LogWrn('avertissement : le cache KV quantifi'+#130+' n''est pas support'+
+      #130+', f32 est utilis'+#130+#10);
   End;
-  O_LORA,O_LORASCALED,O_CVEC,O_CVECSCALED:LogWrn('avertissement : '+Arg+' non supporté, ignoré'+#10);
-  O_MMPROJ,O_MMPROJURL,O_IMAGE,O_MODELDRAFT,O_PROMPTCACHE,O_PROMPTCACHEALL,O_PROMPTCACHERO:
-   LogWrn('avertissement : '+Arg+' non supporté, ignoré'+#10);
+  O_LORA,O_LORASCALED,O_CVEC,O_CVECSCALED:LogWrn('avertissement : '+Arg+
+    ' non support'+#130+', ignor'+#130+#10);
+  O_MMPROJ,O_MMPROJURL,O_IMAGE,O_MODELDRAFT,O_PROMPTCACHE,O_PROMPTCACHEALL,
+    O_PROMPTCACHERO:
+   LogWrn('avertissement : '+Arg+' non support'+#130+', ignor'+#130+#10);
   O_NOMMPROJ:;
-  O_SERVERBASE:ArgError('--server-base n''est pas supporté dans ce clone');
-  O_DOCKER:ArgError('-dr / --docker-repo n''est pas supporté dans ce clone');
+  O_SERVERBASE:ArgError('--server-base n''est pas support'+#130+
+    ' dans ce clone');
+  O_DOCKER:ArgError('-dr / --docker-repo n''est pas support'+#130+
+    ' dans ce clone');
   O_CTX:Prm.NCtx:=ArgInt(Arg,V1);
   O_PREDICT:Prm.NPredict:=ArgInt(Arg,V1);
   O_BATCH:Prm.NBatch:=ArgInt(Arg,V1);
@@ -10480,10 +11438,12 @@ Begin
   O_NOPERF:Prm.Perf:=False;
   O_FILE:Begin
    ReadFileOrDie(V1,Prm.Prompt);
-   If(Length(Prm.Prompt)>0)and(Prm.Prompt[Length(Prm.Prompt)]=#10)Then Delete(Prm.Prompt,Length(Prm.Prompt),1);
+   If(Length(Prm.Prompt)>0)and(Prm.Prompt[Length(Prm.Prompt)]=#10)Then
+     Delete(Prm.Prompt,Length(Prm.Prompt),1);
    Prm.PromptSet:=True;
   End;
-  O_BINFILE:Begin ReadFileOrDie(V1,Prm.Prompt);Prm.BinaryPrompt:=True;Prm.PromptSet:=True;End;
+  O_BINFILE:Begin ReadFileOrDie(V1,
+    Prm.Prompt);Prm.BinaryPrompt:=True;Prm.PromptSet:=True;End;
   O_ESCAPE:Prm.Escape:=True;
   O_NOESCAPE:Prm.Escape:=False;
   O_ROPESCALING:Begin
@@ -10491,7 +11451,8 @@ Begin
    If T='none' Then Prm.Rope.ScalingType:=RS_NONE
    Else If T='linear' Then Prm.Rope.ScalingType:=RS_LINEAR
    Else If T='yarn' Then Prm.Rope.ScalingType:=RS_YARN
-   Else ArgError('--rope-scaling : valeur invalide '+V1+' (none, linear, yarn)');
+   Else ArgError('--rope-scaling : valeur invalide '+V1+
+     ' (none, linear, yarn)');
   End;
   O_ROPESCALE:Begin D:=ArgFloat(Arg,V1);If D<>0 Then Prm.Rope.Scale:=1.0/D;End;
   O_ROPEBASE:Prm.Rope.Base:=ArgFloat(Arg,V1);
@@ -10516,8 +11477,12 @@ Begin
     If Q=0 Then ArgError('format invalide pour --override-kv : '+S);
     Prm.Overrides[N].Typ:=LoStr(Copy(T,1,Q-1));
     Prm.Overrides[N].Val:=Copy(T,Q+1,Length(T));
-    If not((Prm.Overrides[N].Typ='int')or(Prm.Overrides[N].Typ='float')or(Prm.Overrides[N].Typ='bool')or
-           (Prm.Overrides[N].Typ='str'))Then ArgError('type invalide pour --override-kv : '+Prm.Overrides[N].Typ);
+    If
+      not((Prm.Overrides[N].Typ='int')or(Prm.Overrides[N].Typ='floa'+
+      't')or(Prm.Overrides[N].Typ='bool')or
+           (Prm.Overrides[N].Typ='str'))Then
+             ArgError('type invalide pour --override-kv : '+
+             Prm.Overrides[N].Typ);
    End;
   End;
   O_MODEL:Prm.ModelPath:=V1;
@@ -10529,7 +11494,8 @@ Begin
   O_LOGFILE:Begin
    Assign(LogFile,V1);
    Rewrite(LogFile);
-   If IOResult<>0 Then ArgError('impossible d''ouvrir le fichier de journal '+V1);
+   If IOResult<>0 Then ArgError('impossible d''ouvrir le fichier de journal '+
+     V1);
    LogFileOn:=True;
   End;
   O_LOGCOLORS:ParseOnOffAuto(Arg,V1);
@@ -10542,7 +11508,8 @@ Begin
    Parts:=SplitStr(V1,';');
    For I:=0 to High(Parts)do Begin
     N:=SamplerKindByName(Parts[I]);
-    If N=0 Then LogWrn('avertissement : échantillonneur inconnu : '+Parts[I]+#10)
+    If N=0 Then LogWrn('avertissement : '+#130+'chantillonneur inconnu : '+
+      Parts[I]+#10)
     Else AddInt(Prm.Samp.Order,N);
    End;
   End;
@@ -10554,12 +11521,14 @@ Begin
    SetLength(Prm.Samp.Order,0);
    For I:=1 to Length(V1)do Begin
     N:=SamplerKindByChar(V1[I]);
-    If N=0 Then LogWrn('avertissement : lettre d''échantillonneur inconnue : '+V1[I]+#10)
+    If N=0 Then LogWrn('avertissement : lettre d'''+#130+
+      'chantillonneur inconnue : '+V1[I]+#10)
     Else AddInt(Prm.Samp.Order,N);
    End;
   End;
   O_IGNOREEOS:Prm.Samp.IgnoreEos:=True;
-  O_TEMP:Begin Prm.Samp.Temp:=ArgFloat(Arg,V1);If Prm.Samp.Temp<0 Then Prm.Samp.Temp:=0;End;
+  O_TEMP:Begin Prm.Samp.Temp:=ArgFloat(Arg,V1);If Prm.Samp.Temp<0 Then
+    Prm.Samp.Temp:=0;End;
   O_TOPK:Prm.Samp.TopK:=ArgInt(Arg,V1);
   O_TOPP:Prm.Samp.TopP:=ArgFloat(Arg,V1);
   O_MINP:Prm.Samp.MinP:=ArgFloat(Arg,V1);
@@ -10569,7 +11538,8 @@ Begin
   O_TYPICAL:Prm.Samp.TypP:=ArgFloat(Arg,V1);
   O_REPEATLASTN:Begin
    Prm.Samp.PenaltyLastN:=ArgInt(Arg,V1);
-   If Prm.Samp.PenaltyLastN<-1 Then ArgError('--repeat-last-n doit être >= -1');
+   If Prm.Samp.PenaltyLastN<-1 Then ArgError('--repeat-last-n doit '+#136+
+     'tre >= -1');
    Prm.RepeatLastNSet:=True;
   End;
   O_REPEATPEN:Prm.Samp.PenaltyRepeat:=ArgFloat(Arg,V1);
@@ -10583,7 +11553,8 @@ Begin
   O_DRYALLOWED:Prm.Samp.DryAllowed:=ArgInt(Arg,V1);
   O_DRYLASTN:Begin Prm.Samp.DryLastN:=ArgInt(Arg,V1);Prm.DryLastNSet:=True;End;
   O_DRYBREAK:Begin
-   If DryBreakersDefault Then Begin SetLength(Prm.Samp.DryBreakers,0);DryBreakersDefault:=False;End;
+   If DryBreakersDefault Then Begin SetLength(Prm.Samp.DryBreakers,
+     0);DryBreakersDefault:=False;End;
    If LoStr(V1)<>'none' Then AddStr(Prm.Samp.DryBreakers,V1);
   End;
   O_ADAPTTARGET:Prm.Samp.AdaptiveTarget:=ArgFloat(Arg,V1);
@@ -10605,14 +11576,16 @@ Begin
     If Sg='-' Then D:=-D;
     Prm.Samp.Bias[N].Bias:=D;
    End
-    Else ArgError('format invalide pour --logit-bias : '+V1+' (attendu : JETON_ID(+/-)BIAIS)');
+    Else ArgError('format invalide pour --logit-bias : '+V1+
+      ' (attendu : JETON_ID(+/-)BIAIS)');
   End;
   O_GRAMMAR:Prm.Samp.Grammar:=V1;
   O_GRAMMARFILE:ReadFileOrDie(V1,Prm.Samp.Grammar);
   O_JSONSCHEMA,O_JSONSCHEMAFILE:Begin
    If Id=O_JSONSCHEMAFILE Then ReadFileOrDie(V1,S)Else S:=V1;
    Prm.Samp.Grammar:=JsonSchemaToGrammar(S,Prm_Ok,T);
-   If not Prm_Ok Then ArgError('conversion du schéma JSON impossible : '+T);
+   If not Prm_Ok Then ArgError('conversion du sch'+#130+'ma JSON impossible : '+
+     T);
   End;
   { --- options specifiques --- }
   O_VERBOSEPROMPT:Prm.VerbosePrompt:=True;
@@ -10626,7 +11599,8 @@ Begin
   O_NOSHOWTIMINGS:Prm.ShowTimings:=False;
   O_SYSFILE:Begin
    ReadFileOrDie(V1,Prm.SysPrompt);
-   While(Length(Prm.SysPrompt)>0)and(Prm.SysPrompt[Length(Prm.SysPrompt)]in[#10,#13])do
+   While(Length(Prm.SysPrompt)>0)and(Prm.SysPrompt[Length(Prm.SysPrompt)]in[#10,
+     #13])do
     Delete(Prm.SysPrompt,Length(Prm.SysPrompt),1);
   End;
   O_PTC:Prm.NPrint:=ArgInt(Arg,V1);
@@ -10652,7 +11626,7 @@ Begin
   O_CHATTEMPLATE:Prm.ChatTemplate:=V1;
   O_CHATTEMPLATEFILE:ReadFileOrDie(V1,Prm.ChatTemplate);
   O_SIMPLEIO:SimpleIO:=True;
- Else ArgError('option non gérée : '+Arg);
+ Else ArgError('option non g'+#130+'r'+#130+'e : '+Arg);
  End;
 End;
 
@@ -10675,11 +11649,12 @@ Begin
   E:=GetEnv(Opts[K].Env);
   If E='' Then Continue;
   If OptTakesValue(Opts[K])>0 Then ApplyOpt(Opts[K].Names[0],Opts[K].Id,E,'')
-  Else If(E<>'0')and(LoStr(E)<>'false')Then ApplyOpt(Opts[K].Names[0],Opts[K].Id,'','');
+  Else If(E<>'0')and(LoStr(E)<>'false')Then ApplyOpt(Opts[K].Names[0],
+    Opts[K].Id,'','');
  End;
  I:=1;
  While I<=ParamCount do Begin
-  A:=ParamStr(I);
+  A:=ArgStr(I);
   Oi:=FindOpt(A);
   If Oi<0 Then Begin
    { forme --option=valeur }
@@ -10703,15 +11678,16 @@ Begin
     Else ArgError('l''argument '+A+' attend une valeur');
    End
     Else Begin
-     V1:=ParamStr(I+1);
-     If(Opts[Oi].Id=O_COLOR)and(LoStr(V1)<>'on')and(LoStr(V1)<>'off')and(LoStr(V1)<>'auto')Then Begin
+     V1:=ArgStr(I+1);
+     If(Opts[Oi].Id=O_COLOR)and(LoStr(V1)<>'on')and(LoStr(V1)<>'of'+
+       'f')and(LoStr(V1)<>'auto')Then Begin
       V1:='on';NV:=0;
      End;
     End;
   End;
   If(NV>=2)Then Begin
    If I+2>ParamCount Then ArgError('l''argument '+A+' attend deux valeurs');
-   V2:=ParamStr(I+2);
+   V2:=ArgStr(I+2);
   End;
   ApplyOpt(A,Opts[Oi].Id,V1,V2);
   Inc(I,1+NV);
@@ -10777,15 +11753,22 @@ Begin
  TTotal:=NowMsF-TStartMs;
  TUnacc:=TTotal-(TSampMs+TPEvalMs+TEvalMs);
  LogInf('common_perf_print:    sampling time = '+FStrW(TSampMs,10,2)+' ms'+#10);
- LogInf('common_perf_print:    samplers time = '+FStrW(TSampMs,10,2)+' ms / '+PadLeft(IStr(NSampled),5)+' tokens'+#10);
+ LogInf('common_perf_print:    samplers time = '+FStrW(TSampMs,10,2)+' ms / '+
+   PadLeft(IStr(NSampled),5)+' tokens'+#10);
  LogInf('common_perf_print:        load time = '+FStrW(TLoadMs,10,2)+' ms'+#10);
- LogInf('common_perf_print: prompt eval time = '+FStrW(TPEvalMs,10,2)+' ms / '+PadLeft(IStr(NPEval),5)+' tokens ('+
-        FStrW(PerfPerTok(TPEvalMs,NPEval),8,2)+' ms per token, '+FStrW(PerfTps(TPEvalMs,NPEval),8,2)+' tokens per second)'+#10);
- LogInf('common_perf_print:        eval time = '+FStrW(TEvalMs,10,2)+' ms / '+PadLeft(IStr(NEvalRuns),5)+' runs   ('+
-        FStrW(PerfPerTok(TEvalMs,NEvalRuns),8,2)+' ms per token, '+FStrW(PerfTps(TEvalMs,NEvalRuns),8,2)+' tokens per second)'+#10);
- LogInf('common_perf_print:       total time = '+FStrW(TTotal,10,2)+' ms / '+PadLeft(IStr(NPEval+NEvalRuns),5)+' tokens'+#10);
+ LogInf('common_perf_print: prompt eval time = '+FStrW(TPEvalMs,10,2)+' ms / '+
+   PadLeft(IStr(NPEval),5)+' tokens ('+
+        FStrW(PerfPerTok(TPEvalMs,NPEval),8,2)+' ms per token, '+
+          FStrW(PerfTps(TPEvalMs,NPEval),8,2)+' tokens per second)'+#10);
+ LogInf('common_perf_print:        eval time = '+FStrW(TEvalMs,10,2)+' ms / '+
+   PadLeft(IStr(NEvalRuns),5)+' runs   ('+
+        FStrW(PerfPerTok(TEvalMs,NEvalRuns),8,2)+' ms per token, '+
+          FStrW(PerfTps(TEvalMs,NEvalRuns),8,2)+' tokens per second)'+#10);
+ LogInf('common_perf_print:       total time = '+FStrW(TTotal,10,2)+' ms / '+
+   PadLeft(IStr(NPEval+NEvalRuns),5)+' tokens'+#10);
  If TTotal>0 Then
-  LogInf('common_perf_print: unaccounted time = '+FStrW(TUnacc,10,2)+' ms / '+FStrW(100.0*TUnacc/TTotal,5,1)+
+  LogInf('common_perf_print: unaccounted time = '+FStrW(TUnacc,10,2)+' ms / '+
+    FStrW(100.0*TUnacc/TTotal,5,1)+
          ' %      (total - sampling - prompt eval - eval) / (total)'+#10);
 End;
 
@@ -10822,13 +11805,15 @@ Begin
  ChatAddAndFormat:=SS;
 End;
 
-Function TokenizeText(Const Text:AnsiString;AddSpecial,ParseSpecial:Boolean):TIntArray;
+Function TokenizeText(Const Text:AnsiString;AddSpecial,
+  ParseSpecial:Boolean):TIntArray;
 Var
  Sp:Boolean;
 Begin
  Sp:=AddSpecial;
  { si le texte commence deja par BOS (modele de conversation), on ne le rajoute pas }
- If Sp and(Mdl.V.BOS>=0)and(Mdl.V.Text[Mdl.V.BOS]<>'')and StartsWith(Text,Mdl.V.Text[Mdl.V.BOS])Then Sp:=False;
+ If Sp and(Mdl.V.BOS>=0)and(Mdl.V.Text[Mdl.V.BOS]<>'')and StartsWith(Text,
+   Mdl.V.Text[Mdl.V.BOS])Then Sp:=False;
  TokenizeText:=VocabTokenize(Mdl.V,Text,Sp,ParseSpecial);
 End;
 
@@ -10910,15 +11895,18 @@ Begin
  {$IFDEF WINDOWS}Os_:='Windows';{$ELSE}{$IFDEF LINUX}Os_:='Linux';{$ELSE}{$IFDEF DARWIN}Os_:='macOS';{$ELSE}Os_:='DOS/autre';{$ENDIF}{$ENDIF}{$ENDIF}
  {$IFDEF CPUX86_64}Cpu:='x86_64';{$ELSE}{$IFDEF CPUI386}Cpu:='i386';{$ELSE}{$IFDEF CPUAARCH64}Cpu:='aarch64';{$ELSE}Cpu:='?';{$ENDIF}{$ENDIF}{$ENDIF}
  WriteLn('version: ',BuildNumber,' (clone Pascal de llama.cpp)');
- WriteLn('built with Free Pascal ',IStr(FPC_VERSION),'.',IStr(FPC_RELEASE),'.',IStr(FPC_PATCH),' for ',Os_,' ',Cpu);
+ WriteLn('built with Free Pascal ',IStr(FPC_VERSION),'.',IStr(FPC_RELEASE),'.',
+   IStr(FPC_PATCH),' for ',Os_,' ',Cpu);
 End;
 
-Function OverlapAntiprompt(Const Last,Anti:AnsiString;Interactive:Boolean):Boolean;
+Function OverlapAntiprompt(Const Last,
+  Anti:AnsiString;Interactive:Boolean):Boolean;
 Var
  Extra,Start:LongInt;
 Begin
  If Interactive Then Extra:=0 Else Extra:=2;
- If Length(Last)>Length(Anti)+Extra Then Start:=Length(Last)-(Length(Anti)+Extra)+1 Else Start:=1;
+ If Length(Last)>Length(Anti)+Extra Then Start:=Length(Last)-(Length(Anti)+
+   Extra)+1 Else Start:=1;
  OverlapAntiprompt:=PosFrom(Anti,Last,Start)>0;
 End;
 
@@ -10930,7 +11918,8 @@ Var
  SysText,PromptText:AnsiString;
  EmbdInp,Embd,Tmp,Toks:TIntArray;
  NConsumed,NRemain,NKeep,MaxEmbd,NLeft,NDiscard:LongInt;
- IsInteracting,IsAntiprompt,InputEcho,Display,WaitingFirst,ConvMode,EnableChatTemplate:Boolean;
+ IsInteracting,IsAntiprompt,InputEcho,Display,WaitingFirst,ConvMode,
+   EnableChatTemplate:Boolean;
  AddBos:Boolean;
  Prompt:AnsiString;
  AssistantSS:AnsiString;
@@ -10958,20 +11947,23 @@ Begin
  { --- resolution du modele --- }
  ModelFile:=Prm.ModelPath;
  If(ModelFile='')and(Prm.ModelUrl<>'')Then Begin
-  If not ResolveModelUrl(Prm.ModelUrl,Prm.HfToken,Prm.Offline,ModelFile)Then Halt(1);
+  If not ResolveModelUrl(Prm.ModelUrl,Prm.HfToken,Prm.Offline,ModelFile)Then
+    Halt(1);
  End
   Else If(ModelFile='')and(Prm.HfRepo<>'')Then Begin
-   If not ResolveModelHF(Prm.HfRepo,Prm.HfFile,Prm.HfToken,Prm.Offline,ModelFile)Then Halt(1);
+   If not ResolveModelHF(Prm.HfRepo,Prm.HfFile,Prm.HfToken,Prm.Offline,
+     ModelFile)Then Halt(1);
   End;
  If ModelFile='' Then Begin
-  LogErr('erreur : aucun modèle spécifié'+#10);
-  LogErr('         utilisez -m <fichier.gguf> pour un modèle local, ou -hf <utilisateur>/<modèle> (Windows)'+#10);
+  LogErr('erreur : aucun mod'+#138+'le sp'+#130+'cifi'+#130+#10);
+  LogErr('         utilisez -m <fichier.gguf> pour un mod'+#138+
+    'le local, ou -hf <utilisateur>/<mod'+#138+'le> (Windows)'+#10);
   Halt(1);
  End;
  SetLength(KVOverrides,Length(Prm.Overrides));
  For I:=0 to High(Prm.Overrides)do KVOverrides[I]:=Prm.Overrides[I];
  { --- chargement --- }
- LogOut(4,'llama_model_load: chargement du modèle '+ModelFile+#10);
+ LogOut(4,'llama_model_load: chargement du mod'+#138+'le '+ModelFile+#10);
  T0:=NowMsF;
  LoadModel(ModelFile,Mdl,LogLevel>=4);
  GpuSetup(Mdl,Prm.NGL,Prm.DevStr,Prm.MainGpu,Prm.Fit);
@@ -10988,17 +11980,22 @@ Begin
    NCtx:=(NCtx div 256)*256;
    If NCtx<2048 Then NCtx:=2048;
    If NCtx>K Then NCtx:=K;
-   LogWrn('avertissement : taille du contexte r'+#130+'duite '+#133+' '+IStr(NCtx)+' (mod'+#138+
+   LogWrn('avertissement : taille du contexte r'+#130+'duite '+#133+' '+
+     IStr(NCtx)+' (mod'+#138+
           'le entra'+#140+'n'+#130+' pour '+IStr(K)+
-          ') pour limiter la m'+#130+'moire du cache KV ; utilisez -c pour la modifier'+#10);
+          ') pour limiter la m'+#130+
+            'moire du cache KV ; utilisez -c pour la modifier'+#10);
   End;
  End;
  If NCtx<8 Then Begin
-  LogWrn('avertissement : la taille minimale du contexte est 8, utilisation du minimum'+#10);
+  LogWrn('avertissement : la taille minimale du contexte est 8, utilisation du'+
+    ' minimum'+#10);
   NCtx:=8;
  End;
- If Prm.Rope.Base<>0 Then LogWrn('avertissement : changement de la base de fr'+#130+'quence RoPE '+#133+' '+FStr(Prm.Rope.Base,1)+#10);
- If Prm.Rope.Scale<>0 Then LogWrn('avertissement : mise '+#133+' l'''+#130+'chelle de la fr'+#130+
+ If Prm.Rope.Base<>0 Then LogWrn('avertissement : changement de la base de fr'+
+   #130+'quence RoPE '+#133+' '+FStr(Prm.Rope.Base,1)+#10);
+ If Prm.Rope.Scale<>0 Then LogWrn('avertissement : mise '+#133+' l'''+#130+
+   'chelle de la fr'+#130+
                                   'quence RoPE de '+FStr(Prm.Rope.Scale,4)+#10);
  If(Prm.NBatch<=0)Then Prm.NBatch:=2048;
  If(Prm.NUBatch<=0)Then Prm.NUBatch:=512;
@@ -11008,13 +12005,16 @@ Begin
  If UBatchSize<1 Then UBatchSize:=1;
  GNThreads:=Prm.NThreads;
  CtxInit(Mdl,Cx,NCtx,UBatchSize,Prm.Rope);
- LogOut(4,'llama_context: n_ctx = '+IStr(NCtx)+', n_batch = '+IStr(Prm.NBatch)+', n_ubatch = '+IStr(UBatchSize)+#10);
+ LogOut(4,'llama_context: n_ctx = '+IStr(NCtx)+', n_batch = '+IStr(Prm.NBatch)+
+   ', n_ubatch = '+IStr(UBatchSize)+#10);
  LogOut(4,'llama_kv_cache: taille = '+HumanBytes(Cx.KVBytes)+#10);
  TLoadMs:=NowMsF-T0;
  TStartMs:=NowMsF;
  If NCtx>NCtxTrain Then
-  LogWrn('avertissement : le mod'+#138+'le a '+#130+'t'+#130+' entra'+#140+'n'+#130+
-               ' pour '+IStr(NCtxTrain)+' jetons de contexte seulement ('+IStr(NCtx)+' demand'+#130+'s)'+#10);
+  LogWrn('avertissement : le mod'+#138+'le a '+#130+'t'+#130+' entra'+#140+'n'+
+    #130+
+               ' pour '+IStr(NCtxTrain)+' jetons de contexte seulement ('+
+                 IStr(NCtx)+' demand'+#130+'s)'+#10);
  { --- echantillonneur --- }
  SampParams:=Prm.Samp;
  If SampParams.PenaltyLastN<0 Then SampParams.PenaltyLastN:=NCtx;
@@ -11034,18 +12034,22 @@ Begin
  UseColorOut:=(Prm.ColorMode=1)or((Prm.ColorMode=0)and StdoutIsTerminal);
  { --- modele de conversation --- }
  TplSource:='';
- If Prm.ChatTemplate<>'' Then TplSource:=Prm.ChatTemplate Else TplSource:=Mdl.V.ChatTemplate;
+ If Prm.ChatTemplate<>'' Then TplSource:=Prm.ChatTemplate Else
+   TplSource:=Mdl.V.ChatTemplate;
  HasTemplate:=TplSource<>'';
  TplName:='chatml';
  If HasTemplate Then Begin
   TplName:=ChatTemplateDetect(TplSource);
   If TplName='' Then Begin
    If Prm.ChatTemplate<>'' Then Begin
-    LogErr('erreur : le mod'+#138+'le de conversation fourni n''est pas support'+#130+' ; mod'+#138+
+    LogErr('erreur : le mod'+#138+
+      'le de conversation fourni n''est pas support'+#130+' ; mod'+#138+
             'les int'+#130+'gr'+#130+'s : '+ChatTemplateList+#10);
     Halt(1);
    End;
-   LogWrn('avertissement : mod'+#138+'le de conversation du fichier non reconnu, utilisation de « chatml »'+#10);
+   LogWrn('avertissement : mod'+#138+
+     'le de conversation du fichier non reconnu, utilisation de '+#174+
+     ' chatml '+#175+#10);
    TplName:='chatml';
   End;
  End;
@@ -11055,10 +12059,14 @@ Begin
  If Prm.ConvMode=1 Then ConvMode:=True
  Else If Prm.ConvMode=0 Then ConvMode:=HasTemplate;
  If ConvMode and not HasTemplate Then
-  LogWrn('avertissement : aucun mod'+#138+'le de conversation disponible ; utilisation de « chatml » ; les r'+
+  LogWrn('avertissement : aucun mod'+#138+
+    'le de conversation disponible ; utilisation de '+#174+' chatml '+#175+
+    ' ; les r'+
          #130+'ponses peuvent '+#136+'tre de moindre qualit'+#130+#10);
  If ConvMode and(Prm.ConvMode=0)Then
-  LogOut(4,'main : un mod'+#138+'le de conversation est disponible, le mode conversation est activ'+#130' (d'+#130+'sactivable avec -no-cnv)'+#10);
+  LogOut(4,'main : un mod'+#138+
+    'le de conversation est disponible, le mode conversation est activ'+
+    #130' (d'+#130+'sactivable avec -no-cnv)'+#10);
  AddBos:=Mdl.V.AddBOS;
  { --- warmup --- }
  If Prm.Warmup Then Begin
@@ -11070,10 +12078,12 @@ Begin
  End;
  { --- prompt initial --- }
  If Prm.Prompt<>'' Then Begin
-  If Prm.Escape and not Prm.BinaryPrompt Then Prompt:=ProcessEscapes(Prm.Prompt)Else Prompt:=Prm.Prompt;
+  If Prm.Escape and not Prm.BinaryPrompt Then
+    Prompt:=ProcessEscapes(Prm.Prompt)Else Prompt:=Prm.Prompt;
  End
   Else Prompt:='';
- If(Prm.SysPrompt<>'')and Prm.Escape Then SysText:=ProcessEscapes(Prm.SysPrompt)Else SysText:=Prm.SysPrompt;
+ If(Prm.SysPrompt<>'')and Prm.Escape Then
+   SysText:=ProcessEscapes(Prm.SysPrompt)Else SysText:=Prm.SysPrompt;
  SetLength(ChatMsgs,0);
  WaitingFirst:=False;
  PromptText:='';
@@ -11083,23 +12093,26 @@ Begin
   Else WaitingFirst:=True;
   If(SysText<>'')or(Prompt<>'')Then
    PromptText:=RenderChat(ChatMsgs,Prompt<>'');
-  If(Prompt<>'')and(SysText='')Then LogOut(4,'main : le prompt utilisateur d'+#130+'marre la conversation'+#10);
+  If(Prompt<>'')and(SysText='')Then LogOut(4,'main : le prompt utilisateur d'+
+    #130+'marre la conversation'+#10);
  End
   Else PromptText:=Prompt;
- If Prm.InteractiveFirst or(PromptText<>'')Then EmbdInp:=TokenizeText(PromptText,True,True)
+ If Prm.InteractiveFirst or(PromptText<>'')Then
+   EmbdInp:=TokenizeText(PromptText,True,True)
  Else SetLength(EmbdInp,0);
  If(not WaitingFirst)and(Length(EmbdInp)=0)Then Begin
   If AddBos and(Mdl.V.BOS>=0)Then Begin
    SetLength(EmbdInp,1);EmbdInp[0]:=Mdl.V.BOS;
-   LogWrn('avertissement : le prompt était vide, BOS ajouté'+#10);
+   LogWrn('avertissement : le prompt '+#130+'tait vide, BOS ajout'+#130+#10);
   End
    Else Begin
-    LogErr('erreur : l''entrée est vide'+#10);
+    LogErr('erreur : l''entr'+#130+'e est vide'+#10);
     Halt(1);
    End;
  End;
  If Length(EmbdInp)>NCtx-4 Then Begin
-  LogErr('erreur : le prompt est trop long ('+IStr(Length(EmbdInp))+' jetons, maximum '+IStr(NCtx-4)+')'+#10);
+  LogErr('erreur : le prompt est trop long ('+IStr(Length(EmbdInp))+
+    ' jetons, maximum '+IStr(NCtx-4)+')'+#10);
   Halt(1);
  End;
  NKeep:=Prm.NKeep;
@@ -11115,31 +12128,42 @@ Begin
  If Prm.VerbosePrompt Then Begin
   LogInf('main : prompt : '''+Prompt+''''+#10);
   LogInf('main : nombre de jetons dans le prompt = '+IStr(Length(EmbdInp))+#10);
-  For I:=0 to High(EmbdInp)do LogInf(PadLeft(IStr(EmbdInp[I]),6)+' -> '''+Piece(EmbdInp[I],True)+''''+#10);
+  For I:=0 to High(EmbdInp)do LogInf(PadLeft(IStr(EmbdInp[I]),6)+' -> '''+
+    Piece(EmbdInp[I],True)+''''+#10);
   LogInf(#10);
  End;
  If Prm.Interactive Then Begin
-  LogOut(4,'main : mode interactif activé.'+#10);
-  For I:=0 to High(Prm.Antiprompt)do LogInf('Invite inverse : '''+Prm.Antiprompt[I]+''''+#10);
+  LogOut(4,'main : mode interactif activ'+#130+'.'+#10);
+  For I:=0 to High(Prm.Antiprompt)do LogInf('Invite inverse : '''+
+    Prm.Antiprompt[I]+''''+#10);
   If Prm.InPrefixBos Then LogInf('Pr'+#130+'fixe de saisie avec BOS'+#10);
-  If Prm.InPrefix<>'' Then LogInf('Pr'+#130+'fixe de saisie : '''+Prm.InPrefix+''''+#10);
-  If Prm.InSuffix<>'' Then LogInf('Suffixe de saisie : '''+Prm.InSuffix+''''+#10);
+  If Prm.InPrefix<>'' Then LogInf('Pr'+#130+'fixe de saisie : '''+Prm.InPrefix+
+    ''''+#10);
+  If Prm.InSuffix<>'' Then LogInf('Suffixe de saisie : '''+Prm.InSuffix+''''+
+    #10);
  End;
- LogOut(4,'generate: n_ctx = '+IStr(NCtx)+', n_batch = '+IStr(Prm.NBatch)+', n_predict = '+IStr(Prm.NPredict)+
+ LogOut(4,'generate: n_ctx = '+IStr(NCtx)+', n_batch = '+IStr(Prm.NBatch)+
+   ', n_predict = '+IStr(Prm.NPredict)+
         ', n_keep = '+IStr(NKeep)+#10);
  If Prm.Interactive Then Begin
   LogInf('== Mode interactif. =='+#10);
   If Prm.Multiline Then Begin
-   LogInf(' - Pour rendre la main à l''IA, terminez votre saisie par « \ ».'+#10);
-   LogInf(' - Pour rendre la main sans commencer une nouvelle ligne, terminez votre saisie par « / ».'+#10);
+   LogInf(' - Pour rendre la main '+#133+' l''IA, terminez votre saisie par '+
+     #174+' \ '+#175+'.'+#10);
+   LogInf(' - Pour rendre la main sans commencer une nouvelle ligne, terminez '+
+     'votre saisie par '+#174+' / '+#175+'.'+#10);
   End
    Else Begin
-    LogInf(' - Appuyez sur Entrée pour rendre la main à l''IA.'+#10);
-    LogInf(' - Pour rendre la main sans commencer une nouvelle ligne, terminez votre saisie par « / ».'+#10);
-    LogInf(' - Pour saisir une autre ligne, terminez la ligne par « \ ».'+#10);
+    LogInf(' - Appuyez sur Entr'+#130+'e pour rendre la main '+#133+' l''IA.'+
+      #10);
+    LogInf(' - Pour rendre la main sans commencer une nouvelle ligne, terminez'+
+      ' votre saisie par '+#174+' / '+#175+'.'+#10);
+    LogInf(' - Pour saisir une autre ligne, terminez la ligne par '+#174+' \ '+
+      #175+'.'+#10);
    End;
   If ConvMode and EnableChatTemplate and(SysText='')Then
-   LogInf(' - Aucun message système. Pour en définir un, utilisez -sys PROMPT'+#10);
+   LogInf(' - Aucun message syst'+#138+'me. Pour en d'+#130+
+     'finir un, utilisez -sys PROMPT'+#10);
   LogInf(#10);
   IsInteracting:=Prm.InteractiveFirst;
  End
@@ -11148,7 +12172,8 @@ Begin
   Assign(OutFile,Prm.OutputFile);
   Rewrite(OutFile);
   If IOResult<>0 Then Begin
-   LogErr('erreur : impossible d''ouvrir le fichier de sortie '+Prm.OutputFile+#10);
+   LogErr('erreur : impossible d''ouvrir le fichier de sortie '+Prm.OutputFile+
+     #10);
    Halt(1);
   End;
   OutFileOn:=True;
@@ -11179,21 +12204,25 @@ Begin
     N:=Length(Embd)-MaxEmbd;
     SetLength(Embd,MaxEmbd);
     SetDisplay(DT_ERROR);
-    LogWrn('<<entrée trop longue : '+IStr(N)+' jeton(s) ignoré(s)>>');
+    LogWrn('<<entr'+#130+'e trop longue : '+IStr(N)+' jeton(s) ignor'+#130+
+      '(s)>>');
     SetDisplay(DT_RESET);
    End;
    If Cx.NPast+Length(Embd)>=NCtx Then Begin
     If not Prm.CtxShift Then Begin
-     LogWrn(#10#10'main : contexte plein et décalage du contexte désactivé => arrêt'+#10);
+     LogWrn(#10#10'main : contexte plein et d'+#130+'calage du contexte d'+#130+
+       'sactiv'+#130+' => arr'+#136+'t'+#10);
      Break;
     End;
     If Prm.NPredict=-2 Then Begin
-     LogWrn(#10#10'main : contexte plein et n_predict == -2 => arrêt'+#10);
+     LogWrn(#10#10'main : contexte plein et n_predict == -2 => arr'+#136+'t'+
+       #10);
      Break;
     End;
     NLeft:=Cx.NPast-NKeep;
     NDiscard:=NLeft div 2;
-    LogDbg('contexte plein : décalage, n_past = '+IStr(Cx.NPast)+', n_left = '+IStr(NLeft)+', n_discard = '+IStr(NDiscard)+#10);
+    LogDbg('contexte plein : d'+#130+'calage, n_past = '+IStr(Cx.NPast)+
+      ', n_left = '+IStr(NLeft)+', n_discard = '+IStr(NDiscard)+#10);
     CtxShift(Mdl,Cx,NKeep,NDiscard);
    End;
    { evaluation par lots }
@@ -11214,7 +12243,8 @@ Begin
    T0:=NowMsF;
    Id:=SamplerSample(Smp,Mdl.V,Cx.Logits);
    If Id<0 Then Begin
-    LogErr(#10'erreur : aucun jeton ne respecte les contraintes de la grammaire'+#10);
+    LogErr(#10'erreur : aucun jeton ne respecte les contraintes de la grammair'+
+      'e'+#10);
     Failed:=True;
     Break;
    End;
@@ -11222,7 +12252,8 @@ Begin
    TSampMs:=TSampMs+(NowMsF-T0);Inc(NSampled);
    AddInt(Hist,Id);
    SetLength(Embd,1);Embd[0]:=Id;
-   If ConvMode and not WaitingFirst and not VocabIsEOG(Mdl.V,Id)Then AssistantSS:=AssistantSS+Piece(Id,False);
+   If ConvMode and not WaitingFirst and not VocabIsEOG(Mdl.V,Id)Then
+     AssistantSS:=AssistantSS+Piece(Id,False);
    InputEcho:=True;
    Dec(NRemain);
   End
@@ -11241,7 +12272,7 @@ Begin
   If InputEcho and Display Then Begin
    For I:=0 to High(Embd)do Begin
     TokStr:=Piece(Embd[I],Prm.Special);
-    Write(TokStr);
+    OutModel(TokStr);
     If OutFileOn and(Length(Embd)=1)Then WriteOutFile(TokStr);
    End;
    Flush(Output);
@@ -11274,7 +12305,8 @@ Begin
       End;
    End;
    { fin de generation en mode interactif }
-   If(not WaitingFirst)and(Length(Hist)>0)and VocabIsEOG(Mdl.V,Hist[High(Hist)])Then Begin
+   If(not WaitingFirst)and(Length(Hist)>0)and VocabIsEOG(Mdl.V,
+     Hist[High(Hist)])Then Begin
     If Prm.Interactive Then Begin
      If Length(Prm.Antiprompt)>0 Then Begin
       PL:=VocabTokenize(Mdl.V,Prm.Antiprompt[0],False,True);
@@ -11298,8 +12330,10 @@ Begin
    If((Cx.NPast>0)or WaitingFirst)and IsInteracting Then Begin
     LogDbg('en attente de la saisie utilisateur'+#10);
     If ConvMode Then Begin
-     If Prm.ShowTimings and(NSampled>0)and(Length(Hist)>0)and VocabIsEOG(Mdl.V,Hist[High(Hist)])Then
-      WriteLn(#10'[ Prompt: ',FStr(PerfTps(TPEvalMs,NPEval),1),' t/s | Generation: ',FStr(PerfTps(TEvalMs,NEvalRuns),1),' t/s ]');
+     If Prm.ShowTimings and(NSampled>0)and(Length(Hist)>0)and VocabIsEOG(Mdl.V,
+       Hist[High(Hist)])Then
+      WriteLn(#10'[ Prompt: ',FStr(PerfTps(TPEvalMs,NPEval),1),
+        ' t/s | Generation: ',FStr(PerfTps(TEvalMs,NEvalRuns),1),' t/s ]');
      Write(#10'> ');
     End;
     If Prm.InPrefixBos and(Mdl.V.BOS>=0)Then AddInt(EmbdInp,Mdl.V.BOS);
@@ -11332,7 +12366,8 @@ Begin
      AppendInts(EmbdInp,LineIn);
      AppendInts(EmbdInp,LineSfx);
      If Prm.VerbosePrompt Then Begin
-      LogInf('main : nombre de jetons dans le prompt = '+IStr(Length(EmbdInp)-OrigSize)+#10);
+      LogInf('main : nombre de jetons dans le prompt = '+
+        IStr(Length(EmbdInp)-OrigSize)+#10);
      End;
      AssistantSS:='';
      If not ConvMode Then NRemain:=NRemain-Length(LineIn);
@@ -11349,9 +12384,11 @@ Begin
    End;
   End;
   { fin de generation }
-  If(Length(Embd)>0)and VocabIsEOG(Mdl.V,Embd[High(Embd)])and not Prm.Interactive Then Begin
+  If(Length(Embd)>0)and VocabIsEOG(Mdl.V,Embd[High(Embd)])and not
+    Prm.Interactive Then Begin
    If not ConvMode Then Write(' [end of text]'#10);
-   If ConvMode and EnableChatTemplate Then ChatAddAndFormat('assistant',AssistantSS);
+   If ConvMode and EnableChatTemplate Then ChatAddAndFormat('assistant',
+     AssistantSS);
    Break;
   End;
   If Prm.Interactive and(NRemain<=0)and(Prm.NPredict>=0)Then Begin
@@ -11364,7 +12401,8 @@ Begin
  Write(#10#10);
  Flush(Output);
  If ConvMode and Prm.ShowTimings and not Prm.Interactive and(NSampled>0)Then
-  WriteLn('[ Prompt: ',FStr(PerfTps(TPEvalMs,NPEval),1),' t/s | Generation: ',FStr(PerfTps(TEvalMs,NEvalRuns),1),' t/s ]');
+  WriteLn('[ Prompt: ',FStr(PerfTps(TPEvalMs,NPEval),1),' t/s | Generation: ',
+    FStr(PerfTps(TEvalMs,NEvalRuns),1),' t/s ]');
  If Prm.ShowTimings or Prm.Perf Then PrintPerf;
  If OutFileOn Then Begin Close(OutFile);ClearIO;End;
  If Failed Then Halt(1);
