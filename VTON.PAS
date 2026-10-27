@@ -5355,13 +5355,13 @@ Const
  gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;
  { natures de mots du lexique }
  lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
- lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;
+ lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;lkVAdd=14;
  { modificateurs }
  mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
  { motifs }
  pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
  { actions }
- eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;
 
 Type
  TLex=Record
@@ -5383,6 +5383,8 @@ Type
   Color2RGB:LongWord;
   Color2Name:AnsiString;
   DstGarment:LongInt;       { genre de vetement cite comme resultat }
+  Noun:AnsiString;          { mot designant le vetement vise }
+  Put:Boolean;              { ? mets un chapeau ? : ajout si l'objet est absent }
   Text:AnsiString;
  End;
  TEditArray=Array of TEdit;
@@ -5478,6 +5480,7 @@ Begin
  AddLex('denim',lkColor,0,RgbOf(60,90,140));
  AddLex('anthracite charcoal',lkColor,0,RgbOf(55,58,64));
  AddLex('ciel',lkColor,0,RgbOf(130,190,235));
+ AddLex('paille straw osier wicker',lkColor,0,RgbOf(222,190,110));
  AddPhrase('bleu marine',RgbOf(20,35,90));
  AddPhrase('bleu ciel',RgbOf(130,190,235));
  AddPhrase('bleu roi',RgbOf(40,70,210));
@@ -5520,6 +5523,7 @@ Begin
  AddLex('rends rendre mets met mettre passe passer make turn paint dye color colour',lkVResult,0,0);
  AddLex('enleve enlever enlevez retire retirer retirez supprime supprimer supprimez efface effacer effacez ote oter remove delete erase sans without',lkVRemove,0,0);
  AddLex('essaie essaye essayer essayez porte porter habille habiller try wear',lkVTryOn,0,0);
+ AddLex('ajoute ajouter ajoutez rajoute rajouter add append equipe equiper give donne donner',lkVAdd,0,0);
  { prepositions de destination }
  AddLex('en in into to par by as vers',lkPrepDst,0,0);
  AddLex('de from',lkSrcPrep,0,0);
@@ -5708,7 +5712,7 @@ Procedure ClearEdit(Var E:TEdit);
 Begin
  FillChar(E,SizeOf(E),0);
  E.LGain:=1;E.CGain:=1;
- E.SrcName:='';E.DstName:='';E.Color2Name:='';E.Text:='';
+ E.SrcName:='';E.DstName:='';E.Color2Name:='';E.Text:='';E.Noun:='';
 End;
 
 { interprete une clause (mots T[A..B]) ; faux si elle ne contient rien d'exploitable }
@@ -5723,7 +5727,8 @@ Var
  ColPos:Array[0..7]of LongInt;
  ColMd:Array[0..7]of LongInt;
  Consumed:Array of Boolean;
- Remove,Result_,Recolor,TryOn,AllWord:Boolean;
+ Remove,Result_,Recolor,TryOn,AllWord,AddV:Boolean;
+ GarmNoun:Array[0..7]of AnsiString;
  FirstPrep:LongInt;
  SrcIdx,DstIdx,J:LongInt;
  GarmPos:Array[0..7]of LongInt;
@@ -5739,13 +5744,14 @@ Begin
  HasChange:=False;HasVerb:=False;
  SetLength(Consumed,High(T)+2);
  NCol:=0;NG:=0;
- Remove:=False;Result_:=False;Recolor:=False;TryOn:=False;AllWord:=False;
+ Remove:=False;Result_:=False;Recolor:=False;TryOn:=False;AllWord:=False;AddV:=False;
  FirstPrep:=-1;
  HasPat:=False;
  For I:=A to B do Begin
   If Consumed[I]Then Continue;
   { verbes }
   If LexFind(T[I],lkVRemove)>=0 Then Begin Remove:=True;HasVerb:=True;Continue;End;
+  If LexFind(T[I],lkVAdd)>=0 Then Begin AddV:=True;HasVerb:=True;Continue;End;
   If LexFind(T[I],lkVTryOn)>=0 Then Begin TryOn:=True;HasVerb:=True;Continue;End;
   If LexFind(T[I],lkVResult)>=0 Then Begin Result_:=True;HasVerb:=True;Continue;End;
   If LexFind(T[I],lkAll)>=0 Then Begin AllWord:=True;Continue;End;
@@ -5769,7 +5775,7 @@ Begin
   { vetements }
   K:=LexFind(T[I],lkGarment);
   If K>=0 Then Begin
-   If NG<8 Then Begin GarmPos[NG]:=I;GarmKind[NG]:=Lex[K].V1;GarmMask[NG]:=Lex[K].V2;Inc(NG);End;
+   If NG<8 Then Begin GarmPos[NG]:=I;GarmKind[NG]:=Lex[K].V1;GarmMask[NG]:=Lex[K].V2;GarmNoun[NG]:=T[I];Inc(NG);End;
    Continue;
   End;
   { clair/fonce hors d'une couleur : reglage de luminosite }
@@ -5797,7 +5803,7 @@ Begin
  For I:=0 to NG-1 do
   If(FirstPrep<0)or(GarmPos[I]<FirstPrep)Then Begin
    E.Target:=E.Target or GarmMask[I];
-   If E.Kind=gkNone Then E.Kind:=GarmKind[I];
+   If E.Kind=gkNone Then Begin E.Kind:=GarmKind[I];E.Noun:=GarmNoun[I];End;
    Inc(NTargets);
   End;
  If(NTargets=0)and(NG>0)Then Begin
@@ -5849,10 +5855,12 @@ Begin
   Else Begin E.Color2RGB:=RgbOf(245,245,245);E.Color2Name:='blanc';End;
  End;
  { action }
+ E.Put:=Result_ or TryOn;
  If Remove Then E.Action:=eaRemove
+ Else If AddV Then E.Action:=eaAdd
  Else If E.HasDst or(E.Pattern<>pkNone)or(Abs(E.LGain-1)>0.01)or(Abs(E.CGain-1)>0.01)Then E.Action:=eaRecolor
  Else If TryOn Then E.Action:=eaTryOn;
- HasChange:=E.Action in[eaRecolor,eaRemove];
+ HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd];
  ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0);
 End;
 
@@ -5911,17 +5919,21 @@ Begin
   { clause sans changement mais avec un vetement : cible reportee sur la clause suivante }
   If(not HasChange)and(E.Target<>0)and(E.Action=eaNone)Then Begin
    { ? enleve le chapeau et les lunettes ? : la retouche precedente s'applique aussi }
-   If(not HasVerb)and(Length(Edits)>0)and(Edits[High(Edits)].Action=eaRemove)Then Begin
+   If(not HasVerb)and(Length(Edits)>0)and(Edits[High(Edits)].Action in[eaRemove,eaAdd])Then Begin
     SetLength(Edits,Length(Edits)+1);
     Edits[High(Edits)]:=Edits[High(Edits)-1];
     Edits[High(Edits)].Target:=E.Target;
     Edits[High(Edits)].Kind:=E.Kind;
+    Edits[High(Edits)].Noun:=E.Noun;
     Continue;
    End;
    Pending:=Pending or E.Target;
    If PendKind=gkNone Then PendKind:=E.Kind;
    Continue;
   End;
+  { ? ajoute un bonnet bleu et un foulard a rayures ? : le second objet est aussi ajoute }
+  If(E.Action=eaRecolor)and(not HasVerb)and(E.Target<>0)and(Length(Edits)>0)and
+    (Edits[High(Edits)].Action=eaAdd)Then E.Action:=eaAdd;
   If HasChange or(E.Action=eaTryOn)Then Begin
    If Pending<>0 Then Begin
     E.Target:=E.Target or Pending;
@@ -5980,6 +5992,7 @@ Begin
  Case E.Action of
   eaRecolor:R:='recolorer';
   eaRemove:R:='retirer';
+  eaAdd:R:='ajouter';
   eaTryOn:R:='essayer';
   Else R:='?';
  End;
@@ -6650,7 +6663,7 @@ Begin
   gkGlasses:Begin Repl:=msGlasses;Prot:=msHair or msHat;End;
   gkBag:Begin Repl:=msBag;Prot:=Always;End;
   gkScarf:Begin Repl:=msScarf;Prot:=Always;End;
-  gkBelt:Begin Repl:=msBelt;Prot:=Always or msTop;End;
+  gkBelt:Begin Repl:=msBelt;Prot:=Always;End;
   Else Begin Repl:=msTop;Prot:=Always;End;
  End;
 End;
@@ -6694,7 +6707,13 @@ Begin
    End;
   gkHat:Begin Bx0:=Fx0-0.2*Fw;Bx1:=Fx1+0.2*Fw;By1:=Fy0+0.25*Fh;By0:=By1-0.9*Fh;LandmarkBox:=True;End;
   gkGlasses:Begin Bx0:=Fx0-0.05*Fw;Bx1:=Fx1+0.05*Fw;By0:=Fy0+0.30*Fh;By1:=Fy0+0.57*Fh;LandmarkBox:=True;End;
-  gkScarf:Begin Bx0:=Cx-0.9*Fw;Bx1:=Cx+0.9*Fw;By0:=Fy1-0.05*Fh;By1:=By0+0.7*Fh;LandmarkBox:=True;End;
+  gkScarf:Begin Bx0:=Cx-0.62*Fw;Bx1:=Cx+0.62*Fw;By0:=Fy1-0.12*Fh;By1:=By0+0.9*Fh;LandmarkBox:=True;End;
+  gkBelt:
+   If CatBBox(S,msPants or msSkirt,Lx0,Ly0,Lx1,Ly1)and CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)Then Begin
+    Bx0:=Lx0;Bx1:=Lx1;
+    By1:=Ty1-0.02*(Ty1-Ty0);By0:=By1-0.07*(Ly1-Ty0);
+    LandmarkBox:=True;
+   End;
   gkBottom,gkSkirt:
    If CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)and CatBBox(S,msLegs or msShoes,Lx0,Ly0,Lx1,Ly1)Then Begin
     Bx0:=IMin(Tx0,Lx0);Bx1:=IMax(Tx1,Lx1);By0:=Ty1-0.05*(Ty1-Ty0);By1:=Ly1;LandmarkBox:=True;
@@ -6838,7 +6857,7 @@ Begin
  Else Sy:=Clamp(SyFit,0.8*Sx,1.25*Sx);
  AnchorBottom:=Kind in[gkShoes,gkHat];
  If AnchorBottom Then Ty0:=Ty1-Sy*G.H
- Else If UniformScale Then Ty0:=(Ty0+Ty1)/2-Sy*G.H/2;
+ Else If UniformScale and(Kind<>gkScarf)Then Ty0:=(Ty0+Ty1)/2-Sy*G.H/2;
  Cx:=(Tx0+Tx1)/2;
  Gcx:=G.W/2;
  Lam:=0;
@@ -7028,6 +7047,283 @@ Begin
  FreeMem(Ro);FreeMem(Prot_);FreeMem(Cov);FreeMem(Left);FreeMem(GRgb);FreeMem(GA);
  FreeMem(SL);FreeMem(SR_);FreeMem(RowL);FreeMem(RowR);
  TryOnGarment:=True;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Accessoires generes (foulard, chapeau, lunettes, ceinture) :        }
+{ dessines par le programme, puis poses comme un vetement            }
+{ ------------------------------------------------------------------ }
+
+Function CoverD(D:Single):Single;
+Begin
+ If D<=-0.5 Then CoverD:=1
+ Else If D>=0.5 Then CoverD:=0
+ Else CoverD:=0.5-D;
+End;
+
+{ distance signee d'un rectangle arrondi centre en (Cx,Cy) }
+Function RoundRectD(X,Y,Cx,Cy,Hw,Hh,R:Single):Single;
+Var
+ Qx,Qy,Ox,Oy:Single;
+Begin
+ Qx:=Abs(X-Cx)-Hw+R;Qy:=Abs(Y-Cy)-Hh+R;
+ If Qx>0 Then Ox:=Qx Else Ox:=0;
+ If Qy>0 Then Oy:=Qy Else Oy:=0;
+ If Qx>Qy Then RoundRectD:=Sqrt(Ox*Ox+Oy*Oy)+FMin(0,Qx)-R+0*Qy
+ Else RoundRectD:=Sqrt(Ox*Ox+Oy*Oy)+FMin(0,Qy)-R;
+End;
+
+Function EllipseD(X,Y,Cx,Cy,Rx,Ry:Single):Single;
+Var
+ Nx,Ny,L:Single;
+Begin
+ Nx:=(X-Cx)/Rx;Ny:=(Y-Cy)/Ry;
+ L:=Sqrt(Nx*Nx+Ny*Ny);
+ EllipseD:=(L-1)*FMin(Rx,Ry);
+End;
+
+Procedure MixRgb(A,B:LongWord;T:Single;Var R,G,Bl:Single);
+Begin
+ R:=((A shr 16)and $FF)*(1-T)+((B shr 16)and $FF)*T;
+ G:=((A shr 8)and $FF)*(1-T)+((B shr 8)and $FF)*T;
+ Bl:=(A and $FF)*(1-T)+(B and $FF)*T;
+End;
+
+{ couleur du tissu au point (X,Y) : couleur de base, motif eventuel, grain }
+Procedure FabricColor(Const E:TEdit;Base:LongWord;X,Y,W,H:Single;Var R,G,B:Single);
+Var
+ P:TRecolor;
+ T:Single;
+ C1,C2:LongWord;
+Begin
+ C1:=Base;
+ If E.HasDst Then C1:=E.DstRGB;
+ C2:=RgbOf(245,245,245);
+ If E.HasColor2 Then C2:=E.Color2RGB;
+ If(E.Pattern in[pkStripes,pkChecks,pkDots])Then Begin
+  FillChar(P,SizeOf(P),0);
+  P.Pattern:=E.Pattern;P.BX0:=0;P.BY0:=0;P.BW:=W;P.BH:=H;
+  T:=PatternMix(P,X,Y);
+  MixRgb(C1,C2,T,R,G,B);
+ End
+  Else MixRgb(C1,C1,0,R,G,B);
+End;
+
+Procedure AccAlloc(Var G:TGarment;W,H:LongInt);
+Begin
+ FillChar(G,SizeOf(G),0);
+ G.W:=W;G.H:=H;
+ G.Rgb:=AllocF(Int64(W)*H*3);
+ G.Mask:=AllocF(Int64(W)*H);
+End;
+
+Procedure AccPut(Var G:TGarment;X,Y:LongInt;Cov,R,Gc,B,Shade:Single);
+Var
+ K:Int64;
+Begin
+ K:=Int64(Y)*G.W+X;
+ If Cov>G.Mask[K]Then Begin
+  G.Mask[K]:=Cov;
+  G.Rgb[K*3]:=Clamp(R*Shade+RngGauss*1.5,0,255);
+  G.Rgb[K*3+1]:=Clamp(Gc*Shade+RngGauss*1.5,0,255);
+  G.Rgb[K*3+2]:=Clamp(B*Shade+RngGauss*1.5,0,255);
+ End;
+End;
+
+{ foulard : bande autour du cou, noeud et pan qui pend }
+Procedure MakeScarf(Var G:TGarment;Const E:TEdit);
+Var
+ X,Y:LongInt;
+ U,YT,Th,YB,Dd,Cb,Ct,Hw,Xc,Dk,Cov,R,Gc,B,Sh,T:Single;
+Begin
+ AccAlloc(G,480,300);
+ For Y:=0 to 299 do
+  For X:=0 to 479 do Begin
+   U:=(X-240)/230.0;
+   Cov:=0;Sh:=1;
+   If Abs(U)<=1 Then Begin
+    YT:=70-55*U*U;Th:=85-25*U*U;YB:=YT+Th;
+    Dd:=FMax(YT-Y,Y-YB);
+    Cb:=CoverD(Dd);
+    If Cb>0 Then Begin
+     T:=(Y-YT)/Th;
+     Cov:=Cb;
+     Sh:=0.72+0.34*Sin(Pi*Clamp(T,0,1))*(0.88+0.12*(1-U*U))+0.03*Sin(X*0.9);
+    End;
+   End;
+   { pan }
+   Xc:=300+12*Sin((Y-90)/40.0);
+   Hw:=38-0.06*(Y-90);
+   Dd:=FMax(Abs(X-Xc)-Hw,FMax(Y-(290+(X-300)*0.15),80-Y));
+   Ct:=CoverD(Dd);
+   If Ct>Cov Then Begin
+    Cov:=Ct;
+    Dk:=Clamp((Y-100)/22.0,0,1);
+    Sh:=(0.62+0.3*Dk)*(0.9+0.1*Cos((X-Xc)/Hw*1.3))+0.03*Sin(X*0.9);
+   End;
+   { noeud }
+   Dd:=EllipseD(X,Y,300,100,42,38);
+   Ct:=CoverD(Dd);
+   If Ct>0 Then Begin
+    Cov:=FMax(Cov,Ct);
+    Sh:=0.95+0.12*Cos((Y-100)/38.0*1.4)-0.1*Sin((X-300)/42.0);
+   End;
+   If Cov>0 Then Begin
+    FabricColor(E,RgbOf(170,35,50),X,Y,480,300,R,Gc,B);
+    AccPut(G,X,Y,Cov,R,Gc,B,Sh);
+   End;
+  End;
+End;
+
+{ forme : 0 = chapeau a bord, 1 = bonnet, 2 = casquette }
+Procedure MakeHat(Var G:TGarment;Const E:TEdit;Shape:LongInt;Straw:Boolean);
+Var
+ X,Y:LongInt;
+ Cov,Dd,R,Gc,B,Sh,Wv,Dist:Single;
+ Base:LongWord;
+Begin
+ AccAlloc(G,480,300);
+ If Straw Then Base:=RgbOf(222,190,110)Else Base:=RgbOf(70,70,82);
+ For Y:=0 to 299 do
+  For X:=0 to 479 do Begin
+   Cov:=0;Sh:=1;
+   Case Shape of
+    1:Begin
+      { bonnet : dome tricote et revers cotele }
+      Dd:=FMax(EllipseD(X,Y,240,150,200,135),Y-235);
+      Cov:=CoverD(Dd);
+      Sh:=0.7+0.4*(1-Clamp(Sqrt(Sqr((X-210)/200.0)+Sqr((Y-110)/140.0)),0,1.3))+0.05*Sin(X*0.5+Y*0.2);
+      Dd:=RoundRectD(X,Y,240,245,215,40,26);
+      If CoverD(Dd)>Cov Then Begin
+       Cov:=CoverD(Dd);
+       Sh:=0.82+0.18*Sin(X*0.75)+0.1*Sin(Pi*Clamp((Y-205)/80.0,0,1));
+      End;
+     End;
+    2:Begin
+      { casquette : dome et visiere }
+      Dd:=FMax(EllipseD(X,Y,200,150,165,125),Y-228);
+      Cov:=CoverD(Dd);
+      Sh:=0.68+0.45*(1-Clamp(Sqrt(Sqr((X-170)/170.0)+Sqr((Y-110)/130.0)),0,1.3));
+      Dd:=EllipseD(X,Y,335,238,140,30);
+      If CoverD(Dd)>Cov Then Begin
+       Cov:=CoverD(Dd);
+       Sh:=0.55+0.3*Sin(Pi*Clamp((Y-208)/60.0,0,1));
+      End;
+     End;
+    Else Begin
+      { chapeau a large bord }
+      Dd:=EllipseD(X,Y,240,222,228,48);
+      Cov:=CoverD(Dd);
+      Sh:=0.72+0.3*Clamp(1-Abs(Y-222)/48.0,0,1)+0.08*Sin(X*0.12);
+      Dd:=FMax(FMin(EllipseD(X,Y,240,110,118,92),RoundRectD(X,Y,240,160,118,50,10)),Y-215);
+      If CoverD(Dd)>Cov Then Begin
+       Cov:=CoverD(Dd);
+       Sh:=0.78+0.32*(1-Clamp(Abs(X-240)/118.0,0,1))*(1-Clamp((Y-60)/160.0,0,1)*0.4);
+       If(Y>165)and(Y<200)Then Sh:=Sh*0.62;
+      End;
+     End;
+   End;
+   If Cov>0 Then Begin
+    FabricColor(E,Base,X,Y,480,300,R,Gc,B);
+    If Straw Then Begin
+     { tressage de la paille }
+     Wv:=0.5+0.5*Sin(X*0.55+Sin(Y*0.35)*1.8);
+     Dist:=0.5+0.5*Sin(Y*0.9+Sin(X*0.2)*1.2);
+     Sh:=Sh*(0.84+0.16*(Wv*0.6+Dist*0.4));
+    End;
+    AccPut(G,X,Y,Cov,R,Gc,B,Sh);
+   End;
+  End;
+End;
+
+Procedure MakeGlasses(Var G:TGarment;Const E:TEdit;Sun:Boolean);
+Var
+ X,Y:LongInt;
+ Cov,Dl,Dr,Df,Br,Fr,Lens:Single;
+ R,Gc,B:Single;
+ Base:LongWord;
+Begin
+ AccAlloc(G,480,170);
+ Base:=RgbOf(25,25,28);
+ For Y:=0 to 169 do
+  For X:=0 to 479 do Begin
+   Dl:=RoundRectD(X,Y,125,85,95,60,44);
+   Dr:=RoundRectD(X,Y,355,85,95,60,44);
+   Df:=FMin(Dl,Dr);
+   Fr:=CoverD(Abs(Df+5.5)-5.5);
+   Br:=0;
+   If Abs(X-240)<=40 Then Br:=CoverD(Abs(Y-(52+28*Sqr((X-240)/40.0)))-4.5);
+   Cov:=FMax(Fr,Br);
+   If(X<24)and(Abs(Y-60)<6)Then Cov:=FMax(Cov,0.9);
+   If(X>455)and(Abs(Y-60)<6)Then Cov:=FMax(Cov,0.9);
+   If Cov>0 Then Begin
+    FabricColor(E,Base,X,Y,480,170,R,Gc,B);
+    AccPut(G,X,Y,Cov,R,Gc,B,0.85+0.25*Clamp(1-Y/170.0,0,1));
+   End;
+   { verres }
+   If(Df<-5.5)and(Cov<0.5)Then Begin
+    If Sun Then Lens:=0.88 Else Lens:=0.10;
+    If Sun Then Begin R:=22;Gc:=24;B:=32;End Else Begin R:=200;Gc:=220;B:=240;End;
+    AccPut(G,X,Y,Lens,R,Gc,B,0.9+0.2*Clamp(1-Y/170.0,0,1));
+   End;
+  End;
+End;
+
+Procedure MakeBelt(Var G:TGarment;Const E:TEdit);
+Var
+ X,Y:LongInt;
+ Cov,Dd,Df,R,Gc,B,Sh:Single;
+Begin
+ AccAlloc(G,560,90);
+ For Y:=0 to 89 do
+  For X:=0 to 559 do Begin
+   Dd:=RoundRectD(X,Y,280,45,280,27,6);
+   Cov:=CoverD(Dd);
+   Sh:=0.8+0.3*Sin(Pi*Clamp((Y-18)/54.0,0,1));
+   If Cov>0 Then Begin
+    FabricColor(E,RgbOf(70,45,30),X,Y,560,90,R,Gc,B);
+    If(Abs(Y-24)<1.2)or(Abs(Y-66)<1.2)Then Sh:=Sh*0.75;
+    AccPut(G,X,Y,Cov,R,Gc,B,Sh);
+   End;
+   Df:=RoundRectD(X,Y,280,45,42,38,6);
+   If CoverD(Abs(Df+5)-5)>0 Then AccPut(G,X,Y,CoverD(Abs(Df+5)-5),212,175,55,0.8+0.35*Sin(Pi*Clamp((Y-8)/76.0,0,1)));
+  End;
+End;
+
+{ ajoute un accessoire dessine par le programme }
+Function AddAccessory(Var S:TScene;Const E:TEdit;Quality:LongInt;Var Msg:AnsiString):Boolean;
+Var
+ G:TGarment;
+ Kind:LongInt;
+ T:AnsiString;
+ Shape:LongInt;
+Begin
+ AddAccessory:=False;
+ Msg:='';
+ If(E.Target and msScarf)<>0 Then Kind:=gkScarf
+ Else If(E.Target and msHat)<>0 Then Kind:=gkHat
+ Else If(E.Target and msGlasses)<>0 Then Kind:=gkGlasses
+ Else If(E.Target and msBelt)<>0 Then Kind:=gkBelt
+ Else Begin
+  Msg:='je ne sais ajouter que foulard, chapeau, bonnet, casquette, lunettes et ceinture ; '+
+       'pour un autre v'#136'tement, fournissez sa photo : VTON personne.jpg vetement.jpg -type TYPE';
+  Exit;
+ End;
+ T:=E.Noun+' '+E.Text;
+ FillChar(G,SizeOf(G),0);
+ Case Kind of
+  gkScarf:MakeScarf(G,E);
+  gkHat:Begin
+    Shape:=0;
+    If(Pos('bonnet',T)>0)or(Pos('tuque',T)>0)or(Pos('beanie',T)>0)Then Shape:=1
+    Else If(Pos('casquette',T)>0)or(Pos('cap',E.Noun)>0)Then Shape:=2;
+    MakeHat(G,E,Shape,Pos('paille',T)+Pos('straw',T)>0);
+   End;
+  gkGlasses:MakeGlasses(G,E,(Pos('soleil',T)>0)or(Pos('sun',T)>0));
+  gkBelt:MakeBelt(G,E);
+ End;
+ AddAccessory:=TryOnGarment(S,G,Kind,Quality,Msg);
+ GarmentFree(G);
 End;
 
 { ------------------------------------------------------------------ }
@@ -7440,6 +7736,9 @@ Begin
  WriteLn('  "Change le chandail rouge en bleu"      "Rends la robe plus fonc'#130'e"');
  WriteLn('  "Mets le pantalon en noir et la veste en vert"');
  WriteLn('  "Make the shirt striped blue and white" "Enl'#138've le chapeau et les lunettes"');
+ WriteLn('  "Change le chandail rouge en bleu, ajouter un foulard"   "mettre un chapeau de paille"');
+ WriteLn('  (plusieurs instructions possibles, s'#130'par'#130'es par des virgules ou "et" ;');
+ WriteLn('   ajouts support'#130's sans photo : foulard, chapeau, bonnet, casquette, lunettes, ceinture)');
  WriteLn;
  WriteLn('Mod'#138'le : ');
  WriteLn('  '+DefaultModelUrl+'model.safetensors');
@@ -7788,8 +8087,15 @@ Begin
    Inc(NFail);
    Continue;
   End;
+  { ? mettre un chapeau ? alors qu'il n'y en a pas : on l'ajoute }
+  If(Edits[I].Action=eaRecolor)and Edits[I].Put and((Edits[I].Target and(msHat or msScarf or msGlasses or msBelt))<>0)and
+    (CatArea(Scene,Edits[I].Target)<Int64(Scene.W)*Scene.H div 2000)Then Edits[I].Action:=eaAdd;
   Info('Retouche : '+DescribeEdit(Edits[I]));
-  If ApplyEdit(Scene,Edits[I],Msg)Then Inc(NOk)
+  If Edits[I].Action=eaAdd Then Begin
+   If AddAccessory(Scene,Edits[I],OptQuality,Msg)Then Begin Info('  '+Msg);Inc(NOk);End
+   Else Begin Warn(Msg);Inc(NFail);End;
+  End
+  Else If ApplyEdit(Scene,Edits[I],Msg)Then Inc(NOk)
   Else Begin Warn(Msg);Inc(NFail);End;
  End;
  If NOk=0 Then Begin
