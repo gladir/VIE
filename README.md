@@ -62,6 +62,10 @@ Voici la liste des différents fichiers proposés dans VIE :
       <td><b>TRANSLAT.PAS</b></td>
       <td>Cette commande permet de traduire du texte anglais en français.</td>
    </tr>
+  <tr>
+     <td><b>VTON.PAS</b></td>
+     <td>Cette commande est un clone de VTON (Virtual Try-ON) : elle change ou essaie des vêtements sur une photo à l'aide d'un réseau de neurones SegFormer (fichier .safetensors), avec une demande en langage naturel (<code>-prompt "Change le chandail rouge en bleu"</code>). Calcul CPU multifil, GPU Direct3D 11 optionnel sous Windows, compilable en 32 bits (Free Pascal requis).</td>
+  </tr>
 </table>
 
 <h2>Compilation</h2>

@@ -1,0 +1,7805 @@
+{ @author: Sylvain Maltais (support@gladir.com)
+  @created: 2025
+  @website(https://www.gladir.com/vie)
+  @abstract(Target: Free Pascal 3.x)
+
+  VTON : essayage virtuel de vetements (Virtual Try-ON) pilote par IA.
+
+  Syntaxe :
+    VTON personne.jpg vetement.jpg -o resultat.png -type haut
+    VTON personne.jpg -prompt "Change le chandail rouge en bleu" -o resultat.png
+
+  Principe : un reseau de neurones de transformeurs (SegFormer, fichier
+  .safetensors fourni par -model) analyse la photo et separe chaque pixel en
+  classes (haut, pantalon, jupe, robe, chaussures, chapeau, cheveux, peau...).
+  Cette analyse permet ensuite de recolorer, de motiver (rayures, carreaux,
+  pois), de retirer un accessoire ou de remplacer un vetement par celui
+  d'une seconde photo (recalage geometrique, ombrage, remplissage). Le
+  parametre -prompt est interprete en langage naturel (francais et anglais).
+
+  Contraintes respectees :
+   - un seul fichier source, aucun fichier d'inclusion;
+   - la seule unite utilisee est DOS (le reste vient de l'unite System);
+   - decodeurs JPEG (de base et progressif), PNG, BMP, PPM et encodeurs
+     PNG, JPEG, BMP, PPM ecrits en Pascal;
+   - le telechargement du modele (-model URL ou nom connu) n'existe que sous
+     Windows (WinInet);
+   - GPU (Windows seulement, optionnel) : shaders de calcul Direct3D 11
+     (HLSL compile a l'execution, aucune bibliotheque tierce) pour les
+     produits matriciels du reseau; le resultat est verifie au demarrage
+     contre le calcul CPU, sinon le calcul reste sur le processeur;
+   - se compile en 32 bits sous Windows comme en 64 bits.
+
+  Compilation : fpc -O3 VTON.PAS
+                (en 32 bits, ajouter -CfSSE2 pour accelerer le calcul)
+}
+
+Program VTON;
+
+{$IFDEF FPC}
+ {$MODE OBJFPC}
+ {$H+}
+ {$INLINE ON}
+ {$IFDEF WIN32}
+  {$SETPEFLAGS $20}
+ {$ENDIF}
+ {$R-}
+ {$Q-}
+ {$IOCHECKS OFF}
+ {$MACRO ON}
+ {$POINTERMATH ON}
+ {$NOTES OFF}
+ {$HINTS OFF}
+ {$WARNINGS OFF}
+{$ENDIF}
+
+Uses DOS;
+
+Const
+ VersionStr   = '1.0 (clone Pascal de VTON, essayage virtuel par IA)';
+ MaxLabels    = 64;
+
+Type
+ PSingleArr = PSingle;
+ TSingleArr = Array[0..0]of Single;
+ PIntArr = PLongInt;
+ TIntArr = Array[0..0]of LongInt;
+ PWordArr = PWord;
+ TWordArr = Array[0..0]of Word;
+ PSmallArr = PSmallInt;
+ TSmallArr = Array[0..0]of SmallInt;
+ PByteArr = PByte;
+ TByteArr = Array[0..0]of Byte;
+ TStrArray = Array of AnsiString;
+ TIntArray = Array of LongInt;
+ TSingleArray = Array of Single;
+ TByteArray = Array of Byte;
+
+{ ------------------------------------------------------------------ }
+{ Utilitaires de chaines                                              }
+{ ------------------------------------------------------------------ }
+
+Function IStr(N:Int64):AnsiString;
+Var
+ S:AnsiString;
+Begin
+ Str(N,S);
+ IStr:=S;
+End;
+
+Function FStr(X:Double;Dec:Integer):AnsiString;
+Var
+ S:AnsiString;
+Begin
+ Str(X:0:Dec,S);
+ FStr:=S;
+End;
+
+Function LoStr(S:AnsiString):AnsiString;
+Var
+ I:LongInt;
+Begin
+ For I:=1 to Length(S)do If S[I]in['A'..'Z']Then S[I]:=Chr(Ord(S[I])+32);
+ LoStr:=S;
+End;
+
+Function UpStr(S:AnsiString):AnsiString;
+Var
+ I:LongInt;
+Begin
+ For I:=1 to Length(S)do If S[I]in['a'..'z']Then S[I]:=Chr(Ord(S[I])-32);
+ UpStr:=S;
+End;
+
+Function StartsWith(Const S,Prefix:AnsiString):Boolean;
+Begin
+ StartsWith:=(Length(S)>=Length(Prefix))and(Copy(S,1,Length(Prefix))=Prefix);
+End;
+
+Function EndsWith(Const S,Suffix:AnsiString):Boolean;
+Begin
+ EndsWith:=(Length(S)>=Length(Suffix))and
+           (Copy(S,Length(S)-Length(Suffix)+1,Length(Suffix))=Suffix);
+End;
+
+Function TrimS(Const S:AnsiString):AnsiString;
+Var
+ A,B:LongInt;
+Begin
+ A:=1;B:=Length(S);
+ While(A<=B)and(S[A]in[' ',#9,#13,#10])do Inc(A);
+ While(B>=A)and(S[B]in[' ',#9,#13,#10])do Dec(B);
+ TrimS:=Copy(S,A,B-A+1);
+End;
+
+Procedure AddStr(Var A:TStrArray;Const S:AnsiString);
+Begin
+ SetLength(A,Length(A)+1);
+ A[High(A)]:=S;
+End;
+
+{ decoupe S selon le caractere Sep }
+Function SplitStr(Const S:AnsiString;Sep:Char):TStrArray;
+Var
+ I,P:LongInt;
+Begin
+ SetLength(SplitStr,0);
+ P:=1;
+ For I:=1 to Length(S)do If S[I]=Sep Then Begin
+  AddStr(SplitStr,Copy(S,P,I-P));
+  P:=I+1;
+ End;
+ AddStr(SplitStr,Copy(S,P,Length(S)-P+1));
+End;
+
+Function ParseInt(Const S:AnsiString;Var V:Int64):Boolean;
+Var
+ Code:LongInt;
+ T:AnsiString;
+Begin
+ T:=TrimS(S);
+ ParseInt:=False;
+ If T='' Then Exit;
+ Val(T,V,Code);
+ ParseInt:=Code=0;
+End;
+
+Function ParseFloat(Const S:AnsiString;Var V:Double):Boolean;
+Var
+ Code:LongInt;
+ T:AnsiString;
+ I:LongInt;
+Begin
+ T:=TrimS(S);
+ ParseFloat:=False;
+ If T='' Then Exit;
+ For I:=1 to Length(T)do If T[I]=',' Then T[I]:='.';
+ Val(T,V,Code);
+ ParseFloat:=Code=0;
+End;
+
+Function HexVal(C:Char):LongInt;
+Begin
+ Case C of
+  '0'..'9':HexVal:=Ord(C)-48;
+  'a'..'f':HexVal:=Ord(C)-87;
+  'A'..'F':HexVal:=Ord(C)-55;
+  Else HexVal:=-1;
+ End;
+End;
+
+Function PadRight(S:AnsiString;W:Integer):AnsiString;
+Begin
+ While Length(S)<W do S:=S+' ';
+ PadRight:=S;
+End;
+
+Function HumanBytes(N:Int64):AnsiString;
+Begin
+ If N<1024 Then HumanBytes:=IStr(N)+' o'
+ Else If N<1048576 Then HumanBytes:=FStr(N/1024.0,1)+' Kio'
+ Else If N<1073741824 Then HumanBytes:=FStr(N/1048576.0,1)+' Mio'
+ Else HumanBytes:=FStr(N/1073741824.0,2)+' Gio';
+End;
+
+{ ------------------------------------------------------------------ }
+{ Temps, hasard et mathematiques                                      }
+{ ------------------------------------------------------------------ }
+
+Var
+ LastHs:Int64;
+ DayOfs:Int64;
+ StartMs:Double;
+
+{$IFDEF WINDOWS}
+Function QueryPerformanceCounter(Var C:Int64):LongInt;stdcall;external
+  'kernel32.dll' name 'QueryPerformanceCounter';
+Function QueryPerformanceFrequency(Var F:Int64):LongInt;stdcall;external
+  'kernel32.dll' name 'QueryPerformanceFrequency';
+{$ELSE}
+ {$IFDEF UNIX}
+Type
+ TTimeSpec=Record
+  Sec:PtrInt;
+  NSec:PtrInt;
+ End;
+Function clock_gettime(Id:LongInt;Var T:TTimeSpec):LongInt;cdecl;external 'c'
+  name 'clock_gettime';
+ {$ENDIF}
+{$ENDIF}
+
+{ temps ecoule en millisecondes }
+Function NowMsF:Double;
+{$IFDEF WINDOWS}
+Var
+ C,F:Int64;
+Begin
+ QueryPerformanceFrequency(F);
+ QueryPerformanceCounter(C);
+ If F<=0 Then NowMsF:=0 Else NowMsF:=C*1000.0/F;
+End;
+{$ELSE}
+ {$IFDEF UNIX}
+Var
+ T:TTimeSpec;
+Begin
+ clock_gettime(1,T);
+ NowMsF:=T.Sec*1000.0+T.NSec/1000000.0;
+End;
+ {$ELSE}
+Var
+ H,M,S,S100:Word;
+ T:Int64;
+Begin
+ GetTime(H,M,S,S100);
+ T:=((Int64(H)*60+M)*60+S)*100+S100;
+ If T<LastHs-1000 Then Inc(DayOfs,8640000);
+ LastHs:=T;
+ NowMsF:=(T+DayOfs)*10.0;
+End;
+ {$ENDIF}
+{$ENDIF}
+
+Function MakeSeed:LongWord;
+Var
+ H,M,S,S100,Y,Mo,D,Dw:Word;
+Begin
+ GetTime(H,M,S,S100);
+ GetDate(Y,Mo,D,Dw);
+ MakeSeed:=LongWord(((((Int64(H)*60+M)*60+S)*100+S100)xor(Int64(D)*2654435761)xor
+   (Int64(Mo)*40503)xor(Int64(Y)*65599))and $7FFFFFFF);
+End;
+
+Var
+ RngState:LongWord=2463534242;
+
+Procedure RngSeed(Seed:LongWord);
+Begin
+ RngState:=Seed xor $9E3779B9;
+ If RngState=0 Then RngState:=2463534242;
+End;
+
+Function RngNext:LongWord;
+Begin
+ RngState:=RngState xor(RngState shl 13);
+ RngState:=RngState xor(RngState shr 17);
+ RngState:=RngState xor(RngState shl 5);
+ RngNext:=RngState;
+End;
+
+{ nombre pseudo-aleatoire dans [0,1[ }
+Function RngF:Single;
+Begin
+ RngF:=(RngNext shr 8)/16777216.0;
+End;
+
+{ nombre pseudo-aleatoire approximativement gaussien (moyenne 0, ecart-type 1) }
+Function RngGauss:Single;
+Begin
+ RngGauss:=(RngF+RngF+RngF+RngF-2.0)*1.7320508;
+End;
+
+Function FMin(A,B:Double):Double;Begin If A<B Then FMin:=A Else FMin:=B;End;
+Function FMax(A,B:Double):Double;Begin If A>B Then FMax:=A Else FMax:=B;End;
+Function IMin(A,B:Int64):Int64;Begin If A<B Then IMin:=A Else IMin:=B;End;
+Function IMax(A,B:Int64):Int64;Begin If A>B Then IMax:=A Else IMax:=B;End;
+
+Function Clamp(X,A,B:Double):Double;
+Begin
+ If X<A Then Clamp:=A Else If X>B Then Clamp:=B Else Clamp:=X;
+End;
+
+Function ClampI(X,A,B:LongInt):LongInt;
+Begin
+ If X<A Then ClampI:=A Else If X>B Then ClampI:=B Else ClampI:=X;
+End;
+
+Function FPow(X,Y:Double):Double;
+Begin
+ If Y=0 Then FPow:=1.0
+ Else If X<=0 Then FPow:=0.0
+ Else FPow:=Exp(Y*Ln(X));
+End;
+
+Function FloorI(X:Double):LongInt;
+Begin
+ FloorI:=Trunc(X);
+ If X<FloorI Then FloorI:=FloorI-1;
+End;
+
+Function SmoothStep(A,B,X:Double):Double;
+Var
+ T:Double;
+Begin
+ If B=A Then Begin
+  If X>=A Then SmoothStep:=1 Else SmoothStep:=0;
+  Exit;
+ End;
+ T:=(X-A)/(B-A);
+ If T<0 Then T:=0 Else If T>1 Then T:=1;
+ SmoothStep:=T*T*(3-2*T);
+End;
+
+{ erf(x), erreur absolue < 1,2e-7 (Numerical Recipes, erfc de Chebyshev) }
+Function FErf(X:Double):Double;
+Var
+ T,Z,R:Double;
+Begin
+ Z:=Abs(X);
+ T:=1.0/(1.0+0.5*Z);
+ R:=T*Exp(-Z*Z-1.26551223+T*(1.00002368+T*(0.37409196+T*(0.09678418+
+    T*(-0.18628806+T*(0.27886807+T*(-1.13520398+T*(1.48851587+
+    T*(-0.82215223+T*0.17087277)))))))));
+ If X>=0 Then FErf:=1.0-R Else FErf:=R-1.0;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Sorties : les textes du programme sont ecrits en CP437 (#130, #138,   }
+{ ...) ; la console est en UTF-8 : chaque Write/WriteLn est converti a   }
+{ la volee de CP437 en UTF-8.                                           }
+{ ------------------------------------------------------------------ }
+
+Const
+ Cp437Tab:Array[128..255]of Word=(
+  $00C7,$00FC,$00E9,$00E2,$00E4,$00E0,$00E5,$00E7,
+  $00EA,$00EB,$00E8,$00EF,$00EE,$00EC,$00C4,$00C5,
+  $00C9,$00E6,$00C6,$00F4,$00F6,$00F2,$00FB,$00F9,
+  $00FF,$00D6,$00DC,$00A2,$00A3,$00A5,$20A7,$0192,
+  $00E1,$00ED,$00F3,$00FA,$00F1,$00D1,$00AA,$00BA,
+  $00BF,$2310,$00AC,$00BD,$00BC,$00A1,$00AB,$00BB,
+  $2591,$2592,$2593,$2502,$2524,$2561,$2562,$2556,
+  $2555,$2563,$2551,$2557,$255D,$255C,$255B,$2510,
+  $2514,$2534,$252C,$251C,$2500,$253C,$255E,$255F,
+  $255A,$2554,$2569,$2566,$2560,$2550,$256C,$2567,
+  $2568,$2564,$2565,$2559,$2558,$2552,$2553,$256B,
+  $256A,$2518,$250C,$2588,$2584,$258C,$2590,$2580,
+  $03B1,$00DF,$0393,$03C0,$03A3,$03C3,$00B5,$03C4,
+  $03A6,$0398,$03A9,$03B4,$221E,$03C6,$03B5,$2229,
+  $2261,$00B1,$2265,$2264,$2320,$2321,$00F7,$2248,
+  $00B0,$2219,$00B7,$221A,$207F,$00B2,$25A0,$00A0
+ );
+
+Type
+ TTextFn=Function(Var F:TextRec):LongInt;
+
+Var
+ OrigOutFn,OrigErrFn:TTextFn;
+
+Function Cp437ToUtf8(Const S:AnsiString):AnsiString;
+Var
+ I,J,N,W:LongInt;
+ R:AnsiString;
+Begin
+ N:=Length(S);
+ SetLength(R,N*3);
+ J:=0;
+ For I:=1 to N do Begin
+  W:=Ord(S[I]);
+  If W<128 Then Begin
+   Inc(J);R[J]:=S[I];
+  End
+   Else Begin
+    W:=Cp437Tab[W];
+    If W<$800 Then Begin
+     Inc(J);R[J]:=Chr($C0 or(W shr 6));
+     Inc(J);R[J]:=Chr($80 or(W and $3F));
+    End
+     Else Begin
+      Inc(J);R[J]:=Chr($E0 or(W shr 12));
+      Inc(J);R[J]:=Chr($80 or((W shr 6)and $3F));
+      Inc(J);R[J]:=Chr($80 or(W and $3F));
+     End;
+   End;
+ End;
+ SetLength(R,J);
+ Cp437ToUtf8:=R;
+End;
+
+Function ConvOutput(Var F:TextRec;Orig:TTextFn):LongInt;
+Var
+ Raw,Conv:AnsiString;
+ P,L:LongInt;
+Begin
+ ConvOutput:=0;
+ SetLength(Raw,F.BufPos);
+ If F.BufPos>0 Then Move(F.BufPtr^,Raw[1],F.BufPos);
+ Conv:=Cp437ToUtf8(Raw);
+ If Conv='' Then Begin F.BufPos:=0;Exit;End;
+ P:=1;
+ While P<=Length(Conv)do Begin
+  L:=Length(Conv)-P+1;
+  If L>F.BufSize Then L:=F.BufSize;
+  Move(Conv[P],F.BufPtr^,L);
+  F.BufPos:=L;
+  ConvOutput:=Orig(F);
+  Inc(P,L);
+ End;
+End;
+
+Function OutFn(Var F:TextRec):LongInt;
+Begin
+ OutFn:=ConvOutput(F,OrigOutFn);
+End;
+
+Function ErrFn(Var F:TextRec):LongInt;
+Begin
+ ErrFn:=ConvOutput(F,OrigErrFn);
+End;
+
+Procedure InstallUtf8Output;
+Begin
+ SetTextCodePage(Output,DefaultSystemCodePage);
+ SetTextCodePage(StdErr,DefaultSystemCodePage);
+ OrigOutFn:=TTextFn(TextRec(Output).InOutFunc);
+ TextRec(Output).InOutFunc:=@OutFn;
+ TextRec(Output).FlushFunc:=@OutFn;
+ OrigErrFn:=TTextFn(TextRec(StdErr).InOutFunc);
+ TextRec(StdErr).InOutFunc:=@ErrFn;
+ TextRec(StdErr).FlushFunc:=@ErrFn;
+End;
+
+Var
+ Verbose:Boolean=False;
+ Quiet:Boolean=False;
+
+{ message d'information (toujours affiche sauf avec -quiet) }
+Procedure Info(Const S:AnsiString);
+Begin
+ If Quiet Then Exit;
+ WriteLn(S);
+ Flush(Output);
+End;
+
+{ detail du traitement (seulement avec -verbose) }
+Procedure Detail(Const S:AnsiString);
+Begin
+ If not Verbose Then Exit;
+ WriteLn('  ',S);
+ Flush(Output);
+End;
+
+Procedure Warn(Const S:AnsiString);
+Begin
+ Write(StdErr,'attention : ',S,#10);
+ Flush(StdErr);
+End;
+
+Procedure Fatal(Const S:AnsiString);
+Begin
+ Write(StdErr,'erreur : ',S,#10);
+ Flush(StdErr);
+ Halt(1);
+End;
+
+{ ------------------------------------------------------------------ }
+{ Memoire et fichiers                                                 }
+{ ------------------------------------------------------------------ }
+
+Function AllocBytes(N:Int64):Pointer;
+Var
+ P:Pointer;
+Begin
+ If N<=0 Then N:=1;
+ If N>=2000000000 Then Fatal('m'#130'moire insuffisante (demande de '+HumanBytes(N)+')');
+ P:=Nil;
+ GetMem(P,N);
+ If P=Nil Then Fatal('m'#130'moire insuffisante (demande de '+HumanBytes(N)+')');
+ FillChar(P^,N,0);
+ AllocBytes:=P;
+End;
+
+Function AllocF(N:Int64):PSingle;
+Begin
+ AllocF:=PSingle(AllocBytes(N*4));
+End;
+
+Procedure FreeP(Var P:Pointer);
+Begin
+ If P<>Nil Then FreeMem(P);
+ P:=Nil;
+End;
+
+Function FileExistsP(Const Name:AnsiString):Boolean;
+Var
+ SR:SearchRec;
+Begin
+ FindFirst(Name,AnyFile,SR);
+ FileExistsP:=(DosError=0)and((SR.Attr and Directory)=0);
+ FindClose(SR);
+End;
+
+Function FileSizeP(Const Name:AnsiString):Int64;
+Var
+ SR:SearchRec;
+Begin
+ FindFirst(Name,AnyFile,SR);
+ If DosError=0 Then FileSizeP:=SR.Size Else FileSizeP:=-1;
+ FindClose(SR);
+End;
+
+{ charge un fichier entier en memoire }
+Function ReadFileBytes(Const Name:AnsiString;Var P:PByte;Var N:LongInt):Boolean;
+Var
+ F:File;
+ Sz,Done:Int64;
+ Got,Chunk:LongInt;
+Begin
+ ReadFileBytes:=False;
+ P:=Nil;N:=0;
+ Sz:=FileSizeP(Name);
+ If Sz<0 Then Exit;
+ Assign(F,Name);
+ Reset(F,1);
+ If IOResult<>0 Then Exit;
+ P:=PByte(AllocBytes(Sz+8));
+ Done:=0;
+ While Done<Sz do Begin
+  Chunk:=1048576;
+  If Sz-Done<Chunk Then Chunk:=Sz-Done;
+  BlockRead(F,(P+Done)^,Chunk,Got);
+  If Got<=0 Then Break;
+  Inc(Done,Got);
+ End;
+ Close(F);
+ If IOResult<>0 Then;
+ N:=Done;
+ ReadFileBytes:=Done=Sz;
+End;
+
+Function WriteFileBytes(Const Name:AnsiString;P:PByte;N:LongInt):Boolean;
+Var
+ F:File;
+ Done:LongInt;
+ Chunk,Put:LongInt;
+Begin
+ WriteFileBytes:=False;
+ Assign(F,Name);
+ Rewrite(F,1);
+ If IOResult<>0 Then Exit;
+ Done:=0;
+ While Done<N do Begin
+  Chunk:=1048576;
+  If N-Done<Chunk Then Chunk:=N-Done;
+  BlockWrite(F,(P+Done)^,Chunk,Put);
+  If Put<=0 Then Break;
+  Inc(Done,Put);
+ End;
+ Close(F);
+ If IOResult<>0 Then;
+ WriteFileBytes:=Done=N;
+End;
+
+Function PathLastPart(Const P:AnsiString):AnsiString;
+Var
+ I:LongInt;
+Begin
+ I:=Length(P);
+ While(I>=1)and not(P[I]in['/','\',':'])do Dec(I);
+ PathLastPart:=Copy(P,I+1,Length(P)-I);
+End;
+
+Function PathDir(Const P:AnsiString):AnsiString;
+Var
+ I:LongInt;
+Begin
+ I:=Length(P);
+ While(I>=1)and not(P[I]in['/','\',':'])do Dec(I);
+ PathDir:=Copy(P,1,I);
+End;
+
+Function PathExt(Const P:AnsiString):AnsiString;
+Var
+ I:LongInt;
+ N:AnsiString;
+Begin
+ N:=PathLastPart(P);
+ I:=Length(N);
+ While(I>=1)and(N[I]<>'.')do Dec(I);
+ If I<1 Then PathExt:='' Else PathExt:=LoStr(Copy(N,I,Length(N)-I+1));
+End;
+
+Function PathNoExt(Const P:AnsiString):AnsiString;
+Var
+ E:AnsiString;
+Begin
+ E:=PathExt(P);
+ PathNoExt:=Copy(P,1,Length(P)-Length(E));
+End;
+
+Function PathSep:AnsiString;
+Begin
+ {$IFDEF UNIX}
+ PathSep:='/';
+ {$ELSE}
+ PathSep:='\';
+ {$ENDIF}
+End;
+
+Function DirExistsP(Const Name:AnsiString):Boolean;
+Var
+ SR:SearchRec;
+ N:AnsiString;
+Begin
+ N:=Name;
+ While(Length(N)>1)and(N[Length(N)]in['/','\'])do Delete(N,Length(N),1);
+ FindFirst(N,Directory or AnyFile,SR);
+ DirExistsP:=(DosError=0)and((SR.Attr and Directory)<>0);
+ FindClose(SR);
+End;
+
+Procedure MakeDirs(Const Path:AnsiString);
+Var
+ I:LongInt;
+ Cur:AnsiString;
+Begin
+ Cur:='';
+ For I:=1 to Length(Path)do Begin
+  If(Path[I]in['/','\'])and(Cur<>'')and not(Cur[Length(Cur)]in[':','/',
+    '\'])Then Begin
+   If not DirExistsP(Cur)Then Begin
+    MkDir(Cur);
+    If IOResult<>0 Then;
+   End;
+  End;
+  Cur:=Cur+Path[I];
+ End;
+ If(Cur<>'')and not DirExistsP(Cur)Then Begin
+  MkDir(Cur);
+  If IOResult<>0 Then;
+ End;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Images : structure, inflate/deflate, PNG, BMP, PPM                  }
+{ ------------------------------------------------------------------ }
+
+Type
+ { image RGB entrelacee (3 octets par pixel), canal alpha optionnel }
+ TImage=Record
+  W,H:LongInt;
+  Px:PByte;
+  Alpha:PByte;
+ End;
+
+Procedure ImgAlloc(Var I:TImage;W,H:LongInt;WithAlpha:Boolean);
+Begin
+ I.W:=W;I.H:=H;
+ I.Px:=PByte(AllocBytes(Int64(W)*H*3));
+ I.Alpha:=Nil;
+ If WithAlpha Then I.Alpha:=PByte(AllocBytes(Int64(W)*H));
+End;
+
+Procedure ImgFree(Var I:TImage);
+Begin
+ If I.Px<>Nil Then FreeMem(I.Px);
+ If I.Alpha<>Nil Then FreeMem(I.Alpha);
+ I.Px:=Nil;I.Alpha:=Nil;I.W:=0;I.H:=0;
+End;
+
+{ ---- CRC32 et Adler32 ---- }
+
+Var
+ CrcTab:Array[0..255]of LongWord;
+ CrcReady:Boolean=False;
+
+Procedure CrcInit;
+Var
+ N,K:LongInt;
+ C:LongWord;
+Begin
+ If CrcReady Then Exit;
+ For N:=0 to 255 do Begin
+  C:=N;
+  For K:=0 to 7 do If(C and 1)<>0 Then C:=$EDB88320 xor(C shr 1)Else C:=C shr 1;
+  CrcTab[N]:=C;
+ End;
+ CrcReady:=True;
+End;
+
+Function Crc32Update(Crc:LongWord;P:PByte;N:LongInt):LongWord;
+Var
+ I:LongInt;
+Begin
+ CrcInit;
+ Crc:=Crc xor $FFFFFFFF;
+ For I:=0 to N-1 do Crc:=CrcTab[(Crc xor P[I])and $FF]xor(Crc shr 8);
+ Crc32Update:=Crc xor $FFFFFFFF;
+End;
+
+Function Adler32(P:PByte;N:LongInt):LongWord;
+Var
+ A,B:LongWord;
+ I,K:LongInt;
+Begin
+ A:=1;B:=0;
+ I:=0;
+ While I<N do Begin
+  K:=N-I;
+  If K>5000 Then K:=5000;
+  While K>0 do Begin
+   A:=A+P[I];B:=B+A;
+   Inc(I);Dec(K);
+  End;
+  A:=A mod 65521;B:=B mod 65521;
+ End;
+ Adler32:=(B shl 16)or A;
+End;
+
+{ ---- inflate (RFC 1951) ---- }
+
+Type
+ THuf=Record
+  Count:Array[0..15]of Word;
+  Sym:Array[0..319]of Word;
+  Fast:Array[0..511]of Word;
+ End;
+ TInfl=Record
+  Src:PByte;
+  SrcLen,SrcPos:LongInt;
+  BitBuf:LongWord;
+  BitCnt:LongInt;
+  Dst:PByte;
+  DstCap,DstPos:LongInt;
+  Err:Boolean;
+ End;
+
+Const
+ LenBase:Array[0..28]of Word=(3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,
+   51,59,67,83,99,115,131,163,195,227,258);
+ LenExtra:Array[0..28]of Byte=(0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,
+   5,5,5,5,0);
+ DistBase:Array[0..29]of Word=(1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,
+   385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577);
+ DistExtra:Array[0..29]of Byte=(0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,
+   10,11,11,12,12,13,13);
+ ClOrder:Array[0..18]of Byte=(16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15);
+
+Procedure IFill(Var S:TInfl);
+Begin
+ While S.BitCnt<=24 do Begin
+  If S.SrcPos<S.SrcLen Then S.BitBuf:=S.BitBuf or(LongWord(S.Src[S.SrcPos])shl
+    S.BitCnt);
+  Inc(S.SrcPos);
+  Inc(S.BitCnt,8);
+ End;
+End;
+
+Function IBits(Var S:TInfl;N:LongInt):LongInt;
+Begin
+ If N=0 Then Begin IBits:=0;Exit;End;
+ If S.BitCnt<N Then IFill(S);
+ IBits:=S.BitBuf and((LongWord(1)shl N)-1);
+ S.BitBuf:=S.BitBuf shr N;
+ Dec(S.BitCnt,N);
+End;
+
+Function BuildHuf(Var H:THuf;Lens:PByte;N:LongInt):Boolean;
+Var
+ Offs:Array[0..15]of Word;
+ NextCode:Array[0..16]of LongWord;
+ I,L,K,Left:LongInt;
+ Code:LongWord;
+ Rev:LongWord;
+ J:LongInt;
+Begin
+ BuildHuf:=True;
+ FillChar(H,SizeOf(H),0);
+ For I:=0 to N-1 do Inc(H.Count[Lens[I]]);
+ H.Count[0]:=0;
+ Left:=1;
+ For L:=1 to 15 do Begin
+  Left:=Left*2-H.Count[L];
+  If Left<0 Then BuildHuf:=False;
+ End;
+ Offs[1]:=0;
+ For L:=1 to 14 do Offs[L+1]:=Offs[L]+H.Count[L];
+ For I:=0 to N-1 do If Lens[I]<>0 Then Begin
+  H.Sym[Offs[Lens[I]]]:=I;
+  Inc(Offs[Lens[I]]);
+ End;
+ { table rapide pour les codes de 9 bits ou moins }
+ Code:=0;
+ For L:=1 to 15 do Begin
+  If L>1 Then Code:=(Code+H.Count[L-1])shl 1 Else Code:=0;
+  NextCode[L]:=Code;
+ End;
+ For I:=0 to N-1 do Begin
+  L:=Lens[I];
+  If L=0 Then Continue;
+  Code:=NextCode[L];
+  Inc(NextCode[L]);
+  If L<=9 Then Begin
+   Rev:=0;
+   For K:=0 to L-1 do If(Code and(LongWord(1)shl K))<>0 Then Rev:=Rev or(
+     LongWord(1)shl(L-1-K));
+   J:=Rev;
+   While J<512 do Begin
+    H.Fast[J]:=(L shl 9)or I;
+    Inc(J,1 shl L);
+   End;
+  End;
+ End;
+End;
+
+Function IDecode(Var S:TInfl;Var H:THuf):LongInt;
+Var
+ E:Word;
+ L,Code,First,Index,Cnt:LongInt;
+Begin
+ If S.BitCnt<16 Then IFill(S);
+ E:=H.Fast[S.BitBuf and 511];
+ If E<>0 Then Begin
+  L:=E shr 9;
+  S.BitBuf:=S.BitBuf shr L;
+  Dec(S.BitCnt,L);
+  IDecode:=E and 511;
+  Exit;
+ End;
+ Code:=0;First:=0;Index:=0;
+ For L:=1 to 15 do Begin
+  Code:=Code or LongInt(S.BitBuf and 1);
+  S.BitBuf:=S.BitBuf shr 1;
+  Dec(S.BitCnt);
+  Cnt:=H.Count[L];
+  If Code-Cnt<First Then Begin
+   IDecode:=H.Sym[Index+(Code-First)];
+   Exit;
+  End;
+  Inc(Index,Cnt);
+  Inc(First,Cnt);
+  First:=First shl 1;
+  Code:=Code shl 1;
+ End;
+ IDecode:=-1;
+End;
+
+Function InflateCodes(Var S:TInfl;Var Lit,Dist:THuf):Boolean;
+Var
+ Sym,Len,D,I:LongInt;
+Begin
+ InflateCodes:=False;
+ While True do Begin
+  Sym:=IDecode(S,Lit);
+  If Sym<0 Then Exit;
+  If Sym<256 Then Begin
+   If S.DstPos>=S.DstCap Then Begin InflateCodes:=True;S.Err:=True;Exit;End;
+   S.Dst[S.DstPos]:=Sym;
+   Inc(S.DstPos);
+  End
+   Else If Sym=256 Then Begin
+    InflateCodes:=True;
+    Exit;
+   End
+    Else Begin
+     Dec(Sym,257);
+     If Sym>=29 Then Exit;
+     Len:=LenBase[Sym]+IBits(S,LenExtra[Sym]);
+     Sym:=IDecode(S,Dist);
+     If(Sym<0)or(Sym>=30)Then Exit;
+     D:=DistBase[Sym]+IBits(S,DistExtra[Sym]);
+     If D>S.DstPos Then Exit;
+     If S.DstPos+Len>S.DstCap Then Begin
+      Len:=S.DstCap-S.DstPos;
+      S.Err:=True;
+     End;
+     For I:=0 to Len-1 do Begin
+      S.Dst[S.DstPos]:=S.Dst[S.DstPos-D];
+      Inc(S.DstPos);
+     End;
+     If S.Err Then Begin InflateCodes:=True;Exit;End;
+    End;
+  If S.SrcPos>S.SrcLen+8 Then Exit;
+ End;
+End;
+
+{ decompresse un flux deflate brut vers un tampon de taille connue }
+Function InflateRaw(Src:PByte;SrcLen:LongInt;Dst:PByte;DstCap:LongInt;Var
+  OutLen:LongInt):Boolean;
+Var
+ S:TInfl;
+ Lit,Dist,Cl:THuf;
+ Lens:Array[0..319]of Byte;
+ Last,BType,I,N,Len,NLen,HLit,HDist,HClen,Sym,Rep,Prev:LongInt;
+Begin
+ InflateRaw:=False;
+ FillChar(S,SizeOf(S),0);
+ S.Src:=Src;S.SrcLen:=SrcLen;S.Dst:=Dst;S.DstCap:=DstCap;
+ Repeat
+  Last:=IBits(S,1);
+  BType:=IBits(S,2);
+  If BType=0 Then Begin
+   I:=S.BitCnt and 7;
+   IBits(S,I);
+   Len:=IBits(S,16);
+   NLen:=IBits(S,16);
+   If(Len xor $FFFF)<>NLen Then Exit;
+   For I:=1 to Len do Begin
+    If S.DstPos>=S.DstCap Then Begin S.Err:=True;Break;End;
+    S.Dst[S.DstPos]:=IBits(S,8);
+    Inc(S.DstPos);
+   End;
+  End
+   Else If BType=1 Then Begin
+    For I:=0 to 143 do Lens[I]:=8;
+    For I:=144 to 255 do Lens[I]:=9;
+    For I:=256 to 279 do Lens[I]:=7;
+    For I:=280 to 287 do Lens[I]:=8;
+    BuildHuf(Lit,@Lens[0],288);
+    For I:=0 to 29 do Lens[I]:=5;
+    BuildHuf(Dist,@Lens[0],30);
+    If not InflateCodes(S,Lit,Dist)Then Exit;
+   End
+    Else If BType=2 Then Begin
+     HLit:=IBits(S,5)+257;
+     HDist:=IBits(S,5)+1;
+     HClen:=IBits(S,4)+4;
+     If(HLit>286)or(HDist>30)Then Exit;
+     FillChar(Lens,SizeOf(Lens),0);
+     For I:=0 to HClen-1 do Lens[ClOrder[I]]:=IBits(S,3);
+     If not BuildHuf(Cl,@Lens[0],19)Then Exit;
+     N:=0;
+     Prev:=0;
+     FillChar(Lens,SizeOf(Lens),0);
+     While N<HLit+HDist do Begin
+      Sym:=IDecode(S,Cl);
+      If Sym<0 Then Exit;
+      If Sym<16 Then Begin
+       Lens[N]:=Sym;Prev:=Sym;Inc(N);
+      End
+       Else Begin
+        If Sym=16 Then Begin
+         If N=0 Then Exit;
+         Rep:=3+IBits(S,2);
+        End
+         Else If Sym=17 Then Begin Rep:=3+IBits(S,3);Prev:=0;End
+         Else Begin Rep:=11+IBits(S,7);Prev:=0;End;
+        If N+Rep>HLit+HDist Then Exit;
+        While Rep>0 do Begin
+         Lens[N]:=Prev;Inc(N);Dec(Rep);
+        End;
+       End;
+     End;
+     If not BuildHuf(Lit,@Lens[0],HLit)Then Exit;
+     If not BuildHuf(Dist,@Lens[HLit],HDist)Then Exit;
+     If not InflateCodes(S,Lit,Dist)Then Exit;
+    End
+     Else Exit;
+  If S.Err Then Break;
+  If S.SrcPos>S.SrcLen+8 Then Exit;
+ Until Last<>0;
+ OutLen:=S.DstPos;
+ InflateRaw:=True;
+End;
+
+{ ---- deflate (LZ77 + codes de Huffman fixes) ---- }
+
+Type
+ TDefl=Record
+  Dst:PByte;
+  Pos:LongInt;
+  Buf:LongWord;
+  Cnt:LongInt;
+ End;
+
+Procedure DPutBits(Var D:TDefl;V:LongWord;N:LongInt);
+Begin
+ D.Buf:=D.Buf or(V shl D.Cnt);
+ Inc(D.Cnt,N);
+ While D.Cnt>=8 do Begin
+  D.Dst[D.Pos]:=D.Buf and $FF;
+  Inc(D.Pos);
+  D.Buf:=D.Buf shr 8;
+  Dec(D.Cnt,8);
+ End;
+End;
+
+Function RevBits(V:LongWord;N:LongInt):LongWord;
+Var
+ I:LongInt;
+ R:LongWord;
+Begin
+ R:=0;
+ For I:=1 to N do Begin
+  R:=(R shl 1)or(V and 1);
+  V:=V shr 1;
+ End;
+ RevBits:=R;
+End;
+
+Procedure DPutLit(Var D:TDefl;Sym:LongInt);
+Begin
+ If Sym<144 Then DPutBits(D,RevBits($30+Sym,8),8)
+ Else If Sym<256 Then DPutBits(D,RevBits($190+(Sym-144),9),9)
+ Else If Sym<280 Then DPutBits(D,RevBits(Sym-256,7),7)
+ Else DPutBits(D,RevBits($C0+(Sym-280),8),8);
+End;
+
+Var
+ LenSym:Array[3..258]of Byte;
+ DistSymTab:Array[0..511]of Byte;
+ DeflReady:Boolean=False;
+
+Procedure DeflInit;
+Var
+ I,S:LongInt;
+Begin
+ If DeflReady Then Exit;
+ DeflReady:=True;
+ For S:=0 to 28 do
+  For I:=LenBase[S]to LenBase[S]+(1 shl LenExtra[S])-1 do
+   If(I>=3)and(I<=258)Then LenSym[I]:=S;
+ LenSym[258]:=28;
+ For S:=0 to 29 do
+  For I:=DistBase[S]to DistBase[S]+(1 shl DistExtra[S])-1 do
+   If I<=256 Then DistSymTab[I]:=S;
+End;
+
+Function DistSym(D:LongInt):LongInt;
+Var
+ S:LongInt;
+Begin
+ If D<=256 Then DistSym:=DistSymTab[D]
+ Else Begin
+  S:=0;
+  While(S<29)and(DistBase[S+1]<=D)do Inc(S);
+  DistSym:=S;
+ End;
+End;
+
+Procedure DPutMatch(Var D:TDefl;Len,Dist:LongInt);
+Var
+ S:LongInt;
+Begin
+ S:=LenSym[Len];
+ DPutLit(D,257+S);
+ If LenExtra[S]>0 Then DPutBits(D,Len-LenBase[S],LenExtra[S]);
+ S:=DistSym(Dist);
+ DPutBits(D,RevBits(S,5),5);
+ If DistExtra[S]>0 Then DPutBits(D,Dist-DistBase[S],DistExtra[S]);
+End;
+
+{ compresse N octets ; Level 1..9 regle la profondeur de recherche }
+Function DeflateRaw(Src:PByte;N:LongInt;Level:LongInt;Var OutLen:LongInt):PByte;
+Const
+ HashBits=15;
+ HashSize=1 shl HashBits;
+ Window=32768;
+Var
+ D:TDefl;
+ Head:PIntArr;
+ Prev:PIntArr;
+ I,Pos,H,Cand,Chain,MaxChain,BestLen,BestDist,L,MaxLen,Lim:LongInt;
+ NextLen,NextDist,K:LongInt;
+
+ Function Hash3(P:LongInt):LongInt;
+ Begin
+  Hash3:=((Src[P]shl 10)xor(Src[P+1]shl 5)xor Src[P+2])and(HashSize-1);
+ End;
+
+ Procedure Insert(P:LongInt);
+ Var
+  HH:LongInt;
+ Begin
+  If P+2>=N Then Exit;
+  HH:=Hash3(P);
+  Prev[P and(Window-1)]:=Head[HH];
+  Head[HH]:=P;
+ End;
+
+ Procedure FindMatch(P:LongInt;Var BL,BD:LongInt);
+ Var
+  C,Ch,LL,ML:LongInt;
+ Begin
+  BL:=0;BD:=0;
+  If P+2>=N Then Exit;
+  C:=Head[Hash3(P)];
+  Ch:=MaxChain;
+  ML:=N-P;
+  If ML>258 Then ML:=258;
+  While(C>=0)and(P-C<=Window-1)and(Ch>0)do Begin
+   If(Src[C+BL]=Src[P+BL])or(BL=0)Then Begin
+    LL:=0;
+    While(LL<ML)and(Src[C+LL]=Src[P+LL])do Inc(LL);
+    If LL>BL Then Begin
+     BL:=LL;BD:=P-C;
+     If LL>=ML Then Break;
+    End;
+   End;
+   C:=Prev[C and(Window-1)];
+   Dec(Ch);
+  End;
+  If BL<3 Then Begin BL:=0;BD:=0;End;
+ End;
+
+Begin
+ DeflInit;
+ Lim:=N+N div 4+1024;
+ D.Dst:=PByte(AllocBytes(Lim));
+ D.Pos:=0;D.Buf:=0;D.Cnt:=0;
+ Head:=PIntArr(AllocBytes(Int64(HashSize)*4));
+ Prev:=PIntArr(AllocBytes(Int64(Window)*4));
+ For I:=0 to HashSize-1 do Head[I]:=-1;
+ MaxChain:=4;
+ If Level>=3 Then MaxChain:=16;
+ If Level>=6 Then MaxChain:=64;
+ If Level>=9 Then MaxChain:=256;
+ DPutBits(D,1,1);
+ DPutBits(D,1,2);
+ Pos:=0;
+ While Pos<N do Begin
+  FindMatch(Pos,BestLen,BestDist);
+  If(BestLen>=3)and(Level>=3)and(Pos+1<N)and(BestLen<32)Then Begin
+   { evaluation differee : une meilleure correspondance en Pos+1 ? }
+   Insert(Pos);
+   FindMatch(Pos+1,NextLen,NextDist);
+   If NextLen>BestLen+1 Then Begin
+    DPutLit(D,Src[Pos]);
+    Inc(Pos);
+    Continue;
+   End;
+   DPutMatch(D,BestLen,BestDist);
+   For K:=1 to BestLen-1 do Insert(Pos+K);
+   Inc(Pos,BestLen);
+   Continue;
+  End;
+  If BestLen>=3 Then Begin
+   DPutMatch(D,BestLen,BestDist);
+   For K:=0 to BestLen-1 do Insert(Pos+K);
+   Inc(Pos,BestLen);
+  End
+   Else Begin
+    DPutLit(D,Src[Pos]);
+    Insert(Pos);
+    Inc(Pos);
+   End;
+ End;
+ DPutLit(D,256);
+ If D.Cnt>0 Then DPutBits(D,0,8-D.Cnt);
+ FreeMem(Head);
+ FreeMem(Prev);
+ OutLen:=D.Pos;
+ DeflateRaw:=D.Dst;
+End;
+
+{ ---- PNG ---- }
+
+Function BE32(P:PByte):LongWord;
+Begin
+ BE32:=(LongWord(P[0])shl 24)or(LongWord(P[1])shl 16)or(LongWord(P[2])shl 8)or
+   P[3];
+End;
+
+Function PaethPred(A,B,C:LongInt):LongInt;
+Var
+ P,PA,PB,PC:LongInt;
+Begin
+ P:=A+B-C;
+ PA:=Abs(P-A);PB:=Abs(P-B);PC:=Abs(P-C);
+ If(PA<=PB)and(PA<=PC)Then PaethPred:=A
+ Else If PB<=PC Then PaethPred:=B
+ Else PaethPred:=C;
+End;
+
+{ defiltre un bloc de lignes (Raw : H*(1+Stride) octets) en place }
+Function PngUnfilter(Raw:PByte;W,H,Bpp,Stride:LongInt):Boolean;
+Var
+ Y,X,F,A,B,C:LongInt;
+ Cur,Up:PByte;
+Begin
+ PngUnfilter:=False;
+ For Y:=0 to H-1 do Begin
+  Cur:=Raw+Int64(Y)*(Stride+1);
+  F:=Cur[0];
+  Inc(Cur);
+  If Y>0 Then Up:=Raw+Int64(Y-1)*(Stride+1)+1 Else Up:=Nil;
+  Case F of
+   0:;
+   1:For X:=Bpp to Stride-1 do Cur[X]:=(Cur[X]+Cur[X-Bpp])and $FF;
+   2:If Up<>Nil Then For X:=0 to Stride-1 do Cur[X]:=(Cur[X]+Up[X])and $FF;
+   3:For X:=0 to Stride-1 do Begin
+      If X>=Bpp Then A:=Cur[X-Bpp]Else A:=0;
+      If Up<>Nil Then B:=Up[X]Else B:=0;
+      Cur[X]:=(Cur[X]+((A+B)shr 1))and $FF;
+     End;
+   4:For X:=0 to Stride-1 do Begin
+      If X>=Bpp Then A:=Cur[X-Bpp]Else A:=0;
+      If Up<>Nil Then B:=Up[X]Else B:=0;
+      If(Up<>Nil)and(X>=Bpp)Then C:=Up[X-Bpp]Else C:=0;
+      Cur[X]:=(Cur[X]+PaethPred(A,B,C))and $FF;
+     End;
+   Else Exit;
+  End;
+ End;
+ PngUnfilter:=True;
+End;
+
+Function PngDecode(Buf:PByte;N:LongInt;Var Img:TImage;Var Err:AnsiString):Boolean;
+Const
+ Sig:Array[0..7]of Byte=(137,80,78,71,13,10,26,10);
+ AdamX0:Array[0..6]of Byte=(0,4,0,2,0,1,0);
+ AdamY0:Array[0..6]of Byte=(0,0,4,0,2,0,1);
+ AdamDX:Array[0..6]of Byte=(8,8,4,4,2,2,1);
+ AdamDY:Array[0..6]of Byte=(8,8,8,4,4,2,2);
+Var
+ Pos,Len,I,Depth,CType,Interlace,Chans,Bpp,Stride,W,H:LongInt;
+ Kind:Array[0..3]of Char;
+ IData:PByte;
+ ILen,ICap:LongInt;
+ Pal:Array[0..255]of Array[0..3]of Byte;
+ NPal:LongInt;
+ HasTrns:Boolean;
+ TrnsKey:Array[0..2]of LongInt;
+ Raw,Unz:PByte;
+ RawSize:Int64;
+ OutLen:LongInt;
+ Pass,PW,PH,PStride,X,Y,OX,OY,Off,K,V,Shift:LongInt;
+ Src:PByte;
+ R,G,B,Al:LongInt;
+ Pad:Int64;
+ HaveAlpha:Boolean;
+
+ Function Sample(Row:PByte;X,Ch:LongInt):LongInt;
+ Var
+  Bit,By:LongInt;
+ Begin
+  Case Depth of
+   8:Sample:=Row[X*Chans+Ch];
+   16:Sample:=(Row[(X*Chans+Ch)*2]shl 8)or Row[(X*Chans+Ch)*2+1];
+   Else Begin
+    Bit:=X*Depth;
+    By:=Row[Bit shr 3];
+    Sample:=(By shr(8-Depth-(Bit and 7)))and((1 shl Depth)-1);
+   End;
+  End;
+ End;
+
+ Procedure PutPixel(Row:PByte;X,DX,DY:LongInt);
+ Var
+  PIdx,Mx:LongInt;
+  Po:Int64;
+ Begin
+  Mx:=(1 shl Depth)-1;
+  Al:=255;
+  Case CType of
+   0:Begin
+      V:=Sample(Row,X,0);
+      R:=V;
+      If Depth=16 Then R:=V shr 8
+      Else If Depth<8 Then R:=V*255 div Mx;
+      G:=R;B:=R;
+      If HasTrns and(V=TrnsKey[0])Then Al:=0;
+     End;
+   2:Begin
+      R:=Sample(Row,X,0);G:=Sample(Row,X,1);B:=Sample(Row,X,2);
+      If HasTrns and(R=TrnsKey[0])and(G=TrnsKey[1])and(B=TrnsKey[2])Then Al:=0;
+      If Depth=16 Then Begin R:=R shr 8;G:=G shr 8;B:=B shr 8;End;
+     End;
+   3:Begin
+      PIdx:=Sample(Row,X,0);
+      R:=Pal[PIdx][0];G:=Pal[PIdx][1];B:=Pal[PIdx][2];Al:=Pal[PIdx][3];
+     End;
+   4:Begin
+      R:=Sample(Row,X,0);Al:=Sample(Row,X,1);
+      If Depth=16 Then Begin R:=R shr 8;Al:=Al shr 8;End;
+      G:=R;B:=R;
+     End;
+   6:Begin
+      R:=Sample(Row,X,0);G:=Sample(Row,X,1);B:=Sample(Row,X,2);
+      Al:=Sample(Row,X,3);
+      If Depth=16 Then Begin R:=R shr 8;G:=G shr 8;B:=B shr 8;Al:=Al shr 8;End;
+     End;
+  End;
+  Po:=Int64(DY)*W+DX;
+  Img.Px[Po*3]:=R;Img.Px[Po*3+1]:=G;Img.Px[Po*3+2]:=B;
+  If Img.Alpha<>Nil Then Img.Alpha[Po]:=Al;
+ End;
+
+Begin
+ PngDecode:=False;
+ Err:='';
+ Img.Px:=Nil;Img.Alpha:=Nil;
+ IData:=Nil;
+ For I:=0 to 7 do If(N<8)or(Buf[I]<>Sig[I])Then Begin Err:='signature PNG invalide';Exit;End;
+ Pos:=8;
+ W:=0;H:=0;Depth:=0;CType:=0;Interlace:=0;NPal:=0;HasTrns:=False;
+ ILen:=0;ICap:=0;
+ FillChar(Pal,SizeOf(Pal),0);
+ For I:=0 to 255 do Pal[I][3]:=255;
+ TrnsKey[0]:=0;TrnsKey[1]:=0;TrnsKey[2]:=0;
+ While Pos+8<=N do Begin
+  Len:=BE32(Buf+Pos);
+  Kind[0]:=Chr(Buf[Pos+4]);Kind[1]:=Chr(Buf[Pos+5]);Kind[2]:=Chr(Buf[Pos+6]);
+  Kind[3]:=Chr(Buf[Pos+7]);
+  If(Len<0)or(Int64(Pos)+12+Len>N)Then Begin
+   If Kind='IDAT' Then Len:=N-Pos-12 Else Break;
+   If Len<0 Then Break;
+  End;
+  Inc(Pos,8);
+  If Kind='IHDR' Then Begin
+   W:=BE32(Buf+Pos);H:=BE32(Buf+Pos+4);
+   Depth:=Buf[Pos+8];CType:=Buf[Pos+9];Interlace:=Buf[Pos+12];
+  End
+   Else If Kind='PLTE' Then Begin
+    NPal:=Len div 3;
+    If NPal>256 Then NPal:=256;
+    For I:=0 to NPal-1 do Begin
+     Pal[I][0]:=Buf[Pos+I*3];Pal[I][1]:=Buf[Pos+I*3+1];Pal[I][2]:=Buf[Pos+I*3+2];
+    End;
+   End
+    Else If Kind='tRNS' Then Begin
+     If CType=3 Then Begin
+      For I:=0 to Len-1 do If I<256 Then Pal[I][3]:=Buf[Pos+I];
+      HasTrns:=True;
+     End
+      Else If(CType=0)and(Len>=2)Then Begin
+       TrnsKey[0]:=(Buf[Pos]shl 8)or Buf[Pos+1];
+       HasTrns:=True;
+      End
+       Else If(CType=2)and(Len>=6)Then Begin
+        TrnsKey[0]:=(Buf[Pos]shl 8)or Buf[Pos+1];
+        TrnsKey[1]:=(Buf[Pos+2]shl 8)or Buf[Pos+3];
+        TrnsKey[2]:=(Buf[Pos+4]shl 8)or Buf[Pos+5];
+        HasTrns:=True;
+       End;
+    End
+     Else If Kind='IDAT' Then Begin
+      If ILen+Len>ICap Then Begin
+       ICap:=(ILen+Len)*2;
+       If IData=Nil Then IData:=PByte(AllocBytes(ICap))
+       Else Begin
+        ReallocMem(IData,ICap);
+       End;
+      End;
+      Move(Buf[Pos],IData[ILen],Len);
+      Inc(ILen,Len);
+     End
+      Else If Kind='IEND' Then Begin
+       Break;
+      End;
+  Inc(Pos,Len+4);
+ End;
+ If(W<=0)or(H<=0)or(Int64(W)*H>400000000)Then Begin Err:='dimensions PNG invalides';
+  If IData<>Nil Then FreeMem(IData);Exit;End;
+ If IData=Nil Then Begin Err:='aucune donn'#130'es image dans le PNG';Exit;End;
+ Case CType of
+  0:Chans:=1;
+  2:Chans:=3;
+  3:Chans:=1;
+  4:Chans:=2;
+  6:Chans:=4;
+  Else Begin Err:='type de couleur PNG inconnu';FreeMem(IData);Exit;End;
+ End;
+ If not(Depth in[1,2,4,8,16])Then Begin Err:='profondeur PNG inconnue';FreeMem(IData);Exit;End;
+ Bpp:=(Chans*Depth+7)div 8;
+ HaveAlpha:=(CType=4)or(CType=6)or HasTrns;
+ ImgAlloc(Img,W,H,HaveAlpha);
+ If Interlace=0 Then RawSize:=Int64(H)*(1+(Int64(W)*Chans*Depth+7)div 8)
+ Else Begin
+  RawSize:=0;
+  For Pass:=0 to 6 do Begin
+   PW:=(W-AdamX0[Pass]+AdamDX[Pass]-1)div AdamDX[Pass];
+   PH:=(H-AdamY0[Pass]+AdamDY[Pass]-1)div AdamDY[Pass];
+   If(PW>0)and(PH>0)Then Inc(RawSize,Int64(PH)*(1+(Int64(PW)*Chans*Depth+7)div 8));
+  End;
+ End;
+ Raw:=PByte(AllocBytes(RawSize+16));
+ If(ILen<6)or not InflateRaw(IData+2,ILen-2,Raw,RawSize,OutLen)Then Begin
+  Err:='flux zlib invalide dans le PNG';
+  FreeMem(IData);FreeMem(Raw);ImgFree(Img);Exit;
+ End;
+ FreeMem(IData);
+ Unz:=Raw;
+ If Interlace=0 Then Begin
+  Stride:=(W*Chans*Depth+7)div 8;
+  If not PngUnfilter(Raw,W,H,Bpp,Stride)Then Begin
+   Err:='filtre PNG invalide';FreeMem(Raw);ImgFree(Img);Exit;
+  End;
+  For Y:=0 to H-1 do Begin
+   Src:=Raw+Int64(Y)*(Stride+1)+1;
+   For X:=0 to W-1 do PutPixel(Src,X,X,Y);
+  End;
+ End
+  Else Begin
+   Off:=0;
+   For Pass:=0 to 6 do Begin
+    PW:=(W-AdamX0[Pass]+AdamDX[Pass]-1)div AdamDX[Pass];
+    PH:=(H-AdamY0[Pass]+AdamDY[Pass]-1)div AdamDY[Pass];
+    If(PW<=0)or(PH<=0)Then Continue;
+    PStride:=(PW*Chans*Depth+7)div 8;
+    If not PngUnfilter(Raw+Off,PW,PH,Bpp,PStride)Then Begin
+     Err:='filtre PNG invalide';FreeMem(Raw);ImgFree(Img);Exit;
+    End;
+    For Y:=0 to PH-1 do Begin
+     Src:=Raw+Off+Int64(Y)*(PStride+1)+1;
+     For X:=0 to PW-1 do Begin
+      OX:=AdamX0[Pass]+X*AdamDX[Pass];
+      OY:=AdamY0[Pass]+Y*AdamDY[Pass];
+      PutPixel(Src,X,OX,OY);
+     End;
+    End;
+    Inc(Off,PH*(1+PStride));
+   End;
+  End;
+ FreeMem(Raw);
+ PngDecode:=True;
+End;
+
+Procedure PutBE32(P:PByte;V:LongWord);
+Begin
+ P[0]:=V shr 24;P[1]:=(V shr 16)and $FF;P[2]:=(V shr 8)and $FF;P[3]:=V and $FF;
+End;
+
+{ ecrit un fichier PNG RGB 8 bits (Level 1..9 : effort de compression) }
+Function PngEncode(Const Name:AnsiString;Const Img:TImage;Level:LongInt):Boolean;
+Var
+ Stride,Y,X,F,FLo,FHi,BestF,A,B,C,P,V,I:LongInt;
+ Raw,Cur,Prv,Z,Out_,Tmp:PByte;
+ Best,Sum:Int64;
+ Cand:Array[0..4]of PByte;
+ ZLen,Pos:LongInt;
+ Ad:LongWord;
+ Hdr:Array[0..12]of Byte;
+
+ Procedure Chunk(Const Kind:AnsiString;Data:PByte;Len:LongInt);
+ Var
+  Cr:LongWord;
+  H8:Array[0..7]of Byte;
+ Begin
+  PutBE32(@H8[0],Len);
+  H8[4]:=Ord(Kind[1]);H8[5]:=Ord(Kind[2]);H8[6]:=Ord(Kind[3]);H8[7]:=Ord(Kind[4]);
+  Move(H8[0],Out_[Pos],8);Inc(Pos,8);
+  Cr:=Crc32Update(0,@H8[4],4);
+  If Len>0 Then Begin
+   Move(Data^,Out_[Pos],Len);
+   Cr:=Crc32Update(Cr,Data,Len);
+   Inc(Pos,Len);
+  End;
+  PutBE32(Out_+Pos,Cr);
+  Inc(Pos,4);
+ End;
+
+Begin
+ PngEncode:=False;
+ Stride:=Img.W*3;
+ Raw:=PByte(AllocBytes(Int64(Img.H)*(Stride+1)));
+ For I:=0 to 4 do Cand[I]:=PByte(AllocBytes(Stride+1));
+ FLo:=0;FHi:=4;
+ If Level<=2 Then Begin FLo:=1;FHi:=1;End;
+ For Y:=0 to Img.H-1 do Begin
+  Cur:=Img.Px+Int64(Y)*Stride;
+  If Y>0 Then Prv:=Img.Px+Int64(Y-1)*Stride Else Prv:=Nil;
+  Best:=-1;BestF:=FLo;
+  For F:=FLo to FHi do Begin
+   Sum:=0;
+   For X:=0 to Stride-1 do Begin
+    If X>=3 Then A:=Cur[X-3]Else A:=0;
+    If Prv<>Nil Then B:=Prv[X]Else B:=0;
+    If(Prv<>Nil)and(X>=3)Then C:=Prv[X-3]Else C:=0;
+    Case F of
+     0:P:=0;
+     1:P:=A;
+     2:P:=B;
+     3:P:=(A+B)shr 1;
+     Else P:=PaethPred(A,B,C);
+    End;
+    V:=(Cur[X]-P)and $FF;
+    Cand[F][X+1]:=V;
+    If V>=128 Then Sum:=Sum+(256-V)Else Sum:=Sum+V;
+   End;
+   If(Best<0)or(Sum<Best)Then Begin Best:=Sum;BestF:=F;End;
+  End;
+  Cand[BestF][0]:=BestF;
+  Move(Cand[BestF]^,(Raw+Int64(Y)*(Stride+1))^,Stride+1);
+ End;
+ For I:=0 to 4 do FreeMem(Cand[I]);
+ Z:=DeflateRaw(Raw,Img.H*(Stride+1),Level,ZLen);
+ Ad:=Adler32(Raw,Img.H*(Stride+1));
+ FreeMem(Raw);
+ Out_:=PByte(AllocBytes(Int64(ZLen)+1024));
+ Out_[0]:=137;Out_[1]:=80;Out_[2]:=78;Out_[3]:=71;Out_[4]:=13;Out_[5]:=10;
+ Out_[6]:=26;Out_[7]:=10;
+ Pos:=8;
+ PutBE32(@Hdr[0],Img.W);PutBE32(@Hdr[4],Img.H);
+ Hdr[8]:=8;Hdr[9]:=2;Hdr[10]:=0;Hdr[11]:=0;Hdr[12]:=0;
+ Chunk('IHDR',@Hdr[0],13);
+ { IDAT : en-tete zlib + flux deflate + Adler32 }
+ Tmp:=PByte(AllocBytes(Int64(ZLen)+16));
+ Tmp[0]:=$78;Tmp[1]:=$9C;
+ Move(Z^,Tmp[2],ZLen);
+ PutBE32(Tmp+2+ZLen,Ad);
+ FreeMem(Z);
+ Chunk('IDAT',Tmp,ZLen+6);
+ FreeMem(Tmp);
+ Chunk('IEND',Nil,0);
+ PngEncode:=WriteFileBytes(Name,Out_,Pos);
+ FreeMem(Out_);
+End;
+
+{ ---- BMP ---- }
+
+Function LE16(P:PByte):LongInt;
+Begin
+ LE16:=P[0]or(P[1]shl 8);
+End;
+
+Function LE32(P:PByte):LongInt;
+Begin
+ LE32:=LongInt(LongWord(P[0])or(LongWord(P[1])shl 8)or(LongWord(P[2])shl 16)or
+   (LongWord(P[3])shl 24));
+End;
+
+Function BmpDecode(Buf:PByte;N:LongInt;Var Img:TImage;Var Err:AnsiString):Boolean;
+Var
+ Off,HSize,W,H,Planes,Bits,Comp,NColors,Stride,X,Y,I,PIdx:LongInt;
+ TopDown:Boolean;
+ Pal:Array[0..255]of LongWord;
+ Row:PByte;
+ V:LongWord;
+ Po:Int64;
+ MR,MG,MB,MA:LongWord;
+
+ Function Shift(Mask,V:LongWord):LongInt;
+ Var
+  S,Bits_:LongInt;
+ Begin
+  If Mask=0 Then Begin Shift:=0;Exit;End;
+  S:=0;
+  While(Mask and 1)=0 do Begin Mask:=Mask shr 1;Inc(S);End;
+  Bits_:=0;
+  While(Mask and 1)<>0 do Begin Mask:=Mask shr 1;Inc(Bits_);End;
+  V:=V shr S;
+  If Bits_>=8 Then Shift:=V shr(Bits_-8)Else Shift:=(V*255)div((1 shl Bits_)-1);
+ End;
+
+Begin
+ BmpDecode:=False;
+ Err:='';
+ If(N<26)or(Buf[0]<>Ord('B'))or(Buf[1]<>Ord('M'))Then Begin Err:='BMP invalide';Exit;End;
+ Off:=LE32(Buf+10);
+ HSize:=LE32(Buf+14);
+ If HSize<40 Then Begin Err:='ancien format BMP non g'#130'r'#130;Exit;End;
+ W:=LE32(Buf+18);H:=LE32(Buf+22);
+ Planes:=LE16(Buf+26);Bits:=LE16(Buf+28);Comp:=LE32(Buf+30);
+ NColors:=LE32(Buf+46);
+ TopDown:=H<0;
+ If TopDown Then H:=-H;
+ If(W<=0)or(H<=0)or(Int64(W)*H>400000000)Then Begin Err:='dimensions BMP invalides';Exit;End;
+ If not(Comp in[0,3])Then Begin Err:='BMP compress'#130' non g'#130'r'#130;Exit;End;
+ If not(Bits in[1,4,8,24,32])Then Begin Err:='profondeur BMP non g'#130'r'#130'e';Exit;End;
+ FillChar(Pal,SizeOf(Pal),0);
+ If Bits<=8 Then Begin
+  If NColors=0 Then NColors:=1 shl Bits;
+  If NColors>256 Then NColors:=256;
+  For I:=0 to NColors-1 do Pal[I]:=LongWord(LE32(Buf+14+HSize+I*4));
+ End;
+ MR:=$FF0000;MG:=$FF00;MB:=$FF;MA:=0;
+ If(Comp=3)and(HSize>=52)Then Begin
+  MR:=LongWord(LE32(Buf+54));MG:=LongWord(LE32(Buf+58));MB:=LongWord(LE32(Buf+62));
+ End;
+ Stride:=((W*Bits+31)div 32)*4;
+ If Int64(Off)+Int64(Stride)*H>N Then Begin Err:='BMP tronqu'#130;Exit;End;
+ ImgAlloc(Img,W,H,False);
+ For Y:=0 to H-1 do Begin
+  If TopDown Then Row:=Buf+Off+Int64(Y)*Stride Else Row:=Buf+Off+Int64(H-1-Y)*Stride;
+  For X:=0 to W-1 do Begin
+   Po:=(Int64(Y)*W+X)*3;
+   Case Bits of
+    24:Begin Img.Px[Po]:=Row[X*3+2];Img.Px[Po+1]:=Row[X*3+1];Img.Px[Po+2]:=Row[X*3];End;
+    32:Begin
+        V:=LongWord(LE32(Row+X*4));
+        If Comp=3 Then Begin
+         Img.Px[Po]:=Shift(MR,V);Img.Px[Po+1]:=Shift(MG,V);Img.Px[Po+2]:=Shift(MB,V);
+        End
+         Else Begin
+          Img.Px[Po]:=Row[X*4+2];Img.Px[Po+1]:=Row[X*4+1];Img.Px[Po+2]:=Row[X*4];
+         End;
+       End;
+    8:Begin V:=Pal[Row[X]];Img.Px[Po]:=(V shr 16)and $FF;Img.Px[Po+1]:=(V shr 8)and $FF;Img.Px[Po+2]:=V and $FF;End;
+    4:Begin
+       If(X and 1)=0 Then PIdx:=Row[X shr 1]shr 4 Else PIdx:=Row[X shr 1]and 15;
+       V:=Pal[PIdx];Img.Px[Po]:=(V shr 16)and $FF;Img.Px[Po+1]:=(V shr 8)and $FF;Img.Px[Po+2]:=V and $FF;
+      End;
+    1:Begin
+       PIdx:=(Row[X shr 3]shr(7-(X and 7)))and 1;
+       V:=Pal[PIdx];Img.Px[Po]:=(V shr 16)and $FF;Img.Px[Po+1]:=(V shr 8)and $FF;Img.Px[Po+2]:=V and $FF;
+      End;
+   End;
+  End;
+ End;
+ BmpDecode:=True;
+End;
+
+Function BmpEncode(Const Name:AnsiString;Const Img:TImage):Boolean;
+Var
+ Stride,Y,X:LongInt;
+ Sz:Int64;
+ B:PByte;
+ Row:PByte;
+ Po:Int64;
+Begin
+ Stride:=((Img.W*3+3)div 4)*4;
+ Sz:=54+Int64(Stride)*Img.H;
+ B:=PByte(AllocBytes(Sz));
+ B[0]:=Ord('B');B[1]:=Ord('M');
+ B[2]:=Sz and $FF;B[3]:=(Sz shr 8)and $FF;B[4]:=(Sz shr 16)and $FF;B[5]:=(Sz shr 24)and $FF;
+ B[10]:=54;B[14]:=40;
+ B[18]:=Img.W and $FF;B[19]:=(Img.W shr 8)and $FF;B[20]:=(Img.W shr 16)and $FF;
+ B[22]:=Img.H and $FF;B[23]:=(Img.H shr 8)and $FF;B[24]:=(Img.H shr 16)and $FF;
+ B[26]:=1;B[28]:=24;
+ For Y:=0 to Img.H-1 do Begin
+  Row:=B+54+Int64(Img.H-1-Y)*Stride;
+  For X:=0 to Img.W-1 do Begin
+   Po:=(Int64(Y)*Img.W+X)*3;
+   Row[X*3]:=Img.Px[Po+2];Row[X*3+1]:=Img.Px[Po+1];Row[X*3+2]:=Img.Px[Po];
+  End;
+ End;
+ BmpEncode:=WriteFileBytes(Name,B,Sz);
+ FreeMem(B);
+End;
+
+{ ---- PPM / PGM binaires (P5, P6) ---- }
+
+Function PpmDecode(Buf:PByte;N:LongInt;Var Img:TImage;Var Err:AnsiString):Boolean;
+Var
+ Pos:LongInt;
+ Kind:Char;
+ W,H,Mx,I:LongInt;
+ Gray:Boolean;
+
+ Function NextInt:LongInt;
+ Var
+  V:LongInt;
+ Begin
+  V:=0;
+  While Pos<N do Begin
+   If Buf[Pos]=Ord('#')Then Begin
+    While(Pos<N)and(Buf[Pos]<>10)do Inc(Pos);
+   End
+    Else If Buf[Pos]in[32,9,10,13]Then Inc(Pos)
+    Else Break;
+  End;
+  While(Pos<N)and(Buf[Pos]>=48)and(Buf[Pos]<=57)do Begin
+   V:=V*10+Buf[Pos]-48;
+   Inc(Pos);
+  End;
+  NextInt:=V;
+ End;
+
+Begin
+ PpmDecode:=False;
+ Err:='';
+ If(N<3)or(Buf[0]<>Ord('P'))Then Begin Err:='PPM invalide';Exit;End;
+ Kind:=Chr(Buf[1]);
+ If not(Kind in['5','6'])Then Begin Err:='seuls P5 et P6 sont g'#130'r'#130's';Exit;End;
+ Gray:=Kind='5';
+ Pos:=2;
+ W:=NextInt;H:=NextInt;Mx:=NextInt;
+ Inc(Pos);
+ If(W<=0)or(H<=0)or(Mx<=0)or(Mx>255)Then Begin Err:='PPM invalide (8 bits seulement)';Exit;End;
+ If Gray Then I:=W*H Else I:=W*H*3;
+ If Pos+I>N Then Begin Err:='PPM tronqu'#130;Exit;End;
+ ImgAlloc(Img,W,H,False);
+ If Gray Then Begin
+  For I:=0 to W*H-1 do Begin
+   Img.Px[I*3]:=Buf[Pos+I];Img.Px[I*3+1]:=Buf[Pos+I];Img.Px[I*3+2]:=Buf[Pos+I];
+  End;
+ End
+  Else Move(Buf[Pos],Img.Px^,W*H*3);
+ PpmDecode:=True;
+End;
+
+Function PpmEncode(Const Name:AnsiString;Const Img:TImage):Boolean;
+Var
+ Hd:AnsiString;
+ F:File;
+Begin
+ PpmEncode:=False;
+ Hd:='P6'#10+IStr(Img.W)+' '+IStr(Img.H)+#10'255'#10;
+ Assign(F,Name);
+ Rewrite(F,1);
+ If IOResult<>0 Then Exit;
+ BlockWrite(F,Hd[1],Length(Hd));
+ BlockWrite(F,Img.Px^,Int64(Img.W)*Img.H*3);
+ Close(F);
+ PpmEncode:=IOResult=0;
+End;
+
+{ ------------------------------------------------------------------ }
+{ JPEG : decodeur (de base et progressif) et encodeur (de base)        }
+{ ------------------------------------------------------------------ }
+
+Const
+ JZig:Array[0..79]of Byte=(
+  0,1,8,16,9,2,3,10,17,24,32,25,18,11,4,5,12,19,26,33,40,48,41,34,27,20,13,6,
+  7,14,21,28,35,42,49,56,57,50,43,36,29,22,15,23,30,37,44,51,58,59,52,45,38,
+  31,39,46,53,60,61,54,47,55,62,63,
+  63,63,63,63,63,63,63,63,63,63,63,63,63,63,63,63);
+
+Const
+ JStdQ0:Array[0..63]of Byte=(
+  16,11,12,14,12,10,16,14,13,14,18,17,16,19,24,40,
+  26,24,22,22,24,49,35,37,29,40,58,51,61,60,57,51,
+  56,55,64,72,92,78,64,68,87,69,55,56,80,109,81,87,
+  95,98,103,104,103,62,77,113,121,112,100,120,92,101,103,99
+ );
+ JStdQ1:Array[0..63]of Byte=(
+  17,18,18,24,21,24,47,26,26,47,99,66,56,66,99,99,
+  99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,
+  99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,
+  99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99
+ );
+ JBitsDcLum:Array[0..15]of Byte=(
+  0,1,5,1,1,1,1,1,1,0,0,0,0,0,0,0
+ );
+ JValsDcLum:Array[0..11]of Byte=(
+  0,1,2,3,4,5,6,7,8,9,10,11
+ );
+ JBitsDcChr:Array[0..15]of Byte=(
+  0,3,1,1,1,1,1,1,1,1,1,0,0,0,0,0
+ );
+ JValsDcChr:Array[0..11]of Byte=(
+  0,1,2,3,4,5,6,7,8,9,10,11
+ );
+ JBitsAcLum:Array[0..15]of Byte=(
+  0,2,1,3,3,2,4,3,5,5,4,4,0,0,1,125
+ );
+ JValsAcLum:Array[0..161]of Byte=(
+  1,2,3,0,4,17,5,18,33,49,65,6,19,81,97,7,
+  34,113,20,50,129,145,161,8,35,66,177,193,21,82,209,240,
+  36,51,98,114,130,9,10,22,23,24,25,26,37,38,39,40,
+  41,42,52,53,54,55,56,57,58,67,68,69,70,71,72,73,
+  74,83,84,85,86,87,88,89,90,99,100,101,102,103,104,105,
+  106,115,116,117,118,119,120,121,122,131,132,133,134,135,136,137,
+  138,146,147,148,149,150,151,152,153,154,162,163,164,165,166,167,
+  168,169,170,178,179,180,181,182,183,184,185,186,194,195,196,197,
+  198,199,200,201,202,210,211,212,213,214,215,216,217,218,225,226,
+  227,228,229,230,231,232,233,234,241,242,243,244,245,246,247,248,
+  249,250
+ );
+ JBitsAcChr:Array[0..15]of Byte=(
+  0,2,1,2,4,4,3,4,7,5,4,4,0,1,2,119
+ );
+ JValsAcChr:Array[0..161]of Byte=(
+  0,1,2,3,17,4,5,33,49,6,18,65,81,7,97,113,
+  19,34,50,129,8,20,66,145,161,177,193,9,35,51,82,240,
+  21,98,114,209,10,22,36,52,225,37,241,23,24,25,26,38,
+  39,40,41,42,53,54,55,56,57,58,67,68,69,70,71,72,
+  73,74,83,84,85,86,87,88,89,90,99,100,101,102,103,104,
+  105,106,115,116,117,118,119,120,121,122,130,131,132,133,134,135,
+  136,137,138,146,147,148,149,150,151,152,153,154,162,163,164,165,
+  166,167,168,169,170,178,179,180,181,182,183,184,185,186,194,195,
+  196,197,198,199,200,201,202,210,211,212,213,214,215,216,217,218,
+  226,227,228,229,230,231,232,233,234,242,243,244,245,246,247,248,
+  249,250
+ );
+
+
+Type
+ TJHuff=Record
+  MinCode,MaxCode,ValPtr:Array[0..17]of LongInt;
+  Vals:Array[0..255]of Byte;
+  Fast:Array[0..511]of Word;
+  Valid:Boolean;
+ End;
+ TJComp=Record
+  Id,H,V,Tq,Td,Ta:LongInt;
+  BlocksW,BlocksH:LongInt;
+  NeedBW,NeedBH:LongInt;
+  Coef:PSmallInt;
+  Pred:LongInt;
+  PxW,PxH:LongInt;
+  Plane:PByte;
+  Stride:LongInt;
+ End;
+
+Var
+ JD:PByte;
+ JN,JP:LongInt;
+ JBuf:LongWord;
+ JCnt:LongInt;
+ JHit:Boolean;
+ JW,JH,JNC:LongInt;
+ JProg:Boolean;
+ JC:Array[0..3]of TJComp;
+ JQ:Array[0..3]of Array[0..63]of Word;
+ JDC,JAC:Array[0..3]of TJHuff;
+ JHmax,JVmax,JMcuX,JMcuY,JRst:LongInt;
+ JEob:LongInt;
+ JAdobe:LongInt;
+ JOrient:LongInt;
+ JErr:AnsiString;
+ JFrame:Boolean;
+
+Procedure JFill;
+Var
+ B,C:LongInt;
+Begin
+ While JCnt<=24 do Begin
+  B:=0;
+  If not JHit Then Begin
+   If JP>=JN Then JHit:=True
+   Else Begin
+    B:=JD[JP];
+    Inc(JP);
+    If B=$FF Then Begin
+     If JP<JN Then C:=JD[JP]Else C:=$D9;
+     If C=0 Then Inc(JP)
+     Else Begin
+      Dec(JP);
+      JHit:=True;
+      B:=0;
+     End;
+    End;
+   End;
+  End;
+  JBuf:=JBuf or(LongWord(B)shl(24-JCnt));
+  Inc(JCnt,8);
+ End;
+End;
+
+Function JGetBits(N:LongInt):LongInt;
+Begin
+ If N=0 Then Begin JGetBits:=0;Exit;End;
+ If JCnt<N Then JFill;
+ JGetBits:=LongInt(JBuf shr(32-N));
+ JBuf:=JBuf shl N;
+ Dec(JCnt,N);
+End;
+
+Function JGetBit:LongInt;
+Begin
+ If JCnt<1 Then JFill;
+ JGetBit:=LongInt(JBuf shr 31);
+ JBuf:=JBuf shl 1;
+ Dec(JCnt);
+End;
+
+Function JHuffDec(Var T:TJHuff):LongInt;
+Var
+ F:Word;
+ L,Code:LongInt;
+Begin
+ If JCnt<16 Then JFill;
+ F:=T.Fast[JBuf shr 23];
+ If F<>0 Then Begin
+  L:=F shr 8;
+  JBuf:=JBuf shl L;
+  Dec(JCnt,L);
+  JHuffDec:=F and 255;
+  Exit;
+ End;
+ For L:=10 to 16 do Begin
+  Code:=LongInt(JBuf shr(32-L));
+  If Code<=T.MaxCode[L]Then Begin
+   JBuf:=JBuf shl L;
+   Dec(JCnt,L);
+   JHuffDec:=T.Vals[(T.ValPtr[L]+Code-T.MinCode[L])and 255];
+   Exit;
+  End;
+ End;
+ JHuffDec:=-1;
+ JBuf:=JBuf shl 16;
+ Dec(JCnt,16);
+End;
+
+Function JExtend(V,T:LongInt):LongInt;
+Begin
+ If V<(1 shl(T-1))Then JExtend:=V+(-1 shl T)+1 Else JExtend:=V;
+End;
+
+Procedure JBuildHuff(Var T:TJHuff;Const Cnt:Array of LongInt;Vals:PByte;NV:LongInt);
+Var
+ L,I,K,Code,Sh:LongInt;
+Begin
+ FillChar(T,SizeOf(T),0);
+ Code:=0;K:=0;
+ For L:=1 to 16 do Begin
+  T.ValPtr[L]:=K;
+  T.MinCode[L]:=Code;
+  Inc(K,Cnt[L-1]);
+  Inc(Code,Cnt[L-1]);
+  If Cnt[L-1]>0 Then T.MaxCode[L]:=Code-1 Else T.MaxCode[L]:=-1;
+  Code:=Code shl 1;
+ End;
+ T.MaxCode[17]:=$7FFFFFFF;
+ For I:=0 to NV-1 do T.Vals[I]:=Vals[I];
+ For L:=1 to 9 do
+  For I:=0 to Cnt[L-1]-1 do Begin
+   Code:=T.MinCode[L]+I;
+   Sh:=9-L;
+   For K:=(Code shl Sh)to((Code shl Sh)+(1 shl Sh)-1)do
+    If K<512 Then T.Fast[K]:=(L shl 8)or T.Vals[T.ValPtr[L]+I];
+  End;
+ T.Valid:=True;
+End;
+
+{ bloc de base (sequentiel) }
+Procedure JBaseBlock(Var C:TJComp;Blk:PSmallInt);
+Var
+ T,K,RS,S,R,Diff:LongInt;
+Begin
+ T:=JHuffDec(JDC[C.Td]);
+ If T<0 Then T:=0;
+ If T>15 Then T:=15;
+ If T>0 Then Diff:=JExtend(JGetBits(T),T)Else Diff:=0;
+ Inc(C.Pred,Diff);
+ Blk[0]:=C.Pred;
+ K:=1;
+ While K<64 do Begin
+  RS:=JHuffDec(JAC[C.Ta]);
+  If RS<0 Then Break;
+  S:=RS and 15;
+  R:=RS shr 4;
+  If S=0 Then Begin
+   If R<>15 Then Break;
+   Inc(K,16);
+  End
+   Else Begin
+    Inc(K,R);
+    If K>63 Then Break;
+    Blk[JZig[K]]:=JExtend(JGetBits(S),S);
+    Inc(K);
+   End;
+ End;
+End;
+
+Procedure JProgDCFirst(Var C:TJComp;Blk:PSmallInt;Al:LongInt);
+Var
+ T,Diff:LongInt;
+Begin
+ T:=JHuffDec(JDC[C.Td]);
+ If T<0 Then T:=0;
+ If T>15 Then T:=15;
+ If T>0 Then Diff:=JExtend(JGetBits(T),T)Else Diff:=0;
+ Inc(C.Pred,Diff);
+ Blk[0]:=C.Pred*(1 shl Al);
+End;
+
+Procedure JProgDCRefine(Blk:PSmallInt;Al:LongInt);
+Begin
+ If JGetBit<>0 Then Blk[0]:=Blk[0]or(1 shl Al);
+End;
+
+Procedure JProgACFirst(Var C:TJComp;Blk:PSmallInt;Ss,Se,Al:LongInt);
+Var
+ K,RS,S,R:LongInt;
+Begin
+ If JEob>0 Then Begin Dec(JEob);Exit;End;
+ K:=Ss;
+ Repeat
+  RS:=JHuffDec(JAC[C.Ta]);
+  If RS<0 Then Exit;
+  S:=RS and 15;
+  R:=RS shr 4;
+  If S=0 Then Begin
+   If R<15 Then Begin
+    JEob:=1 shl R;
+    If R>0 Then Inc(JEob,JGetBits(R));
+    Dec(JEob);
+    Break;
+   End;
+   Inc(K,16);
+  End
+   Else Begin
+    Inc(K,R);
+    If K>63 Then Exit;
+    Blk[JZig[K]]:=JExtend(JGetBits(S),S)*(1 shl Al);
+    Inc(K);
+   End;
+ Until K>Se;
+End;
+
+Procedure JProgACRefine(Var C:TJComp;Blk:PSmallInt;Ss,Se,Al:LongInt);
+Var
+ K,RS,S,R,Bit:LongInt;
+ P:PSmallInt;
+Begin
+ Bit:=1 shl Al;
+ If JEob>0 Then Begin
+  Dec(JEob);
+  For K:=Ss to Se do Begin
+   P:=@Blk[JZig[K]];
+   If P^<>0 Then
+    If JGetBit<>0 Then
+     If(P^ and Bit)=0 Then Begin
+      If P^>0 Then P^:=P^+Bit Else P^:=P^-Bit;
+     End;
+  End;
+  Exit;
+ End;
+ K:=Ss;
+ Repeat
+  RS:=JHuffDec(JAC[C.Ta]);
+  If RS<0 Then Exit;
+  S:=RS and 15;
+  R:=RS shr 4;
+  If S=0 Then Begin
+   If R<15 Then Begin
+    JEob:=1 shl R;
+    If R>0 Then Inc(JEob,JGetBits(R));
+    Dec(JEob);
+    R:=64;
+   End;
+  End
+   Else Begin
+    If JGetBit<>0 Then S:=Bit Else S:=-Bit;
+   End;
+  While K<=Se do Begin
+   P:=@Blk[JZig[K]];
+   Inc(K);
+   If P^<>0 Then Begin
+    If JGetBit<>0 Then
+     If(P^ and Bit)=0 Then Begin
+      If P^>0 Then P^:=P^+Bit Else P^:=P^-Bit;
+     End;
+   End
+    Else Begin
+     If R=0 Then Begin
+      P^:=S;
+      Break;
+     End;
+     Dec(R);
+    End;
+  End;
+ Until K>Se;
+End;
+
+Procedure JDecodeOne(Var C:TJComp;Blk:PSmallInt;Ss,Se,Ah,Al:LongInt);
+Begin
+ If not JProg Then JBaseBlock(C,Blk)
+ Else If Ss=0 Then Begin
+  If Ah=0 Then JProgDCFirst(C,Blk,Al)Else JProgDCRefine(Blk,Al);
+ End
+  Else Begin
+   If Ah=0 Then JProgACFirst(C,Blk,Ss,Se,Al)Else JProgACRefine(C,Blk,Ss,Se,Al);
+  End;
+End;
+
+{ saute jusqu'au marqueur de redemarrage suivant }
+Procedure JRestart;
+Var
+ I:LongInt;
+Begin
+ JBuf:=0;JCnt:=0;
+ While JP<JN-1 do Begin
+  If(JD[JP]=$FF)and(JD[JP+1]>=$D0)and(JD[JP+1]<=$D7)Then Begin
+   Inc(JP,2);Break;
+  End;
+  If(JD[JP]=$FF)and(JD[JP+1]<>0)and(JD[JP+1]<>$FF)Then Break;
+  Inc(JP);
+ End;
+ JHit:=False;
+ JEob:=0;
+ For I:=0 to JNC-1 do JC[I].Pred:=0;
+End;
+
+Function JDecodeScan(Ns:LongInt;Const Sel:Array of LongInt;Ss,Se,Ah,Al:LongInt):Boolean;
+Var
+ I,MX,MY,BX,BY,V,H,CI,Cnt:LongInt;
+ C:^TJComp;
+ Blk:PSmallInt;
+Begin
+ JDecodeScan:=False;
+ JBuf:=0;JCnt:=0;JHit:=False;JEob:=0;
+ For I:=0 to JNC-1 do JC[I].Pred:=0;
+ Cnt:=0;
+ If Ns=1 Then Begin
+  C:=@JC[Sel[0]];
+  For BY:=0 to C^.NeedBH-1 do
+   For BX:=0 to C^.NeedBW-1 do Begin
+    If(JRst>0)and(Cnt=JRst)Then Begin JRestart;Cnt:=0;End;
+    Blk:=C^.Coef+(Int64(BY)*C^.BlocksW+BX)*64;
+    JDecodeOne(C^,Blk,Ss,Se,Ah,Al);
+    Inc(Cnt);
+   End;
+ End
+  Else Begin
+   For MY:=0 to JMcuY-1 do
+    For MX:=0 to JMcuX-1 do Begin
+     If(JRst>0)and(Cnt=JRst)Then Begin JRestart;Cnt:=0;End;
+     For I:=0 to Ns-1 do Begin
+      CI:=Sel[I];
+      C:=@JC[CI];
+      For V:=0 to C^.V-1 do
+       For H:=0 to C^.H-1 do Begin
+        Blk:=C^.Coef+(Int64(MY*C^.V+V)*C^.BlocksW+MX*C^.H+H)*64;
+        JDecodeOne(C^,Blk,Ss,Se,Ah,Al);
+       End;
+     End;
+     Inc(Cnt);
+    End;
+  End;
+ { avance jusqu'au marqueur suivant }
+ JBuf:=0;JCnt:=0;
+ While JP<JN-1 do Begin
+  If(JD[JP]=$FF)and(JD[JP+1]<>0)and(JD[JP+1]<>$FF)and not((JD[JP+1]>=$D0)and(JD[JP+1]<=$D7))Then Break;
+  Inc(JP);
+ End;
+ JDecodeScan:=True;
+End;
+
+Var
+ IdctC:Array[0..7,0..7]of Single;
+ IdctReady:Boolean=False;
+
+Procedure IdctInit;
+Var
+ X,U:LongInt;
+ C:Double;
+Begin
+ If IdctReady Then Exit;
+ IdctReady:=True;
+ For X:=0 to 7 do
+  For U:=0 to 7 do Begin
+   If U=0 Then C:=0.35355339059327373 Else C:=0.5;
+   IdctC[X,U]:=C*Cos((2*X+1)*U*Pi/16.0);
+  End;
+End;
+
+Procedure JIdctComp(Var C:TJComp;Const Q:Array of Word);
+Var
+ BX,BY,I,X,Y,U,Sh:LongInt;
+ Blk:PSmallInt;
+ InB,Tmp:Array[0..63]of Single;
+ S:Single;
+ Out_:PByte;
+ AcZero:Boolean;
+ DcV:LongInt;
+Begin
+ IdctInit;
+ C.Stride:=C.BlocksW*8;
+ C.Plane:=PByte(AllocBytes(Int64(C.Stride)*C.BlocksH*8));
+ For BY:=0 to C.BlocksH-1 do
+  For BX:=0 to C.BlocksW-1 do Begin
+   Blk:=C.Coef+(Int64(BY)*C.BlocksW+BX)*64;
+   Out_:=C.Plane+Int64(BY)*8*C.Stride+BX*8;
+   AcZero:=True;
+   For I:=1 to 63 do If Blk[I]<>0 Then Begin AcZero:=False;Break;End;
+   If AcZero Then Begin
+    DcV:=Round(Blk[0]*Q[0]/8.0)+128;
+    If DcV<0 Then DcV:=0 Else If DcV>255 Then DcV:=255;
+    For Y:=0 to 7 do FillChar((Out_+Y*C.Stride)^,8,DcV);
+    Continue;
+   End;
+   For I:=0 to 63 do InB[I]:=Blk[I]*Q[I];
+   For Y:=0 to 7 do
+    For X:=0 to 7 do Begin
+     S:=0;
+     For U:=0 to 7 do S:=S+IdctC[X,U]*InB[Y*8+U];
+     Tmp[Y*8+X]:=S;
+    End;
+   For X:=0 to 7 do
+    For Y:=0 to 7 do Begin
+     S:=0;
+     For U:=0 to 7 do S:=S+IdctC[Y,U]*Tmp[U*8+X];
+     Sh:=Round(S)+128;
+     If Sh<0 Then Sh:=0 Else If Sh>255 Then Sh:=255;
+     Out_[Y*C.Stride+X]:=Sh;
+    End;
+  End;
+End;
+
+{ plan de composante reechantillonne a la taille de l'image (bilineaire) }
+Function JFullPlane(Var C:TJComp):PByte;
+Var
+ R:PByte;
+ X,Y,X0,X1,Y0,Y1:LongInt;
+ FX,FY,WX,WY,A,B:Single;
+ IX0,IX1:PIntArr;
+ WXs:PSingleArr;
+ Row0,Row1:PByte;
+Begin
+ R:=PByte(AllocBytes(Int64(JW)*JH));
+ If(C.PxW=JW)and(C.PxH=JH)Then Begin
+  For Y:=0 to JH-1 do Move((C.Plane+Int64(Y)*C.Stride)^,(R+Int64(Y)*JW)^,JW);
+  JFullPlane:=R;
+  Exit;
+ End;
+ IX0:=PIntArr(AllocBytes(Int64(JW)*4));
+ IX1:=PIntArr(AllocBytes(Int64(JW)*4));
+ WXs:=PSingleArr(AllocBytes(Int64(JW)*4));
+ For X:=0 to JW-1 do Begin
+  FX:=(X+0.5)*C.PxW/JW-0.5;
+  If FX<0 Then FX:=0;
+  X0:=Trunc(FX);
+  If X0>C.PxW-1 Then X0:=C.PxW-1;
+  X1:=X0+1;
+  If X1>C.PxW-1 Then X1:=C.PxW-1;
+  IX0[X]:=X0;IX1[X]:=X1;WXs[X]:=FX-X0;
+ End;
+ For Y:=0 to JH-1 do Begin
+  FY:=(Y+0.5)*C.PxH/JH-0.5;
+  If FY<0 Then FY:=0;
+  Y0:=Trunc(FY);
+  If Y0>C.PxH-1 Then Y0:=C.PxH-1;
+  Y1:=Y0+1;
+  If Y1>C.PxH-1 Then Y1:=C.PxH-1;
+  WY:=FY-Y0;
+  Row0:=C.Plane+Int64(Y0)*C.Stride;
+  Row1:=C.Plane+Int64(Y1)*C.Stride;
+  For X:=0 to JW-1 do Begin
+   WX:=WXs[X];
+   A:=Row0[IX0[X]]*(1-WX)+Row0[IX1[X]]*WX;
+   B:=Row1[IX0[X]]*(1-WX)+Row1[IX1[X]]*WX;
+   R[Int64(Y)*JW+X]:=Trunc(A*(1-WY)+B*WY+0.5);
+  End;
+ End;
+ FreeMem(IX0);FreeMem(IX1);FreeMem(WXs);
+ JFullPlane:=R;
+End;
+
+Function JClamp(V:LongInt):LongInt;
+Begin
+ If V<0 Then JClamp:=0 Else If V>255 Then JClamp:=255 Else JClamp:=V;
+End;
+
+{ applique l'orientation EXIF (1..8) }
+Procedure ImgOrient(Var I:TImage;O:LongInt);
+Var
+ N:TImage;
+ DX,DY,SX,SY,NW,NH:LongInt;
+ Sp,Dp:Int64;
+Begin
+ If(O<2)or(O>8)Then Exit;
+ If O>=5 Then Begin NW:=I.H;NH:=I.W;End Else Begin NW:=I.W;NH:=I.H;End;
+ ImgAlloc(N,NW,NH,I.Alpha<>Nil);
+ For DY:=0 to NH-1 do
+  For DX:=0 to NW-1 do Begin
+   Case O of
+    2:Begin SX:=I.W-1-DX;SY:=DY;End;
+    3:Begin SX:=I.W-1-DX;SY:=I.H-1-DY;End;
+    4:Begin SX:=DX;SY:=I.H-1-DY;End;
+    5:Begin SX:=DY;SY:=DX;End;
+    6:Begin SX:=DY;SY:=I.H-1-DX;End;
+    7:Begin SX:=I.W-1-DY;SY:=I.H-1-DX;End;
+    Else Begin SX:=I.W-1-DY;SY:=DX;End;
+   End;
+   Sp:=Int64(SY)*I.W+SX;
+   Dp:=Int64(DY)*NW+DX;
+   N.Px[Dp*3]:=I.Px[Sp*3];N.Px[Dp*3+1]:=I.Px[Sp*3+1];N.Px[Dp*3+2]:=I.Px[Sp*3+2];
+   If I.Alpha<>Nil Then N.Alpha[Dp]:=I.Alpha[Sp];
+  End;
+ ImgFree(I);
+ I:=N;
+End;
+
+Procedure JParseExif(P:PByte;Len:LongInt);
+Var
+ Big:Boolean;
+ Off,N,I,Tag:LongInt;
+
+ Function R16(O:LongInt):LongInt;
+ Begin
+  If(O<0)or(O+2>Len)Then Begin R16:=0;Exit;End;
+  If Big Then R16:=(P[O]shl 8)or P[O+1]Else R16:=P[O]or(P[O+1]shl 8);
+ End;
+
+ Function R32(O:LongInt):LongInt;
+ Begin
+  If(O<0)or(O+4>Len)Then Begin R32:=0;Exit;End;
+  If Big Then R32:=(P[O]shl 24)or(P[O+1]shl 16)or(P[O+2]shl 8)or P[O+3]
+  Else R32:=P[O]or(P[O+1]shl 8)or(P[O+2]shl 16)or(P[O+3]shl 24);
+ End;
+
+Begin
+ If Len<14 Then Exit;
+ If(P[0]<>Ord('E'))or(P[1]<>Ord('x'))or(P[2]<>Ord('i'))or(P[3]<>Ord('f'))Then Exit;
+ P:=P+6;Dec(Len,6);
+ If(P[0]=Ord('M'))and(P[1]=Ord('M'))Then Big:=True
+ Else If(P[0]=Ord('I'))and(P[1]=Ord('I'))Then Big:=False
+ Else Exit;
+ Off:=R32(4);
+ N:=R16(Off);
+ If N>200 Then Exit;
+ For I:=0 to N-1 do Begin
+  Tag:=R16(Off+2+I*12);
+  If Tag=$0112 Then Begin
+   JOrient:=R16(Off+2+I*12+8);
+   Exit;
+  End;
+ End;
+End;
+
+Function JpegDecode(Buf:PByte;N:LongInt;Var Img:TImage;Var Err:AnsiString):Boolean;
+Var
+ M,L,I,J,K,Seg,Pq,Tq,Tc,Th,Ns,Ss,Se,Ah,Al,Id:LongInt;
+ Cnt:Array[0..15]of LongInt;
+ Sel:Array[0..3]of LongInt;
+ Total:LongInt;
+ Pl:Array[0..3]of PByte;
+ X,Y:LongInt;
+ Po:Int64;
+ Yy,Cb,Cr,Kk:LongInt;
+ RGBMode:Boolean;
+Begin
+ JpegDecode:=False;
+ Err:='';
+ JD:=Buf;JN:=N;JP:=0;JProg:=False;JRst:=0;JAdobe:=-1;JOrient:=1;JFrame:=False;
+ JW:=0;JH:=0;JNC:=0;
+ FillChar(JC,SizeOf(JC),0);
+ FillChar(JQ,SizeOf(JQ),0);
+ FillChar(JDC,SizeOf(JDC),0);
+ FillChar(JAC,SizeOf(JAC),0);
+ If(N<4)or(Buf[0]<>$FF)or(Buf[1]<>$D8)Then Begin Err:='JPEG invalide';Exit;End;
+ JP:=2;
+ While JP<JN do Begin
+  If JD[JP]<>$FF Then Begin Inc(JP);Continue;End;
+  While(JP<JN)and(JD[JP]=$FF)do Inc(JP);
+  If JP>=JN Then Break;
+  M:=JD[JP];
+  Inc(JP);
+  If(M=0)or(M=$D8)or((M>=$D0)and(M<=$D7))or(M=1)Then Continue;
+  If M=$D9 Then Break;
+  If JP+2>JN Then Break;
+  L:=(JD[JP]shl 8)or JD[JP+1];
+  If(L<2)or(JP+L>JN)Then Begin
+   If M=$DA Then Begin Err:='JPEG tronqu'#130;End;
+   Break;
+  End;
+  Seg:=JP+2;
+  Case M of
+   $C0,$C1,$C2:Begin
+     If JD[Seg]<>8 Then Begin Err:='JPEG: seule la pr'#130'cision 8 bits est g'#130'r'#130'e';Exit;End;
+     JProg:=M=$C2;
+     JH:=(JD[Seg+1]shl 8)or JD[Seg+2];
+     JW:=(JD[Seg+3]shl 8)or JD[Seg+4];
+     JNC:=JD[Seg+5];
+     If(JW<=0)or(JH<=0)or(Int64(JW)*JH>150000000)Then Begin Err:='dimensions JPEG invalides';Exit;End;
+     If not(JNC in[1,3,4])Then Begin Err:='JPEG: nombre de composantes non g'#130'r'#130;Exit;End;
+     JHmax:=1;JVmax:=1;
+     For I:=0 to JNC-1 do Begin
+      JC[I].Id:=JD[Seg+6+I*3];
+      JC[I].H:=JD[Seg+7+I*3]shr 4;
+      JC[I].V:=JD[Seg+7+I*3]and 15;
+      JC[I].Tq:=JD[Seg+8+I*3]and 3;
+      If(JC[I].H<1)or(JC[I].H>4)or(JC[I].V<1)or(JC[I].V>4)Then Begin Err:='JPEG: facteurs d'#130'chantillonnage invalides';Exit;End;
+      If JC[I].H>JHmax Then JHmax:=JC[I].H;
+      If JC[I].V>JVmax Then JVmax:=JC[I].V;
+     End;
+     JMcuX:=(JW+8*JHmax-1)div(8*JHmax);
+     JMcuY:=(JH+8*JVmax-1)div(8*JVmax);
+     For I:=0 to JNC-1 do Begin
+      JC[I].BlocksW:=JMcuX*JC[I].H;
+      JC[I].BlocksH:=JMcuY*JC[I].V;
+      JC[I].PxW:=(JW*JC[I].H+JHmax-1)div JHmax;
+      JC[I].PxH:=(JH*JC[I].V+JVmax-1)div JVmax;
+      JC[I].NeedBW:=(JC[I].PxW+7)div 8;
+      JC[I].NeedBH:=(JC[I].PxH+7)div 8;
+      JC[I].Coef:=PSmallInt(AllocBytes(Int64(JC[I].BlocksW)*JC[I].BlocksH*128));
+     End;
+     JFrame:=True;
+    End;
+   $C3,$C5,$C6,$C7,$C9,$CA,$CB,$CD,$CE,$CF:Begin
+     Err:='JPEG: mode non g'#130'r'#130' (sans perte, hi'#130'rarchique ou arithm'#130'tique)';Exit;
+    End;
+   $C4:Begin
+     I:=Seg;
+     While I<JP+L do Begin
+      Tc:=JD[I]shr 4;Th:=JD[I]and 15;
+      Inc(I);
+      Total:=0;
+      For J:=0 to 15 do Begin Cnt[J]:=JD[I+J];Inc(Total,Cnt[J]);End;
+      Inc(I,16);
+      If(Total>256)or(Th>3)or(I+Total>JP+L)Then Begin Err:='table de Huffman JPEG invalide';Exit;End;
+      If Tc=0 Then JBuildHuff(JDC[Th],Cnt,JD+I,Total)
+      Else JBuildHuff(JAC[Th],Cnt,JD+I,Total);
+      Inc(I,Total);
+     End;
+    End;
+   $DB:Begin
+     I:=Seg;
+     While I<JP+L do Begin
+      Pq:=JD[I]shr 4;Tq:=JD[I]and 3;
+      Inc(I);
+      For K:=0 to 63 do Begin
+       If Pq=0 Then JQ[Tq][JZig[K]]:=JD[I+K]
+       Else JQ[Tq][JZig[K]]:=(JD[I+K*2]shl 8)or JD[I+K*2+1];
+      End;
+      Inc(I,64*(Pq+1));
+     End;
+    End;
+   $DD:JRst:=(JD[Seg]shl 8)or JD[Seg+1];
+   $E1:JParseExif(JD+Seg,L-2);
+   $EE:If(L>=14)and(JD[Seg]=Ord('A'))and(JD[Seg+1]=Ord('d'))and(JD[Seg+2]=Ord('o'))Then
+        JAdobe:=JD[Seg+11];
+   $DA:Begin
+     If not JFrame Then Begin Err:='JPEG: SOS avant SOF';Exit;End;
+     Ns:=JD[Seg];
+     If(Ns<1)or(Ns>4)Then Begin Err:='JPEG: scan invalide';Exit;End;
+     For I:=0 to Ns-1 do Begin
+      Id:=JD[Seg+1+I*2];
+      Sel[I]:=-1;
+      For J:=0 to JNC-1 do If JC[J].Id=Id Then Sel[I]:=J;
+      If Sel[I]<0 Then Begin Err:='JPEG: composante de scan inconnue';Exit;End;
+      JC[Sel[I]].Td:=JD[Seg+2+I*2]shr 4;
+      JC[Sel[I]].Ta:=JD[Seg+2+I*2]and 15;
+      If(JC[Sel[I]].Td>3)or(JC[Sel[I]].Ta>3)Then Begin Err:='JPEG: table invalide';Exit;End;
+     End;
+     Ss:=JD[Seg+1+Ns*2];Se:=JD[Seg+2+Ns*2];
+     Ah:=JD[Seg+3+Ns*2]shr 4;Al:=JD[Seg+3+Ns*2]and 15;
+     If not JProg Then Begin Ss:=0;Se:=63;Ah:=0;Al:=0;End;
+     If Se>63 Then Se:=63;
+     JP:=JP+L;
+     If not JDecodeScan(Ns,Sel,Ss,Se,Ah,Al)Then Begin Err:='JPEG: erreur de d'#130'codage';Exit;End;
+     Continue;
+    End;
+  End;
+  JP:=JP+L;
+ End;
+ If not JFrame Then Begin Err:='JPEG: aucune image';Exit;End;
+ { IDCT de chaque composante }
+ For I:=0 to JNC-1 do Begin
+  JIdctComp(JC[I],JQ[JC[I].Tq]);
+  FreeMem(JC[I].Coef);JC[I].Coef:=Nil;
+ End;
+ For I:=0 to JNC-1 do Pl[I]:=JFullPlane(JC[I]);
+ For I:=0 to JNC-1 do Begin FreeMem(JC[I].Plane);JC[I].Plane:=Nil;End;
+ ImgAlloc(Img,JW,JH,False);
+ RGBMode:=False;
+ If(JNC=3)and(JAdobe=0)Then RGBMode:=True;
+ If(JNC=3)and(JAdobe<0)and(JC[0].Id=Ord('R'))and(JC[1].Id=Ord('G'))and(JC[2].Id=Ord('B'))Then RGBMode:=True;
+ For Y:=0 to JH-1 do
+  For X:=0 to JW-1 do Begin
+   Po:=Int64(Y)*JW+X;
+   If JNC=1 Then Begin
+    Img.Px[Po*3]:=Pl[0][Po];Img.Px[Po*3+1]:=Pl[0][Po];Img.Px[Po*3+2]:=Pl[0][Po];
+   End
+    Else Begin
+     Yy:=Pl[0][Po];Cb:=Pl[1][Po];Cr:=Pl[2][Po];
+     If RGBMode Then Begin
+      Img.Px[Po*3]:=Yy;Img.Px[Po*3+1]:=Cb;Img.Px[Po*3+2]:=Cr;
+     End
+      Else Begin
+       I:=JClamp(Yy+((91881*(Cr-128)+32768)shr 16));
+       J:=JClamp(Yy-((22554*(Cb-128)+46802*(Cr-128)+32768)shr 16));
+       K:=JClamp(Yy+((116130*(Cb-128)+32768)shr 16));
+       If JNC=4 Then Begin
+        Kk:=Pl[3][Po];
+        If JAdobe<0 Then Begin
+         I:=(255-I)*(255-Kk)div 255;J:=(255-J)*(255-Kk)div 255;K:=(255-K)*(255-Kk)div 255;
+        End
+         Else Begin
+          I:=I*Kk div 255;J:=J*Kk div 255;K:=K*Kk div 255;
+         End;
+       End;
+       Img.Px[Po*3]:=I;Img.Px[Po*3+1]:=J;Img.Px[Po*3+2]:=K;
+      End;
+    End;
+  End;
+ For I:=0 to JNC-1 do FreeMem(Pl[I]);
+ ImgOrient(Img,JOrient);
+ JpegDecode:=True;
+End;
+
+{ ---- encodeur JPEG de base (4:4:4) ---- }
+
+Type
+ TJEnc=Record
+  Buf:PByte;
+  Cap,Pos:LongInt;
+  Acc:LongWord;
+  Cnt:LongInt;
+ End;
+ TJCodes=Record
+  Code:Array[0..255]of Word;
+  Size:Array[0..255]of Byte;
+ End;
+
+Procedure JEPutByte(Var E:TJEnc;B:LongInt);
+Begin
+ If E.Pos>=E.Cap Then Begin
+  E.Cap:=E.Cap*2;
+  ReallocMem(E.Buf,E.Cap);
+ End;
+ E.Buf[E.Pos]:=B;
+ Inc(E.Pos);
+End;
+
+Procedure JEPutBits(Var E:TJEnc;V,N:LongInt);
+Var
+ B:LongInt;
+Begin
+ If N=0 Then Exit;
+ E.Acc:=(E.Acc shl N)or(LongWord(V)and((LongWord(1)shl N)-1));
+ Inc(E.Cnt,N);
+ While E.Cnt>=8 do Begin
+  B:=(E.Acc shr(E.Cnt-8))and $FF;
+  JEPutByte(E,B);
+  If B=$FF Then JEPutByte(E,0);
+  Dec(E.Cnt,8);
+ End;
+End;
+
+Procedure JEMakeCodes(Var T:TJCodes;Const Bits:Array of Byte;Const Vals:Array of Byte);
+Var
+ L,I,K:LongInt;
+ Code:LongInt;
+Begin
+ FillChar(T,SizeOf(T),0);
+ Code:=0;K:=0;
+ For L:=1 to 16 do Begin
+  For I:=1 to Bits[L-1]do Begin
+   T.Code[Vals[K]]:=Code;
+   T.Size[Vals[K]]:=L;
+   Inc(Code);Inc(K);
+  End;
+  Code:=Code shl 1;
+ End;
+End;
+
+Procedure JEPutMarker(Var E:TJEnc;M:LongInt);
+Begin
+ JEPutByte(E,$FF);JEPutByte(E,M);
+End;
+
+Procedure JEPutWord(Var E:TJEnc;V:LongInt);
+Begin
+ JEPutByte(E,V shr 8);JEPutByte(E,V and $FF);
+End;
+
+Function JpegEncode(Const Name:AnsiString;Const Img:TImage;Quality:LongInt):Boolean;
+Var
+ E:TJEnc;
+ QZ:Array[0..1]of Array[0..63]of Byte;
+ QN:Array[0..1]of Array[0..63]of Single;
+ DcT,AcT:Array[0..1]of TJCodes;
+ FC:Array[0..7,0..7]of Single;
+ Scale,I,J,K,T,BX,BY,X,Y,Comp,U,V,PX,PY,NbX,NbY:LongInt;
+ Pred:Array[0..2]of LongInt;
+ Blk:Array[0..63]of Single;
+ Tmp:Array[0..63]of Single;
+ Qv:Array[0..63]of LongInt;
+ S:Single;
+ R,G,B:LongInt;
+ Po:Int64;
+ Yv,Cbv,Crv:Single;
+ Samples:Array[0..2]of Array[0..63]of Single;
+
+ Procedure PutHuff(Const Tb:TJCodes;Sym:LongInt);
+ Begin
+  JEPutBits(E,Tb.Code[Sym],Tb.Size[Sym]);
+ End;
+
+ Procedure EncodeBlock(Ci:LongInt);
+ Var
+  Idx,Z,Diff,Cat,Run,A,V_,X,Y,U:LongInt;
+  S:Single;
+ Begin
+  { FDCT separable }
+  For Y:=0 to 7 do
+   For U:=0 to 7 do Begin
+    S:=0;
+    For X:=0 to 7 do S:=S+FC[U,X]*Samples[Ci][Y*8+X];
+    Tmp[Y*8+U]:=S;
+   End;
+  For U:=0 to 7 do
+   For V_:=0 to 7 do Begin
+    S:=0;
+    For Y:=0 to 7 do S:=S+FC[V_,Y]*Tmp[Y*8+U];
+    Blk[V_*8+U]:=S;
+   End;
+  Idx:=0;
+  If Ci>0 Then Idx:=1;
+  For Z:=0 to 63 do Begin
+   V_:=JZig[Z];
+   S:=Blk[V_]*QN[Idx][V_];
+   If S>=0 Then Qv[Z]:=Trunc(S+0.5)Else Qv[Z]:=-Trunc(-S+0.5);
+  End;
+  Diff:=Qv[0]-Pred[Ci];
+  Pred[Ci]:=Qv[0];
+  A:=Abs(Diff);
+  Cat:=0;
+  While A>0 do Begin Inc(Cat);A:=A shr 1;End;
+  PutHuff(DcT[Idx],Cat);
+  If Cat>0 Then Begin
+   If Diff<0 Then Diff:=Diff-1;
+   JEPutBits(E,Diff,Cat);
+  End;
+  Run:=0;
+  For Z:=1 to 63 do Begin
+   If Qv[Z]=0 Then Inc(Run)
+   Else Begin
+    While Run>15 do Begin PutHuff(AcT[Idx],$F0);Dec(Run,16);End;
+    A:=Abs(Qv[Z]);
+    Cat:=0;
+    While A>0 do Begin Inc(Cat);A:=A shr 1;End;
+    PutHuff(AcT[Idx],(Run shl 4)or Cat);
+    Diff:=Qv[Z];
+    If Diff<0 Then Diff:=Diff-1;
+    JEPutBits(E,Diff,Cat);
+    Run:=0;
+   End;
+  End;
+  If Run>0 Then PutHuff(AcT[Idx],0);
+ End;
+
+Begin
+ JpegEncode:=False;
+ If Quality<1 Then Quality:=1;
+ If Quality>100 Then Quality:=100;
+ If Quality<50 Then Scale:=5000 div Quality Else Scale:=200-Quality*2;
+ For I:=0 to 63 do Begin
+  T:=(JStdQ0[I]*Scale+50)div 100;
+  If T<1 Then T:=1;If T>255 Then T:=255;
+  QZ[0][I]:=T;
+  T:=(JStdQ1[I]*Scale+50)div 100;
+  If T<1 Then T:=1;If T>255 Then T:=255;
+  QZ[1][I]:=T;
+ End;
+ For I:=0 to 63 do Begin
+  QN[0][JZig[I]]:=1.0/QZ[0][I];
+  QN[1][JZig[I]]:=1.0/QZ[1][I];
+ End;
+ JEMakeCodes(DcT[0],JBitsDcLum,JValsDcLum);
+ JEMakeCodes(DcT[1],JBitsDcChr,JValsDcChr);
+ JEMakeCodes(AcT[0],JBitsAcLum,JValsAcLum);
+ JEMakeCodes(AcT[1],JBitsAcChr,JValsAcChr);
+ For U:=0 to 7 do
+  For X:=0 to 7 do Begin
+   If U=0 Then S:=0.35355339059327373 Else S:=0.5;
+   FC[U,X]:=S*Cos((2*X+1)*U*Pi/16.0);
+  End;
+ E.Cap:=Img.W*Img.H+65536;
+ E.Buf:=PByte(AllocBytes(E.Cap));
+ E.Pos:=0;E.Acc:=0;E.Cnt:=0;
+ JEPutMarker(E,$D8);
+ JEPutMarker(E,$E0);JEPutWord(E,16);
+ JEPutByte(E,Ord('J'));JEPutByte(E,Ord('F'));JEPutByte(E,Ord('I'));JEPutByte(E,Ord('F'));JEPutByte(E,0);
+ JEPutByte(E,1);JEPutByte(E,1);JEPutByte(E,0);
+ JEPutWord(E,1);JEPutWord(E,1);JEPutByte(E,0);JEPutByte(E,0);
+ For I:=0 to 1 do Begin
+  JEPutMarker(E,$DB);JEPutWord(E,67);JEPutByte(E,I);
+  For K:=0 to 63 do JEPutByte(E,QZ[I][K]);
+ End;
+ JEPutMarker(E,$C0);JEPutWord(E,17);JEPutByte(E,8);
+ JEPutWord(E,Img.H);JEPutWord(E,Img.W);JEPutByte(E,3);
+ JEPutByte(E,1);JEPutByte(E,$11);JEPutByte(E,0);
+ JEPutByte(E,2);JEPutByte(E,$11);JEPutByte(E,1);
+ JEPutByte(E,3);JEPutByte(E,$11);JEPutByte(E,1);
+ For I:=0 to 3 do Begin
+  JEPutMarker(E,$C4);
+  Case I of
+   0:Begin JEPutWord(E,19+12);JEPutByte(E,$00);For K:=0 to 15 do JEPutByte(E,JBitsDcLum[K]);For K:=0 to 11 do JEPutByte(E,JValsDcLum[K]);End;
+   1:Begin JEPutWord(E,19+162);JEPutByte(E,$10);For K:=0 to 15 do JEPutByte(E,JBitsAcLum[K]);For K:=0 to 161 do JEPutByte(E,JValsAcLum[K]);End;
+   2:Begin JEPutWord(E,19+12);JEPutByte(E,$01);For K:=0 to 15 do JEPutByte(E,JBitsDcChr[K]);For K:=0 to 11 do JEPutByte(E,JValsDcChr[K]);End;
+   Else Begin JEPutWord(E,19+162);JEPutByte(E,$11);For K:=0 to 15 do JEPutByte(E,JBitsAcChr[K]);For K:=0 to 161 do JEPutByte(E,JValsAcChr[K]);End;
+  End;
+ End;
+ JEPutMarker(E,$DA);JEPutWord(E,12);JEPutByte(E,3);
+ JEPutByte(E,1);JEPutByte(E,$00);
+ JEPutByte(E,2);JEPutByte(E,$11);
+ JEPutByte(E,3);JEPutByte(E,$11);
+ JEPutByte(E,0);JEPutByte(E,63);JEPutByte(E,0);
+ Pred[0]:=0;Pred[1]:=0;Pred[2]:=0;
+ NbX:=(Img.W+7)div 8;NbY:=(Img.H+7)div 8;
+ For BY:=0 to NbY-1 do
+  For BX:=0 to NbX-1 do Begin
+   For Y:=0 to 7 do
+    For X:=0 to 7 do Begin
+     PX:=BX*8+X;PY:=BY*8+Y;
+     If PX>=Img.W Then PX:=Img.W-1;
+     If PY>=Img.H Then PY:=Img.H-1;
+     Po:=(Int64(PY)*Img.W+PX)*3;
+     R:=Img.Px[Po];G:=Img.Px[Po+1];B:=Img.Px[Po+2];
+     Yv:=0.299*R+0.587*G+0.114*B;
+     Cbv:=-0.168736*R-0.331264*G+0.5*B;
+     Crv:=0.5*R-0.418688*G-0.081312*B;
+     Samples[0][Y*8+X]:=Yv-128;
+     Samples[1][Y*8+X]:=Cbv;
+     Samples[2][Y*8+X]:=Crv;
+    End;
+   For Comp:=0 to 2 do EncodeBlock(Comp);
+  End;
+ If E.Cnt>0 Then JEPutBits(E,$7F,8-E.Cnt);
+ JEPutMarker(E,$D9);
+ JpegEncode:=WriteFileBytes(Name,E.Buf,E.Pos);
+ FreeMem(E.Buf);
+End;
+
+{ ---- chargement et enregistrement selon le format ---- }
+
+Function ImgLoad(Const Name:AnsiString;Var Img:TImage;Var Err:AnsiString):Boolean;
+Var
+ Buf:PByte;
+ N:LongInt;
+Begin
+ ImgLoad:=False;
+ Img.Px:=Nil;Img.Alpha:=Nil;Img.W:=0;Img.H:=0;
+ If not FileExistsP(Name)Then Begin Err:='fichier introuvable : '+Name;Exit;End;
+ If not ReadFileBytes(Name,Buf,N)Then Begin Err:='lecture impossible : '+Name;Exit;End;
+ If(N>=2)and(Buf[0]=$FF)and(Buf[1]=$D8)Then ImgLoad:=JpegDecode(Buf,N,Img,Err)
+ Else If(N>=8)and(Buf[0]=137)and(Buf[1]=80)Then ImgLoad:=PngDecode(Buf,N,Img,Err)
+ Else If(N>=2)and(Buf[0]=Ord('B'))and(Buf[1]=Ord('M'))Then ImgLoad:=BmpDecode(Buf,N,Img,Err)
+ Else If(N>=2)and(Buf[0]=Ord('P'))and(Buf[1]in[Ord('5'),Ord('6')])Then ImgLoad:=PpmDecode(Buf,N,Img,Err)
+ Else If(N>=12)and(Buf[0]=Ord('R'))and(Buf[8]=Ord('W'))and(Buf[9]=Ord('E'))Then
+  Err:='le format WebP n''est pas g'#130'r'#130' (utilisez JPEG, PNG, BMP ou PPM)'
+ Else If(N>=3)and(Buf[0]=Ord('G'))and(Buf[1]=Ord('I'))and(Buf[2]=Ord('F'))Then
+  Err:='le format GIF n''est pas g'#130'r'#130' (utilisez JPEG, PNG, BMP ou PPM)'
+ Else Err:='format d''image inconnu : '+Name;
+ FreeMem(Buf);
+ If(Err<>'')Then ImgLoad:=False;
+End;
+
+Function ImgSave(Const Name:AnsiString;Const Img:TImage;Quality:LongInt):Boolean;
+Var
+ E:AnsiString;
+Begin
+ E:=PathExt(Name);
+ If(E='.jpg')or(E='.jpeg')Then ImgSave:=JpegEncode(Name,Img,Quality)
+ Else If E='.bmp' Then ImgSave:=BmpEncode(Name,Img)
+ Else If(E='.ppm')Then ImgSave:=PpmEncode(Name,Img)
+ Else Begin
+  If Quality>=90 Then ImgSave:=PngEncode(Name,Img,6)
+  Else ImgSave:=PngEncode(Name,Img,3);
+ End;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Fils d'execution (Windows : CreateThread, Unix : pthread)           }
+{ ------------------------------------------------------------------ }
+
+{$IFDEF WINDOWS}
+Function
+  CreateThread(Attr:Pointer;Stack:PtrUInt;Start:Pointer;Param:Pointer;Flags:LongWord;Var Tid:LongWord):PtrUInt;
+ stdcall;external 'kernel32.dll' name 'CreateThread';
+Function WaitForSingleObject(H:PtrUInt;Ms:LongWord):LongWord;stdcall;external
+  'kernel32.dll' name 'WaitForSingleObject';
+Function CloseHandle(H:PtrUInt):LongInt;stdcall;external 'kernel32.dll' name
+  'CloseHandle';
+{$ELSE}
+ {$IFDEF UNIX}
+Function pthread_create(Var
+  Th:PtrUInt;Attr:Pointer;Start:Pointer;Arg:Pointer):LongInt;cdecl;
+ external 'pthread' name 'pthread_create';
+Function pthread_join(Th:PtrUInt;Ret:Pointer):LongInt;cdecl;external 'pthread'
+  name 'pthread_join';
+Function sysconf(Name:LongInt):PtrInt;cdecl;external 'c' name 'sysconf';
+ {$ENDIF}
+{$ENDIF}
+
+Const
+ MaxThreads=32;
+
+Type
+ { traitement d'une plage [Lo,Hi[ par le fil Tid }
+ TParProc=Procedure(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+
+Var
+ GNThreads:LongInt=1;
+ ParProc:TParProc;
+ ParCtx:Pointer;
+ ParCount,ParChunk,ParNext:LongInt;
+
+Function CpuCount:LongInt;
+Var
+ N:Int64;
+Begin
+ CpuCount:=1;
+ {$IFDEF WINDOWS}
+ If ParseInt(GetEnv('NUMBER_OF_PROCESSORS'),N)Then CpuCount:=N;
+ {$ELSE}
+  {$IFDEF UNIX}
+ N:=sysconf(84);
+ If N>0 Then CpuCount:=N;
+  {$ENDIF}
+ {$ENDIF}
+ If CpuCount<1 Then CpuCount:=1;
+ If CpuCount>MaxThreads Then CpuCount:=MaxThreads;
+End;
+
+Procedure ParWorker(Tid:LongInt);
+Var
+ C,Lo,Hi:LongInt;
+Begin
+ While True do Begin
+  C:=InterLockedIncrement(ParNext)-1;
+  Lo:=C*ParChunk;
+  If Lo>=ParCount Then Break;
+  Hi:=Lo+ParChunk;
+  If Hi>ParCount Then Hi:=ParCount;
+  ParProc(ParCtx,Lo,Hi,Tid);
+ End;
+End;
+
+{$IFDEF WINDOWS}
+Function ParThreadEntry(P:Pointer):LongWord;stdcall;
+Begin
+ ParWorker(PtrInt(P));
+ ParThreadEntry:=0;
+End;
+{$ELSE}
+ {$IFDEF UNIX}
+Function ParThreadEntry(P:Pointer):Pointer;cdecl;
+Begin
+ ParWorker(PtrInt(P));
+ ParThreadEntry:=Nil;
+End;
+ {$ENDIF}
+{$ENDIF}
+
+{ execute Proc sur [0,Count[ en parallele, par paquets de Chunk elements ;
+  Proc ne doit utiliser que de la memoire deja allouee (pas de tas, pas d'E/S) }
+Procedure ParFor(Count,Chunk:LongInt;Proc:TParProc;Ctx:Pointer);
+Var
+ I,Created,NT:LongInt;
+ {$IFDEF WINDOWS}
+ Hs:Array[0..MaxThreads-1]of PtrUInt;
+ Tid:LongWord;
+ {$ELSE}
+ Ths:Array[0..MaxThreads-1]of PtrUInt;
+ Okay:Array[0..MaxThreads-1]of Boolean;
+ {$ENDIF}
+Begin
+ If Count<=0 Then Exit;
+ If Chunk<1 Then Chunk:=1;
+ NT:=GNThreads;
+ If NT>(Count+Chunk-1)div Chunk Then NT:=(Count+Chunk-1)div Chunk;
+ If NT<=1 Then Begin
+  Proc(Ctx,0,Count,0);
+  Exit;
+ End;
+ ParProc:=Proc;ParCtx:=Ctx;ParCount:=Count;ParChunk:=Chunk;ParNext:=0;
+ Created:=0;
+ {$IFDEF WINDOWS}
+ For I:=1 to NT-1 do Begin
+  Hs[I]:=CreateThread(Nil,0,@ParThreadEntry,Pointer(PtrInt(I)),0,Tid);
+  If Hs[I]<>0 Then Inc(Created);
+ End;
+ ParWorker(0);
+ For I:=1 to NT-1 do If Hs[I]<>0 Then Begin
+  WaitForSingleObject(Hs[I],$FFFFFFFF);
+  CloseHandle(Hs[I]);
+ End;
+ {$ELSE}
+  {$IFDEF UNIX}
+ For I:=1 to NT-1 do Begin
+  Ths[I]:=0;
+  Okay[I]:=pthread_create(Ths[I],Nil,@ParThreadEntry,Pointer(PtrInt(I)))=0;
+  If Okay[I]Then Inc(Created);
+ End;
+ ParWorker(0);
+ For I:=1 to NT-1 do If Okay[I]Then pthread_join(Ths[I],Nil);
+  {$ELSE}
+ ParWorker(0);
+  {$ENDIF}
+ {$ENDIF}
+End;
+
+{ ------------------------------------------------------------------ }
+{ Produit matriciel (CPU, multi-fils)                                 }
+{   Y[n*M+m] = somme_k X[n*K+k] * W[m*K+k] (+ Bias[m])                 }
+{ ------------------------------------------------------------------ }
+
+Type
+ TGemmCtx=Record
+  X,W,B,Y:PSingle;
+  N,K,M:LongInt;
+ End;
+ PGemmCtx=^TGemmCtx;
+
+Procedure GemmBlock(X,W,B,Y:PSingle;K,M,N0,N1:LongInt);
+Var
+ N,Mm,J:LongInt;
+ X0,X1,W0,W1,W2,W3:PSingle;
+ S00,S01,S02,S03,S10,S11,S12,S13,A0,A1:Single;
+ Bv:Single;
+Begin
+ N:=N0;
+ While N+1<N1 do Begin
+  X0:=X+Int64(N)*K;
+  X1:=X0+K;
+  Mm:=0;
+  While Mm+3<M do Begin
+   W0:=W+Int64(Mm)*K;
+   W1:=W0+K;W2:=W1+K;W3:=W2+K;
+   S00:=0;S01:=0;S02:=0;S03:=0;S10:=0;S11:=0;S12:=0;S13:=0;
+   For J:=0 to K-1 do Begin
+    A0:=X0[J];A1:=X1[J];
+    S00:=S00+A0*W0[J];S01:=S01+A0*W1[J];S02:=S02+A0*W2[J];S03:=S03+A0*W3[J];
+    S10:=S10+A1*W0[J];S11:=S11+A1*W1[J];S12:=S12+A1*W2[J];S13:=S13+A1*W3[J];
+   End;
+   If B<>Nil Then Begin
+    S00:=S00+B[Mm];S01:=S01+B[Mm+1];S02:=S02+B[Mm+2];S03:=S03+B[Mm+3];
+    S10:=S10+B[Mm];S11:=S11+B[Mm+1];S12:=S12+B[Mm+2];S13:=S13+B[Mm+3];
+   End;
+   Y[Int64(N)*M+Mm]:=S00;Y[Int64(N)*M+Mm+1]:=S01;Y[Int64(N)*M+Mm+2]:=S02;
+   Y[Int64(N)*M+Mm+3]:=S03;
+   Y[Int64(N+1)*M+Mm]:=S10;Y[Int64(N+1)*M+Mm+1]:=S11;Y[Int64(N+1)*M+Mm+2]:=S12;
+   Y[Int64(N+1)*M+Mm+3]:=S13;
+   Inc(Mm,4);
+  End;
+  While Mm<M do Begin
+   W0:=W+Int64(Mm)*K;
+   S00:=0;S10:=0;
+   For J:=0 to K-1 do Begin
+    S00:=S00+X0[J]*W0[J];
+    S10:=S10+X1[J]*W0[J];
+   End;
+   If B<>Nil Then Bv:=B[Mm]Else Bv:=0;
+   Y[Int64(N)*M+Mm]:=S00+Bv;
+   Y[Int64(N+1)*M+Mm]:=S10+Bv;
+   Inc(Mm);
+  End;
+  Inc(N,2);
+ End;
+ If N<N1 Then Begin
+  X0:=X+Int64(N)*K;
+  Mm:=0;
+  While Mm+3<M do Begin
+   W0:=W+Int64(Mm)*K;
+   W1:=W0+K;W2:=W1+K;W3:=W2+K;
+   S00:=0;S01:=0;S02:=0;S03:=0;
+   For J:=0 to K-1 do Begin
+    A0:=X0[J];
+    S00:=S00+A0*W0[J];S01:=S01+A0*W1[J];S02:=S02+A0*W2[J];S03:=S03+A0*W3[J];
+   End;
+   If B<>Nil Then Begin
+    S00:=S00+B[Mm];S01:=S01+B[Mm+1];S02:=S02+B[Mm+2];S03:=S03+B[Mm+3];
+   End;
+   Y[Int64(N)*M+Mm]:=S00;Y[Int64(N)*M+Mm+1]:=S01;Y[Int64(N)*M+Mm+2]:=S02;
+   Y[Int64(N)*M+Mm+3]:=S03;
+   Inc(Mm,4);
+  End;
+  While Mm<M do Begin
+   W0:=W+Int64(Mm)*K;
+   S00:=0;
+   For J:=0 to K-1 do S00:=S00+X0[J]*W0[J];
+   If B<>Nil Then S00:=S00+B[Mm];
+   Y[Int64(N)*M+Mm]:=S00;
+   Inc(Mm);
+  End;
+ End;
+End;
+
+Procedure GemmProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Begin
+ With PGemmCtx(Ctx)^ do GemmBlock(X,W,B,Y,K,M,Lo,Hi);
+End;
+
+Procedure GemmCPU(X,W,B,Y:PSingle;N,K,M:LongInt);
+Var
+ C:TGemmCtx;
+Begin
+ C.X:=X;C.W:=W;C.B:=B;C.Y:=Y;C.N:=N;C.K:=K;C.M:=M;
+ ParFor(N,8,@GemmProc,@C);
+End;
+
+{ ------------------------------------------------------------------ }
+{ GPU : shader de calcul Direct3D 11 (HLSL compile a l'execution).     }
+{ Windows seulement ; sans GPU le calcul reste sur le microprocesseur.  }
+{ Le resultat du GPU est verifie au demarrage contre le calcul CPU.    }
+{ ------------------------------------------------------------------ }
+
+Type
+ TGpuDev=Record
+  Name:AnsiString;
+  Adapter:Pointer;
+  Vendor:LongWord;
+  VRam,Free:Int64;
+ End;
+
+Var
+ GpuDevs:Array of TGpuDev;
+ GpuEnumDone:Boolean=False;
+ GpuOn:Boolean=False;
+ GpuName:AnsiString='';
+ GpuCalls:LongInt=0;
+ GpuBytes:Int64=0;
+
+{$IFDEF WINDOWS}
+Const
+ GpuMaxIO=67108864;
+ GpuMinWork=262144;
+
+Type
+ TGuid4=Record
+  D1:LongWord;D2,D3:Word;D4:Array[0..7]of Byte;
+ End;
+ TVTab=Array[0..255]of Pointer;
+ PVTab=^TVTab;
+ TAdapterDesc=Record
+  Descr:Array[0..127]of Word;
+  Vendor,Device,SubSys,Rev:LongWord;
+  DedVid,DedSys,Shared:PtrUInt;
+  LuidLo:LongWord;LuidHi:LongInt;
+  Pad:Array[0..7]of LongWord;
+ End;
+ TVideoMemInfo=Record
+  Budget,CurrentUsage,AvailRes,CurrentRes:QWord;
+ End;
+ TMapped=Record
+  Data:Pointer;
+  RowPitch,DepthPitch:LongWord;
+ End;
+ TBufDesc=Record
+  ByteWidth,Usage,BindFlags,CPUAccess,Misc,Stride:LongWord;
+ End;
+ TViewDesc=Record
+  Format,Dim,First,Num,Flags:LongWord;
+  Pad:Array[0..11]of LongWord;
+ End;
+ TSubData=Record
+  Mem:Pointer;
+  Pitch,Slice:LongWord;
+ End;
+ TBox=Record
+  Left,Top,Front,Right,Bottom,Back:LongWord;
+ End;
+ TCBData=Record
+  K,M,N,Pad:LongWord;
+ End;
+ TGpuWeight=Record
+  Ptr:Pointer;
+  Srv:Pointer;
+  Buf:Pointer;
+  Bytes:Int64;
+ End;
+
+ TFnCreateDev=Function(Adapter:Pointer;DrvType:LongWord;Soft:PtrUInt;Flags:LongWord;FL:Pointer;NFL:LongWord;
+  Sdk:LongWord;Var Dev:Pointer;Var FLOut:LongWord;Var
+    Ctx:Pointer):LongInt;stdcall;
+ TFnCompile=Function(Src:Pointer;SrcLen:PtrUInt;Name:PChar;Defs,
+   Inc:Pointer;Entry,Target:PChar;F1,F2:LongWord;
+  Var Code:Pointer;Var Err:Pointer):LongInt;stdcall;
+ TFnFactory=Function(Iid:Pointer;Var F:Pointer):LongInt;stdcall;
+ TMQuery=Function(Self,Iid:Pointer;Var Obj:Pointer):LongInt;stdcall;
+ TMRelease=Function(Self:Pointer):LongWord;stdcall;
+ TMEnumAdapters=Function(Self:Pointer;Idx:LongWord;Var
+   Ad:Pointer):LongInt;stdcall;
+ TMGetDesc=Function(Self:Pointer;Var D:TAdapterDesc):LongInt;stdcall;
+ TMQueryMem=Function(Self:Pointer;Node,Seg:LongWord;Var
+   Info:TVideoMemInfo):LongInt;stdcall;
+ TMCreateBuffer=Function(Self,Desc,Init:Pointer;Var
+   Buf:Pointer):LongInt;stdcall;
+ TMCreateView=Function(Self,Res,Desc:Pointer;Var V:Pointer):LongInt;stdcall;
+ TMCreateCS=Function(Self,Code:Pointer;Len:PtrUInt;Link:Pointer;Var
+   Sh:Pointer):LongInt;stdcall;
+ TMMap=Function(Self,Res:Pointer;Sub,MType,MFlags:LongWord;Var
+   Mapped:TMapped):LongInt;stdcall;
+ TMUnmap=Procedure(Self,Res:Pointer;Sub:LongWord);stdcall;
+ TMDispatch=Procedure(Self:Pointer;X,Y,Z:LongWord);stdcall;
+ TMCopyRegion=Procedure(Self,Dst:Pointer;DstSub,DX,DY,DZ:LongWord;Src:Pointer;
+   SrcSub:LongWord;Box:Pointer);stdcall;
+ TMUpdate=Procedure(Self,Dst:Pointer;Sub:LongWord;Box,Data:Pointer;RP,
+   DP:LongWord);stdcall;
+ TMSetSRV=Procedure(Self:Pointer;Start,Num:LongWord;Views:Pointer);stdcall;
+ TMSetUAV=Procedure(Self:Pointer;Start,Num:LongWord;Views,
+   Counts:Pointer);stdcall;
+ TMSetShader=Procedure(Self,Sh,Inst:Pointer;N:LongWord);stdcall;
+ TMSetCB=Procedure(Self:Pointer;Start,Num:LongWord;Bufs:Pointer);stdcall;
+ TMBlobPtr=Function(Self:Pointer):Pointer;stdcall;
+ TMBlobSize=Function(Self:Pointer):PtrUInt;stdcall;
+
+Function LoadLibraryA(Name:PChar):PtrUInt;stdcall;external 'kernel32.dll' name
+  'LoadLibraryA';
+Function GetProcAddress(H:PtrUInt;Name:PChar):Pointer;stdcall;external
+  'kernel32.dll' name 'GetProcAddress';
+
+Var
+ GFactory:Pointer=Nil;
+ GDev,GCtx:Pointer;
+ GShGemm:Pointer;
+ GCB,GXBuf,GXSrv,GYBuf,GYUav,GYStage:Pointer;
+ GXCap,GYCap:LongInt;
+ GWeights:Array of TGpuWeight;
+ GNW:LongInt=0;
+ GWBytes:Int64=0;
+
+Function VTab(Obj:Pointer;I:LongInt):Pointer;
+Begin
+ VTab:=PVTab(PPointer(Obj)^)^[I];
+End;
+
+Procedure ComRelease(Obj:Pointer);
+Begin
+ If Obj<>Nil Then TMRelease(VTab(Obj,2))(Obj);
+End;
+
+Procedure GpuEnumDevices;
+Const
+ IID_Factory:TGuid4=(D1:$7b7166ec;D2:$21c7;D3:$44ae;D4:($b2,$1a,$c9,$ae,$32,$1a,
+   $e3,$69));
+ IID_Adapter3:TGuid4=(D1:$645967A4;D2:$1392;D3:$4310;D4:($A7,$98,$80,$53,$CE,
+   $3E,$93,$FD));
+Var
+ H:PtrUInt;
+ Fn:TFnFactory;
+ Ad,Ad3:Pointer;
+ I:LongInt;
+ D:TAdapterDesc;
+ Info:TVideoMemInfo;
+ N:LongInt;
+ S:AnsiString;
+ J:LongInt;
+Begin
+ If GpuEnumDone Then Exit;
+ GpuEnumDone:=True;
+ SetLength(GpuDevs,0);
+ H:=LoadLibraryA('dxgi.dll');
+ If H=0 Then Exit;
+ Fn:=TFnFactory(GetProcAddress(H,'CreateDXGIFactory'));
+ If not Assigned(Fn)Then Exit;
+ If Fn(@IID_Factory,GFactory)<0 Then Exit;
+ I:=0;
+ While TMEnumAdapters(VTab(GFactory,7))(GFactory,I,Ad)>=0 do Begin
+  FillChar(D,SizeOf(D),0);
+  If TMGetDesc(VTab(Ad,8))(Ad,D)>=0 Then Begin
+   If D.Vendor<>$1414 Then Begin
+    N:=Length(GpuDevs);
+    SetLength(GpuDevs,N+1);
+    S:='';
+    For J:=0 to 127 do Begin
+     If D.Descr[J]=0 Then Break;
+     If D.Descr[J]<128 Then S:=S+Chr(D.Descr[J])Else S:=S+'?';
+    End;
+    GpuDevs[N].Name:=S;
+    GpuDevs[N].Adapter:=Ad;
+    GpuDevs[N].Vendor:=D.Vendor;
+    GpuDevs[N].VRam:=D.DedVid;
+    GpuDevs[N].Free:=D.DedVid;
+    Ad3:=Nil;
+    If TMQuery(VTab(Ad,0))(Ad,@IID_Adapter3,Ad3)>=0 Then Begin
+     FillChar(Info,SizeOf(Info),0);
+     If TMQueryMem(VTab(Ad3,14))(Ad3,0,0,Info)>=0 Then Begin
+      GpuDevs[N].Free:=Int64(Info.Budget)-Int64(Info.CurrentUsage);
+      If GpuDevs[N].Free<0 Then GpuDevs[N].Free:=0;
+      If Int64(Info.Budget)>GpuDevs[N].VRam Then GpuDevs[N].VRam:=Info.Budget;
+     End;
+     ComRelease(Ad3);
+    End;
+   End;
+  End;
+  Inc(I);
+ End;
+End;
+
+Function GpuMakeBuffer(ByteWidth,Usage,Bind,CPU,Misc:LongWord;Init:Pointer;Var
+  Buf:Pointer):Boolean;
+Var
+ D:TBufDesc;
+ SD:TSubData;
+ P:Pointer;
+Begin
+ D.ByteWidth:=ByteWidth;D.Usage:=Usage;D.BindFlags:=Bind;D.CPUAccess:=CPU;D.Misc:=Misc;D.Stride:=0;
+ P:=Nil;
+ If Init<>Nil Then Begin
+  SD.Mem:=Init;SD.Pitch:=0;SD.Slice:=0;
+  P:=@SD;
+ End;
+ Buf:=Nil;
+ GpuMakeBuffer:=TMCreateBuffer(VTab(GDev,3))(GDev,@D,P,Buf)>=0;
+End;
+
+Function GpuMakeSRV(Buf:Pointer;NumDwords:LongWord;Var V:Pointer):Boolean;
+Var
+ D:TViewDesc;
+Begin
+ FillChar(D,SizeOf(D),0);
+ D.Format:=39;D.Dim:=11;D.First:=0;D.Num:=NumDwords;D.Flags:=1;
+ V:=Nil;
+ GpuMakeSRV:=TMCreateView(VTab(GDev,7))(GDev,Buf,@D,V)>=0;
+End;
+
+Function GpuMakeUAV(Buf:Pointer;NumDwords:LongWord;Var V:Pointer):Boolean;
+Var
+ D:TViewDesc;
+Begin
+ FillChar(D,SizeOf(D),0);
+ D.Format:=39;D.Dim:=1;D.First:=0;D.Num:=NumDwords;D.Flags:=1;
+ V:=Nil;
+ GpuMakeUAV:=TMCreateView(VTab(GDev,8))(GDev,Buf,@D,V)>=0;
+End;
+
+Function GpuCompile(Const Src,Entry:AnsiString;Var Sh:Pointer;Var
+  Err:AnsiString):Boolean;
+Var
+ H:PtrUInt;
+ Fn:TFnCompile;
+ Code,EMsg:Pointer;
+ R:LongInt;
+Begin
+ GpuCompile:=False;
+ Sh:=Nil;
+ H:=LoadLibraryA('d3dcompiler_47.dll');
+ If H=0 Then Begin Err:='d3dcompiler_47.dll introuvable';Exit;End;
+ Fn:=TFnCompile(GetProcAddress(H,'D3DCompile'));
+ If not Assigned(Fn)Then Begin Err:='D3DCompile introuvable';Exit;End;
+ Code:=Nil;EMsg:=Nil;
+ R:=Fn(PChar(Src),Length(Src),'vton',Nil,Nil,PChar(Entry),'cs_5_0',1 shl 15,0,
+   Code,EMsg);
+ If R<0 Then Begin
+  Err:='compilation du shader '+Entry+' impossible';
+  If EMsg<>Nil Then Err:=Err+' : '+PChar(TMBlobPtr(VTab(EMsg,3))(EMsg));
+  Exit;
+ End;
+ R:=TMCreateCS(VTab(GDev,18))(GDev,TMBlobPtr(VTab(Code,3))(Code),
+   TMBlobSize(VTab(Code,4))(Code),Nil,Sh);
+ ComRelease(Code);
+ If R<0 Then Begin Err:='cr'#130'ation du shader '+Entry+' impossible';Exit;End;
+ GpuCompile:=True;
+End;
+
+{ Y[n][m] = somme_k X[n][k] * W[m][k] ; tuiles de 16 x 16 }
+Const
+ GpuShaderSrc=
+  'cbuffer C : register(b0) { uint K; uint M; uint N; uint Pad; };'#10
++  'ByteAddressBuffer W : register(t0);'#10
++  'ByteAddressBuffer X : register(t1);'#10
++  'RWByteAddressBuffer Y : register(u0);'#10
++  'groupshared float As[16][16];'#10
++  'groupshared float Bs[16][16];'#10
++  '[numthreads(16, 16, 1)]'#10
++  'void CSGemm(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)'#10
++  '{'#10
++  '  uint col = gid.x * 16 + tid.x;'#10
++  '  uint row = gid.y * 16 + tid.y;'#10
++  '  uint wr = gid.x * 16 + tid.y;'#10
++  '  float acc = 0.0f;'#10
++  '  for (uint k0 = 0; k0 < K; k0 += 16)'#10
++  '  {'#10
++  '    uint ka = k0 + tid.x;'#10
++  '    float av = 0.0f;'#10
++  '    float bv = 0.0f;'#10
++  '    if (row < N && ka < K) av = asfloat(X.Load((row * K + ka) * 4));'#10
++  '    if (wr < M && ka < K) bv = asfloat(W.Load((wr * K + ka) * 4));'#10
++  '    As[tid.y][tid.x] = av;'#10
++  '    Bs[tid.y][tid.x] = bv;'#10
++  '    GroupMemoryBarrierWithGroupSync();'#10
++  '    [unroll] for (uint kk = 0; kk < 16; kk++)'#10
++  '      acc += As[tid.y][kk] * Bs[tid.x][kk];'#10
++  '    GroupMemoryBarrierWithGroupSync();'#10
++  '  }'#10
++  '  if (row < N && col < M) Y.Store((row * M + col) * 4, asuint(acc));'#10
++  '}'#10;
+
+Function GpuInitDevice(Idx:LongInt;Var Err:AnsiString):Boolean;
+Var
+ H:PtrUInt;
+ Fn:TFnCreateDev;
+ FLv:LongWord;
+ FLs:LongWord;
+Begin
+ GpuInitDevice:=False;
+ H:=LoadLibraryA('d3d11.dll');
+ If H=0 Then Begin Err:='d3d11.dll introuvable';Exit;End;
+ Fn:=TFnCreateDev(GetProcAddress(H,'D3D11CreateDevice'));
+ If not Assigned(Fn)Then Begin Err:='D3D11CreateDevice introuvable';Exit;End;
+ FLv:=$B000;   { D3D_FEATURE_LEVEL_11_0 }
+ GDev:=Nil;GCtx:=Nil;
+ If Fn(GpuDevs[Idx].Adapter,0,0,0,@FLv,1,7,GDev,FLs,GCtx)<0 Then Begin
+  Err:='cr'#130'ation du p'#130'riph'#130'rique Direct3D 11 impossible';Exit;
+ End;
+ If not GpuCompile(GpuShaderSrc,'CSGemm',GShGemm,Err)Then Exit;
+ If not GpuMakeBuffer(16,0,4,0,0,Nil,GCB)Then Begin
+   Err:='cr'#130'ation du tampon constant impossible';Exit;End;
+ GXCap:=0;GYCap:=0;
+ GpuInitDevice:=True;
+End;
+
+Function GpuEnsureIO(XBytes,YBytes:LongInt):Boolean;
+Begin
+ GpuEnsureIO:=False;
+ If XBytes>GXCap Then Begin
+  ComRelease(GXSrv);ComRelease(GXBuf);GXSrv:=Nil;GXBuf:=Nil;GXCap:=0;
+  XBytes:=(XBytes+65535)and(not 65535);
+  If not GpuMakeBuffer(XBytes,0,8,0,$20,Nil,GXBuf)Then Exit;
+  If not GpuMakeSRV(GXBuf,XBytes div 4,GXSrv)Then Exit;
+  GXCap:=XBytes;
+ End;
+ If YBytes>GYCap Then Begin
+  ComRelease(GYUav);ComRelease(GYBuf);ComRelease(GYStage);GYUav:=Nil;GYBuf:=Nil;GYStage:=Nil;GYCap:=0;
+  YBytes:=(YBytes+65535)and(not 65535);
+  If not GpuMakeBuffer(YBytes,0,$80,0,$20,Nil,GYBuf)Then Exit;
+  If not GpuMakeUAV(GYBuf,YBytes div 4,GYUav)Then Exit;
+  If not GpuMakeBuffer(YBytes,3,0,$20000,0,Nil,GYStage)Then Exit;
+  GYCap:=YBytes;
+ End;
+ GpuEnsureIO:=True;
+End;
+
+{ cherche (ou envoie en memoire video) la matrice de poids W (M lignes de K) }
+Function GpuFindWeight(W:PSingle;Bytes:Int64;Var Srv:Pointer):Boolean;
+Var
+ I:LongInt;
+ Buf,V:Pointer;
+Begin
+ GpuFindWeight:=False;
+ For I:=0 to GNW-1 do If GWeights[I].Ptr=Pointer(W)Then Begin
+  Srv:=GWeights[I].Srv;
+  GpuFindWeight:=True;
+  Exit;
+ End;
+ If Bytes>=GpuMaxIO*2 Then Exit;
+ If GWBytes+Bytes>1500000000 Then Exit;
+ If not GpuMakeBuffer(Bytes,0,8,0,$20,W,Buf)Then Exit;
+ If not GpuMakeSRV(Buf,Bytes div 4,V)Then Begin ComRelease(Buf);Exit;End;
+ If GNW>High(GWeights)Then SetLength(GWeights,GNW+64);
+ GWeights[GNW].Ptr:=Pointer(W);
+ GWeights[GNW].Srv:=V;
+ GWeights[GNW].Buf:=Buf;
+ GWeights[GNW].Bytes:=Bytes;
+ Inc(GNW);
+ Inc(GWBytes,Bytes);
+ Srv:=V;
+ GpuFindWeight:=True;
+End;
+
+Function GpuGemmRun(X,W,B,Y:PSingle;N,K,M:LongInt;Force:Boolean):Boolean;
+Var
+ R0,Rows,MaxRows,I,J:LongInt;
+ CB:TCBData;
+ Box:TBox;
+ WSrv,Views,UA,Cbuf:Pointer;
+ Mp:TMapped;
+ Src,Dst:PSingle;
+Begin
+ GpuGemmRun:=False;
+ If not GpuOn Then Exit;
+ If(not Force)and(Int64(N)*K*M<GpuMinWork*16)Then Exit;
+ If(K<=0)or(M<=0)or(N<=0)Then Exit;
+ If not GpuFindWeight(W,Int64(M)*K*4,WSrv)Then Exit;
+ MaxRows:=GpuMaxIO div(4*IMax(K,M));
+ If MaxRows<1 Then Exit;
+ If MaxRows>65535*16 Then MaxRows:=65535*16;
+ R0:=0;
+ While R0<N do Begin
+  Rows:=N-R0;
+  If Rows>MaxRows Then Rows:=MaxRows;
+  If not GpuEnsureIO(Rows*K*4,Rows*M*4)Then Begin GpuOn:=False;Exit;End;
+  CB.K:=K;CB.M:=M;CB.N:=Rows;CB.Pad:=0;
+  TMUpdate(VTab(GCtx,48))(GCtx,GCB,0,Nil,@CB,0,0);
+  FillChar(Box,SizeOf(Box),0);
+  Box.Right:=Rows*K*4;Box.Bottom:=1;Box.Back:=1;
+  TMUpdate(VTab(GCtx,48))(GCtx,GXBuf,0,@Box,X+Int64(R0)*K,0,0);
+  TMSetShader(VTab(GCtx,69))(GCtx,GShGemm,Nil,0);
+  Cbuf:=GCB;
+  TMSetCB(VTab(GCtx,71))(GCtx,0,1,@Cbuf);
+  Views:=WSrv;
+  TMSetSRV(VTab(GCtx,67))(GCtx,0,1,@Views);
+  Views:=GXSrv;
+  TMSetSRV(VTab(GCtx,67))(GCtx,1,1,@Views);
+  UA:=GYUav;
+  TMSetUAV(VTab(GCtx,68))(GCtx,0,1,@UA,Nil);
+  TMDispatch(VTab(GCtx,41))(GCtx,(M+15)div 16,(Rows+15)div 16,1);
+  Box.Right:=Rows*M*4;
+  TMCopyRegion(VTab(GCtx,46))(GCtx,GYStage,0,0,0,0,GYBuf,0,@Box);
+  If TMMap(VTab(GCtx,14))(GCtx,GYStage,0,1,0,Mp)<0 Then Begin
+   GpuOn:=False;
+   Exit;
+  End;
+  Src:=PSingle(Mp.Data);
+  Dst:=Y+Int64(R0)*M;
+  If B<>Nil Then Begin
+   For I:=0 to Rows-1 do
+    For J:=0 to M-1 do Dst[Int64(I)*M+J]:=Src[Int64(I)*M+J]+B[J];
+  End
+   Else Move(Src^,Dst^,Int64(Rows)*M*4);
+  TMUnmap(VTab(GCtx,15))(GCtx,GYStage,0);
+  Inc(R0,Rows);
+ End;
+ Inc(GpuCalls);
+ Inc(GpuBytes,Int64(N)*(K+M)*4);
+ GpuGemmRun:=True;
+End;
+
+Function GpuGemm(X,W,B,Y:PSingle;N,K,M:LongInt):Boolean;
+Begin
+ GpuGemm:=GpuGemmRun(X,W,B,Y,N,K,M,False);
+End;
+
+{ compare le GPU au CPU sur un petit produit matriciel (tailles non multiples de 16) }
+Function GpuSelfTest:Boolean;
+Const
+ TN=45;TK=70;TM=37;
+Var
+ X,W,B,Yc,Yg:PSingle;
+ I:LongInt;
+ Mx,D:Double;
+Begin
+ GpuSelfTest:=False;
+ X:=AllocF(TN*TK);W:=AllocF(TM*TK);B:=AllocF(TM);
+ Yc:=AllocF(TN*TM);Yg:=AllocF(TN*TM);
+ For I:=0 to TN*TK-1 do X[I]:=((I*7919)mod 2003)/1001.5-1.0;
+ For I:=0 to TM*TK-1 do W[I]:=((I*104729)mod 3001)/1500.5-1.0;
+ For I:=0 to TM-1 do B[I]:=I/37.0-0.5;
+ GemmCPU(X,W,B,Yc,TN,TK,TM);
+ If GpuGemmRun(X,W,B,Yg,TN,TK,TM,True)Then Begin
+  Mx:=0;
+  For I:=0 to TN*TM-1 do Begin
+   D:=Abs(Yc[I]-Yg[I]);
+   If D>Mx Then Mx:=D;
+  End;
+  GpuSelfTest:=Mx<0.001;
+  If Mx>=0.001 Then Warn('le test du GPU '#133' donn'#130' un r'#130'sultat incorrect (erreur '+FStr(Mx,5)+')');
+ End;
+ FreeMem(X);FreeMem(W);FreeMem(B);FreeMem(Yc);FreeMem(Yg);
+ GpuCalls:=0;GpuBytes:=0;
+End;
+
+{ DevIdx : -1 = automatique (le plus de memoire video) }
+Function GpuSetup(DevIdx:LongInt;Var Err:AnsiString):Boolean;
+Var
+ I,Best:LongInt;
+Begin
+ GpuSetup:=False;
+ GpuOn:=False;
+ GpuEnumDevices;
+ If Length(GpuDevs)=0 Then Begin Err:='aucun p'#130'riph'#130'rique Direct3D 11 d'#130'tect'#130;Exit;End;
+ If(DevIdx>=0)and(DevIdx<Length(GpuDevs))Then Best:=DevIdx
+ Else Begin
+  Best:=0;
+  For I:=1 to High(GpuDevs)do If GpuDevs[I].VRam>GpuDevs[Best].VRam Then Best:=I;
+ End;
+ If not GpuInitDevice(Best,Err)Then Exit;
+ GpuOn:=True;
+ GpuName:=GpuDevs[Best].Name;
+ If not GpuSelfTest Then Begin
+  GpuOn:=False;
+  Err:='le test de validation du GPU a '#130'chou'#130;
+  Exit;
+ End;
+ GpuSetup:=True;
+End;
+
+Procedure GpuPrintDevices;
+Var
+ I:LongInt;
+Begin
+ GpuEnumDevices;
+ WriteLn('P'#130'riph'#130'riques Direct3D 11 :');
+ If Length(GpuDevs)=0 Then WriteLn('  (aucun)');
+ For I:=0 to High(GpuDevs)do
+  WriteLn('  ',I,' : ',GpuDevs[I].Name,' (',GpuDevs[I].VRam shr 20,' Mio, ',
+    GpuDevs[I].Free shr 20,' Mio libres)');
+End;
+{$ELSE}
+Function GpuGemm(X,W,B,Y:PSingle;N,K,M:LongInt):Boolean;
+Begin
+ GpuGemm:=False;
+End;
+
+Function GpuSetup(DevIdx:LongInt;Var Err:AnsiString):Boolean;
+Begin
+ GpuOn:=False;
+ Err:='Direct3D 11 n''est disponible que sous Windows';
+ GpuSetup:=False;
+End;
+
+Procedure GpuPrintDevices;
+Begin
+ WriteLn('P'#130'riph'#130'riques Direct3D 11 :');
+ WriteLn('  (Direct3D 11 n''est disponible que sous Windows)');
+End;
+{$ENDIF}
+
+{ produit matriciel : GPU si actif et assez gros, sinon CPU }
+Procedure Gemm(X,W,B,Y:PSingle;N,K,M:LongInt);
+Begin
+ If GpuOn Then
+  If GpuGemm(X,W,B,Y,N,K,M)Then Exit;
+ GemmCPU(X,W,B,Y,N,K,M);
+End;
+
+{ ------------------------------------------------------------------ }
+{ Fichiers .safetensors                                               }
+{ ------------------------------------------------------------------ }
+
+Type
+ TTensor=Record
+  Name:AnsiString;
+  DType:AnsiString;
+  NDim:LongInt;
+  Dims:Array[0..5]of LongInt;
+  Off0,Off1:Int64;
+  Data:PSingle;
+  Count:Int64;
+ End;
+
+Var
+ StT:Array of TTensor;
+ StN:LongInt=0;
+
+Function HalfToSingle(H:Word):Single;
+Var
+ S,M:LongWord;
+ E:LongInt;
+ R:LongWord;
+ F:Single;
+Begin
+ S:=(H shr 15)and 1;
+ E:=(H shr 10)and 31;
+ M:=H and 1023;
+ If E=0 Then Begin
+  If M=0 Then R:=S shl 31
+  Else Begin
+   E:=1;
+   While(M and 1024)=0 do Begin M:=M shl 1;Dec(E);End;
+   M:=M and 1023;
+   R:=(S shl 31)or(LongWord(E+112)shl 23)or(M shl 13);
+  End;
+ End
+  Else If E=31 Then R:=(S shl 31)or($FF shl 23)or(M shl 13)
+  Else R:=(S shl 31)or(LongWord(E+112)shl 23)or(M shl 13);
+ Move(R,F,4);
+ HalfToSingle:=F;
+End;
+
+Function StFind(Const Name:AnsiString):LongInt;
+Var
+ I:LongInt;
+Begin
+ StFind:=-1;
+ For I:=0 to StN-1 do If StT[I].Name=Name Then Begin StFind:=I;Exit;End;
+End;
+
+{ analyse de l'en-tete JSON : { "nom": {"dtype":..,"shape":[..],"data_offsets":[a,b]}, ... } }
+Function StParseHeader(Const H:AnsiString;Var Err:AnsiString):Boolean;
+Var
+ P:LongInt;
+
+ Procedure Ws;
+ Begin
+  While(P<=Length(H))and(H[P]in[' ',#9,#10,#13])do Inc(P);
+ End;
+
+ Function ReadStr:AnsiString;
+ Var
+  R:AnsiString;
+ Begin
+  R:='';
+  If(P<=Length(H))and(H[P]='"')Then Inc(P);
+  While(P<=Length(H))and(H[P]<>'"')do Begin
+   If H[P]='\' Then Begin
+    Inc(P);
+    If(P<=Length(H))and(H[P]='u')Then Begin R:=R+'?';Inc(P,4);End
+    Else If P<=Length(H)Then R:=R+H[P];
+   End
+    Else R:=R+H[P];
+   Inc(P);
+  End;
+  Inc(P);
+  ReadStr:=R;
+ End;
+
+ Function ReadNum:Int64;
+ Var
+  V:Int64;
+ Begin
+  V:=0;
+  While(P<=Length(H))and(H[P]in['0'..'9'])do Begin
+   V:=V*10+Ord(H[P])-48;
+   Inc(P);
+  End;
+  ReadNum:=V;
+ End;
+
+ Procedure SkipValue;
+ Var
+  Depth:LongInt;
+ Begin
+  Ws;
+  If P>Length(H)Then Exit;
+  If H[P]='"' Then Begin ReadStr;Exit;End;
+  If H[P]in['{','[']Then Begin
+   Depth:=0;
+   Repeat
+    If H[P]='"' Then ReadStr
+    Else Begin
+     If H[P]in['{','[']Then Inc(Depth)
+     Else If H[P]in['}',']']Then Dec(Depth);
+     Inc(P);
+    End;
+   Until(Depth=0)or(P>Length(H));
+   Exit;
+  End;
+  While(P<=Length(H))and not(H[P]in[',','}',']'])do Inc(P);
+ End;
+
+ Procedure ParseTensor(Const Nm:AnsiString);
+ Var
+  Key:AnsiString;
+  T:TTensor;
+ Begin
+  FillChar(T.Dims,SizeOf(T.Dims),0);
+  T.Name:=Nm;T.DType:='';T.NDim:=0;T.Off0:=0;T.Off1:=0;T.Data:=Nil;T.Count:=1;
+  Ws;
+  If H[P]<>'{' Then Begin SkipValue;Exit;End;
+  Inc(P);
+  While P<=Length(H)do Begin
+   Ws;
+   If H[P]='}' Then Begin Inc(P);Break;End;
+   If H[P]=',' Then Begin Inc(P);Continue;End;
+   Key:=ReadStr;
+   Ws;Inc(P);Ws;
+   If Key='dtype' Then T.DType:=ReadStr
+   Else If Key='shape' Then Begin
+    Inc(P);
+    While(P<=Length(H))and(H[P]<>']')do Begin
+     Ws;
+     If H[P]=',' Then Inc(P)
+     Else If H[P]in['0'..'9']Then Begin
+      If T.NDim<6 Then Begin T.Dims[T.NDim]:=ReadNum;T.Count:=T.Count*T.Dims[T.NDim];Inc(T.NDim);End Else ReadNum;
+     End
+      Else Inc(P);
+    End;
+    Inc(P);
+   End
+    Else If Key='data_offsets' Then Begin
+     Inc(P);Ws;T.Off0:=ReadNum;Ws;If H[P]=',' Then Inc(P);Ws;T.Off1:=ReadNum;Ws;
+     If H[P]=']' Then Inc(P);
+    End
+     Else SkipValue;
+  End;
+  If StN>High(StT)Then SetLength(StT,StN+256);
+  StT[StN]:=T;
+  Inc(StN);
+ End;
+
+Var
+ Key:AnsiString;
+Begin
+ StParseHeader:=False;
+ P:=1;
+ Ws;
+ If(P>Length(H))or(H[P]<>'{')Then Begin Err:='en-t'#136'te safetensors invalide';Exit;End;
+ Inc(P);
+ While P<=Length(H)do Begin
+  Ws;
+  If H[P]='}' Then Break;
+  If H[P]=',' Then Begin Inc(P);Continue;End;
+  Key:=ReadStr;
+  Ws;
+  If(P<=Length(H))and(H[P]=':')Then Inc(P);
+  If Key='__metadata__' Then SkipValue Else ParseTensor(Key);
+ End;
+ StParseHeader:=StN>0;
+ If StN=0 Then Err:='aucun tenseur dans le fichier safetensors';
+End;
+
+{ charge tous les tenseurs flottants (F32, F16, BF16) en F32 }
+Function StLoad(Const Path:AnsiString;Var Err:AnsiString):Boolean;
+Var
+ F:File;
+ Hdr:Array[0..7]of Byte;
+ HLen:Int64;
+ H:AnsiString;
+ Got:LongInt;
+ I:LongInt;
+ Base,Remain:Int64;
+ Tmp:PWord;
+ N,Chunk,J:LongInt;
+ T:^TTensor;
+ W:Word;
+ Sf:Single;
+ Bits:LongWord;
+Begin
+ StLoad:=False;
+ Err:='';
+ StN:=0;SetLength(StT,0);
+ Assign(F,Path);
+ Reset(F,1);
+ If IOResult<>0 Then Begin Err:='impossible d''ouvrir '+Path;Exit;End;
+ BlockRead(F,Hdr[0],8,Got);
+ If Got<>8 Then Begin Err:='fichier safetensors trop court';Close(F);Exit;End;
+ HLen:=Int64(LE32(@Hdr[0]))+(Int64(LE32(@Hdr[4]))shl 32);
+ If(HLen<2)or(HLen>100000000)Then Begin Err:='en-t'#136'te safetensors invalide';Close(F);Exit;End;
+ SetLength(H,HLen);
+ BlockRead(F,H[1],HLen,Got);
+ If Got<>HLen Then Begin Err:='en-t'#136'te safetensors tronqu'#130;Close(F);Exit;End;
+ If not StParseHeader(H,Err)Then Begin Close(F);Exit;End;
+ Base:=8+HLen;
+ Tmp:=PWord(AllocBytes(2*1048576));
+ For I:=0 to StN-1 do Begin
+  T:=@StT[I];
+  If(T^.DType<>'F32')and(T^.DType<>'F16')and(T^.DType<>'BF16')Then Continue;
+  If T^.Count<=0 Then Continue;
+  T^.Data:=AllocF(T^.Count);
+  Seek(F,Base+T^.Off0);
+  If T^.DType='F32' Then Begin
+   Remain:=T^.Count*4;
+   N:=0;
+   While Remain>0 do Begin
+    Chunk:=1048576;
+    If Remain<Chunk Then Chunk:=Remain;
+    BlockRead(F,(PByte(T^.Data)+N)^,Chunk,Got);
+    If Got<=0 Then Begin Err:='fichier safetensors tronqu'#130;Close(F);Exit;End;
+    Inc(N,Got);Dec(Remain,Got);
+   End;
+  End
+   Else Begin
+    Remain:=T^.Count;
+    N:=0;
+    While Remain>0 do Begin
+     Chunk:=1048576;
+     If Remain<Chunk Then Chunk:=Remain;
+     BlockRead(F,Tmp^,Chunk*2,Got);
+     If Got<>Chunk*2 Then Begin Err:='fichier safetensors tronqu'#130;Close(F);Exit;End;
+     If T^.DType='F16' Then
+      For J:=0 to Chunk-1 do T^.Data[N+J]:=HalfToSingle(Tmp[J])
+     Else
+      For J:=0 to Chunk-1 do Begin
+       Bits:=LongWord(Tmp[J])shl 16;
+       Move(Bits,Sf,4);
+       T^.Data[N+J]:=Sf;
+      End;
+     Inc(N,Chunk);Dec(Remain,Chunk);
+    End;
+   End;
+ End;
+ FreeMem(Tmp);
+ Close(F);
+ StLoad:=True;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Libelles des classes et categories de vetements                      }
+{ ------------------------------------------------------------------ }
+
+Const
+ cBg=0;cHat=1;cHair=2;cGlasses=3;cTop=4;cSkirt=5;cPants=6;cDress=7;cBelt=8;
+ cShoes=9;cFace=10;cLegs=11;cArms=12;cBag=13;cScarf=14;cSkin=15;cOther=16;
+ NumCat=17;
+ CatNames:Array[0..NumCat-1]of AnsiString=('arri'#138're-plan','chapeau','cheveux',
+   'lunettes','haut','jupe','pantalon','robe','ceinture','chaussures','visage',
+   'jambes','bras','sac',#130'charpe','peau','autre');
+ { noms des 18 classes du modele segformer_b2_clothes }
+ DefaultLabels:Array[0..17]of AnsiString=('Background','Hat','Hair','Sunglasses',
+   'Upper-clothes','Skirt','Pants','Dress','Belt','Left-shoe','Right-shoe','Face',
+   'Left-leg','Right-leg','Left-arm','Right-arm','Bag','Scarf');
+
+Var
+ LabelNames:Array of AnsiString;
+ LabelCat:Array of LongInt;
+
+Function HasWord(Const S,W:AnsiString):Boolean;
+Begin
+ HasWord:=Pos(W,S)>0;
+End;
+
+{ categorie d'un libelle de classe }
+Function CategoryOfLabel(Const Name:AnsiString):LongInt;
+Var
+ S:AnsiString;
+Begin
+ S:=LoStr(Name);
+ If HasWord(S,'background')or(S='bg')or HasWord(S,'backgr')Then CategoryOfLabel:=cBg
+ Else If HasWord(S,'sunglass')or HasWord(S,'glasses')or(S='eyeglasses')Then CategoryOfLabel:=cGlasses
+ Else If HasWord(S,'hat')or HasWord(S,'cap')or HasWord(S,'helmet')Then CategoryOfLabel:=cHat
+ Else If HasWord(S,'hair')Then CategoryOfLabel:=cHair
+ Else If HasWord(S,'upper')or HasWord(S,'coat')or HasWord(S,'jacket')or HasWord(S,'shirt')or(S='top')Then CategoryOfLabel:=cTop
+ Else If HasWord(S,'skirt')Then CategoryOfLabel:=cSkirt
+ Else If HasWord(S,'pant')or HasWord(S,'trouser')or HasWord(S,'jean')or HasWord(S,'short')or HasWord(S,'lower')Then CategoryOfLabel:=cPants
+ Else If HasWord(S,'dress')or HasWord(S,'jumpsuit')or HasWord(S,'romper')Then CategoryOfLabel:=cDress
+ Else If HasWord(S,'belt')Then CategoryOfLabel:=cBelt
+ Else If HasWord(S,'shoe')or HasWord(S,'boot')or HasWord(S,'sneaker')or HasWord(S,'footwear')Then CategoryOfLabel:=cShoes
+ Else If HasWord(S,'face')or HasWord(S,'head')Then CategoryOfLabel:=cFace
+ Else If HasWord(S,'leg')Then CategoryOfLabel:=cLegs
+ Else If HasWord(S,'arm')or HasWord(S,'hand')Then CategoryOfLabel:=cArms
+ Else If HasWord(S,'bag')or HasWord(S,'purse')Then CategoryOfLabel:=cBag
+ Else If HasWord(S,'scarf')or HasWord(S,'tie')Then CategoryOfLabel:=cScarf
+ Else If HasWord(S,'skin')or HasWord(S,'neck')or HasWord(S,'torso')Then CategoryOfLabel:=cSkin
+ Else CategoryOfLabel:=cOther;
+End;
+
+{ lit id2label dans un config.json (HuggingFace) ; faux si absent }
+Function LoadLabelsFromConfig(Const Path:AnsiString;L:LongInt):Boolean;
+Var
+ P:PByte;
+ N,I,J,Id,Code:LongInt;
+ S,Num,Nm:AnsiString;
+ Q:LongInt;
+Begin
+ LoadLabelsFromConfig:=False;
+ If not ReadFileBytes(Path,P,N)Then Exit;
+ SetLength(S,N);
+ If N>0 Then Move(P^,S[1],N);
+ FreeMem(P);
+ Q:=Pos('"id2label"',S);
+ If Q=0 Then Exit;
+ I:=Q+10;
+ While(I<=N)and(S[I]<>'{')do Inc(I);
+ Inc(I);
+ SetLength(LabelNames,L);
+ For J:=0 to L-1 do LabelNames[J]:='';
+ While I<=N do Begin
+  While(I<=N)and(S[I]<>'"')and(S[I]<>'}')do Inc(I);
+  If(I>N)or(S[I]='}')Then Break;
+  Inc(I);
+  Num:='';
+  While(I<=N)and(S[I]<>'"')do Begin Num:=Num+S[I];Inc(I);End;
+  Inc(I);
+  While(I<=N)and(S[I]<>'"')do Inc(I);
+  Inc(I);
+  Nm:='';
+  While(I<=N)and(S[I]<>'"')do Begin Nm:=Nm+S[I];Inc(I);End;
+  Inc(I);
+  Val(Num,Id,Code);
+  If(Code=0)and(Id>=0)and(Id<L)Then LabelNames[Id]:=Nm;
+ End;
+ For J:=0 to L-1 do If LabelNames[J]='' Then Exit;
+ LoadLabelsFromConfig:=True;
+End;
+
+Procedure SetupLabels(L:LongInt;Const ConfigPath:AnsiString);
+Var
+ I:LongInt;
+ Ok:Boolean;
+Begin
+ Ok:=False;
+ If(ConfigPath<>'')and FileExistsP(ConfigPath)Then Ok:=LoadLabelsFromConfig(ConfigPath,L);
+ If not Ok Then Begin
+  SetLength(LabelNames,L);
+  For I:=0 to L-1 do
+   If I<=High(DefaultLabels)Then LabelNames[I]:=DefaultLabels[I]
+   Else LabelNames[I]:='class'+IStr(I);
+ End;
+ SetLength(LabelCat,L);
+ For I:=0 to L-1 do LabelCat[I]:=CategoryOfLabel(LabelNames[I]);
+End;
+
+{ ------------------------------------------------------------------ }
+{ SegFormer : encodeur hierarchique de transformeurs + decodeur MLP    }
+{ ------------------------------------------------------------------ }
+
+Type
+ TSegBlock=Record
+  LN1W,LN1B,LN2W,LN2B:PSingle;
+  QW,QB,KW,KB,VW,VB,OW,OB:PSingle;
+  SRW,SRB,SRNW,SRNB:PSingle;
+  D1W,D1B,DWT,DWB,D2W,D2B:PSingle;   { DWT : noyau 3x3 transpose [9][4C] }
+ End;
+ TSegStage=Record
+  C,Cin,Depth,Heads,SR,Mlp:LongInt;
+  PK,PS,PP:LongInt;                  { noyau, pas et marge du plongement de patchs }
+  PEW,PEB,PENW,PENB,NW,NB:PSingle;
+  Blocks:Array of TSegBlock;
+ End;
+ TSegModel=Record
+  Stage:Array[0..3]of TSegStage;
+  Dec,NumLabels:LongInt;
+  Comp:Array[0..3]of PSingle;        { (Fuse_i x LinC_i) : [Dec][C_i] }
+  BnScale,BnShift:PSingle;
+  ClsW,ClsB:PSingle;
+  Name:AnsiString;
+ End;
+
+Const
+ SegHeads:Array[0..3]of LongInt=(1,2,5,8);
+ SegSR:Array[0..3]of LongInt=(8,4,2,1);
+
+Var
+ SegErr:AnsiString;
+
+Function SegNeed(Const Name:AnsiString;Count:Int64):PSingle;
+Var
+ I:LongInt;
+Begin
+ SegNeed:=Nil;
+ I:=StFind(Name);
+ If I<0 Then Begin
+  If SegErr='' Then SegErr:='tenseur absent du mod'#138'le : '+Name;
+  Exit;
+ End;
+ If(StT[I].Data=Nil)or(StT[I].Count<>Count)Then Begin
+  If SegErr='' Then SegErr:='tenseur de taille inattendue : '+Name;
+  Exit;
+ End;
+ SegNeed:=StT[I].Data;
+End;
+
+{ charge le modele depuis les tenseurs deja lus ; deduit la configuration des formes }
+Function SegBuild(Var M:TSegModel;Const ConfigPath:AnsiString):Boolean;
+Var
+ Pfx,Nm,Bp:AnsiString;
+ I,J,K,Ix,L,C,D,Mlp:LongInt;
+ S:^TSegStage;
+ B:^TSegBlock;
+ Fuse,LinW,LinB,Ct,Blk,Cm,G,Bt,Mn,Vr,Tw,Src:PSingle;
+ BSum:PSingle;
+ Sc:Single;
+ T,Tmp:PSingle;
+Begin
+ SegBuild:=False;
+ SegErr:='';
+ FillChar(M,SizeOf(M),0);
+ Pfx:='segformer.';
+ If StFind(Pfx+'encoder.patch_embeddings.0.proj.weight')<0 Then Begin
+  Pfx:='';
+  If StFind(Pfx+'encoder.patch_embeddings.0.proj.weight')<0 Then Begin
+   SegErr:='mod'#138'le non reconnu : un SegFormer au format HuggingFace (.safetensors) est attendu';
+   Exit;
+  End;
+ End;
+ For I:=0 to 3 do Begin
+  S:=@M.Stage[I];
+  Ix:=StFind(Pfx+'encoder.patch_embeddings.'+IStr(I)+'.proj.weight');
+  If Ix<0 Then Begin SegErr:='mod'#138'le incomplet : plongement de patchs '+IStr(I);Exit;End;
+  If StT[Ix].NDim<>4 Then Begin SegErr:='forme inattendue du plongement de patchs';Exit;End;
+  S^.C:=StT[Ix].Dims[0];S^.Cin:=StT[Ix].Dims[1];S^.PK:=StT[Ix].Dims[2];
+  S^.PP:=S^.PK div 2;
+  If I=0 Then S^.PS:=4 Else S^.PS:=2;
+  S^.Heads:=SegHeads[I];S^.SR:=SegSR[I];
+  If(S^.C mod S^.Heads)<>0 Then Begin SegErr:='nombre de t'#136'tes d''attention incompatible';Exit;End;
+  S^.Depth:=0;
+  While StFind(Pfx+'encoder.block.'+IStr(I)+'.'+IStr(S^.Depth)+'.layer_norm_1.weight')>=0 do Inc(S^.Depth);
+  If S^.Depth=0 Then Begin SegErr:='mod'#138'le incomplet : aucun bloc dans l''.'#130'tage '+IStr(I);Exit;End;
+  C:=S^.C;
+  Nm:=Pfx+'encoder.patch_embeddings.'+IStr(I)+'.';
+  S^.PEW:=SegNeed(Nm+'proj.weight',Int64(C)*S^.Cin*S^.PK*S^.PK);
+  S^.PEB:=SegNeed(Nm+'proj.bias',C);
+  S^.PENW:=SegNeed(Nm+'layer_norm.weight',C);
+  S^.PENB:=SegNeed(Nm+'layer_norm.bias',C);
+  S^.NW:=SegNeed(Pfx+'encoder.layer_norm.'+IStr(I)+'.weight',C);
+  S^.NB:=SegNeed(Pfx+'encoder.layer_norm.'+IStr(I)+'.bias',C);
+  Ix:=StFind(Pfx+'encoder.block.'+IStr(I)+'.0.mlp.dense1.weight');
+  If Ix<0 Then Begin SegErr:='mod'#138'le incomplet : mlp.dense1';Exit;End;
+  S^.Mlp:=StT[Ix].Dims[0];
+  Mlp:=S^.Mlp;
+  SetLength(S^.Blocks,S^.Depth);
+  For J:=0 to S^.Depth-1 do Begin
+   B:=@S^.Blocks[J];
+   Bp:=Pfx+'encoder.block.'+IStr(I)+'.'+IStr(J)+'.';
+   B^.LN1W:=SegNeed(Bp+'layer_norm_1.weight',C);B^.LN1B:=SegNeed(Bp+'layer_norm_1.bias',C);
+   B^.LN2W:=SegNeed(Bp+'layer_norm_2.weight',C);B^.LN2B:=SegNeed(Bp+'layer_norm_2.bias',C);
+   B^.QW:=SegNeed(Bp+'attention.self.query.weight',Int64(C)*C);B^.QB:=SegNeed(Bp+'attention.self.query.bias',C);
+   B^.KW:=SegNeed(Bp+'attention.self.key.weight',Int64(C)*C);B^.KB:=SegNeed(Bp+'attention.self.key.bias',C);
+   B^.VW:=SegNeed(Bp+'attention.self.value.weight',Int64(C)*C);B^.VB:=SegNeed(Bp+'attention.self.value.bias',C);
+   B^.OW:=SegNeed(Bp+'attention.output.dense.weight',Int64(C)*C);B^.OB:=SegNeed(Bp+'attention.output.dense.bias',C);
+   If S^.SR>1 Then Begin
+    B^.SRW:=SegNeed(Bp+'attention.self.sr.weight',Int64(C)*C*S^.SR*S^.SR);
+    B^.SRB:=SegNeed(Bp+'attention.self.sr.bias',C);
+    B^.SRNW:=SegNeed(Bp+'attention.self.layer_norm.weight',C);
+    B^.SRNB:=SegNeed(Bp+'attention.self.layer_norm.bias',C);
+   End;
+   B^.D1W:=SegNeed(Bp+'mlp.dense1.weight',Int64(Mlp)*C);B^.D1B:=SegNeed(Bp+'mlp.dense1.bias',Mlp);
+   B^.D2W:=SegNeed(Bp+'mlp.dense2.weight',Int64(C)*Mlp);B^.D2B:=SegNeed(Bp+'mlp.dense2.bias',C);
+   Tw:=SegNeed(Bp+'mlp.dwconv.dwconv.weight',Int64(Mlp)*9);
+   B^.DWB:=SegNeed(Bp+'mlp.dwconv.dwconv.bias',Mlp);
+   If Tw<>Nil Then Begin
+    B^.DWT:=AllocF(Int64(Mlp)*9);
+    For K:=0 to Mlp-1 do
+     For L:=0 to 8 do B^.DWT[L*Mlp+K]:=Tw[K*9+L];
+   End;
+   If SegErr<>'' Then Begin Exit;End;
+  End;
+  If SegErr<>'' Then Exit;
+ End;
+ { decodeur }
+ Ix:=StFind('decode_head.classifier.weight');
+ If Ix<0 Then Begin SegErr:='mod'#138'le incomplet : decode_head.classifier';Exit;End;
+ M.NumLabels:=StT[Ix].Dims[0];
+ D:=StT[Ix].Dims[1];
+ M.Dec:=D;
+ Fuse:=SegNeed('decode_head.linear_fuse.weight',Int64(D)*4*D);
+ G:=SegNeed('decode_head.batch_norm.weight',D);
+ Bt:=SegNeed('decode_head.batch_norm.bias',D);
+ Mn:=SegNeed('decode_head.batch_norm.running_mean',D);
+ Vr:=SegNeed('decode_head.batch_norm.running_var',D);
+ M.ClsW:=SegNeed('decode_head.classifier.weight',Int64(M.NumLabels)*D);
+ M.ClsB:=SegNeed('decode_head.classifier.bias',M.NumLabels);
+ If SegErr<>'' Then Exit;
+ { fusion algebrique : linear_fuse(cat(up(linear_c_i(F_i)))) = somme_i up((Fuse_i x LinC_i) F_i) + biais }
+ BSum:=AllocF(D);
+ T:=AllocF(Int64(D)*D);
+ Tmp:=AllocF(Int64(D)*D);
+ For I:=0 to 3 do Begin
+  C:=M.Stage[I].C;
+  LinW:=SegNeed('decode_head.linear_c.'+IStr(I)+'.proj.weight',Int64(D)*C);
+  LinB:=SegNeed('decode_head.linear_c.'+IStr(I)+'.proj.bias',D);
+  If SegErr<>'' Then Begin Exit;End;
+  K:=3-I;
+  { bloc de colonnes K de linear_fuse, rendu contigu : T[d][e] }
+  For J:=0 to D-1 do Move((Fuse+Int64(J)*4*D+K*D)^,(T+Int64(J)*D)^,D*4);
+  { LinC transpose : Tmp[c][e] = LinW[e][c] }
+  For J:=0 to D-1 do
+   For L:=0 to C-1 do Tmp[Int64(L)*D+J]:=LinW[Int64(J)*C+L];
+  M.Comp[I]:=AllocF(Int64(D)*C);
+  GemmCPU(T,Tmp,Nil,M.Comp[I],D,D,C);
+  { M.Comp[I] est [D][C] : lignes d (n), colonnes c (m) }
+  For J:=0 to D-1 do Begin
+   Sc:=0;
+   For L:=0 to D-1 do Sc:=Sc+T[Int64(J)*D+L]*LinB[L];
+   BSum[J]:=BSum[J]+Sc;
+  End;
+ End;
+ M.BnScale:=AllocF(D);M.BnShift:=AllocF(D);
+ For J:=0 to D-1 do Begin
+  Sc:=G[J]/Sqrt(Vr[J]+1.0e-5);
+  M.BnScale[J]:=Sc;
+  M.BnShift[J]:=Bt[J]-Mn[J]*Sc+Sc*BSum[J];
+ End;
+ FreeMem(BSum);FreeMem(T);FreeMem(Tmp);
+ SetupLabels(M.NumLabels,ConfigPath);
+ SegBuild:=True;
+End;
+
+{ ---- operateurs ---- }
+
+Type
+ TLnCtx=Record
+  X,W,B,Y:PSingle;
+  C:LongInt;
+  Eps:Single;
+ End;
+ PLnCtx=^TLnCtx;
+
+Procedure LnProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ R,I:LongInt;
+ Xp,Yp:PSingle;
+ Mean,V,D,Inv:Single;
+Begin
+ With PLnCtx(Ctx)^ do
+  For R:=Lo to Hi-1 do Begin
+   Xp:=X+Int64(R)*C;Yp:=Y+Int64(R)*C;
+   Mean:=0;
+   For I:=0 to C-1 do Mean:=Mean+Xp[I];
+   Mean:=Mean/C;
+   V:=0;
+   For I:=0 to C-1 do Begin D:=Xp[I]-Mean;V:=V+D*D;End;
+   Inv:=1.0/Sqrt(V/C+Eps);
+   For I:=0 to C-1 do Yp[I]:=(Xp[I]-Mean)*Inv*W[I]+B[I];
+  End;
+End;
+
+{ normalisation de couche sur N lignes de C elements (X et Y peuvent etre identiques) }
+Procedure LayerNorm(X,W,B,Y:PSingle;N,C:LongInt);
+Var
+ Cx:TLnCtx;
+Begin
+ Cx.X:=X;Cx.W:=W;Cx.B:=B;Cx.Y:=Y;Cx.C:=C;Cx.Eps:=1.0e-6;
+ ParFor(N,32,@LnProc,@Cx);
+End;
+
+Type
+ TGeluCtx=Record
+  X:PSingle;
+ End;
+ PGeluCtx=^TGeluCtx;
+
+Procedure GeluProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ I:LongInt;
+ V:Single;
+ X:PSingle;
+Begin
+ X:=PGeluCtx(Ctx)^.X;
+ For I:=Lo to Hi-1 do Begin
+  V:=X[I];
+  X[I]:=0.5*V*(1.0+FErf(V*0.70710678118654752));
+ End;
+End;
+
+Procedure Gelu(X:PSingle;N:Int64);
+Var
+ Cx:TGeluCtx;
+Begin
+ Cx.X:=X;
+ ParFor(N,65536,@GeluProc,@Cx);
+End;
+
+Type
+ TIm2Ctx=Record
+  Src,Dst:PSingle;
+  SH,SW,Cin,K,S,P,OH,OW:LongInt;
+ End;
+ PIm2Ctx=^TIm2Ctx;
+
+{ Src : disposition (y, x, canal) ; Dst : [OH*OW][Cin*K*K] dans l'ordre (canal, ky, kx) }
+Procedure Im2ColProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ Oy,Ox,C,Ky,Kx,Y,X:LongInt;
+ Row:PSingle;
+Begin
+ With PIm2Ctx(Ctx)^ do
+  For Oy:=Lo to Hi-1 do
+   For Ox:=0 to OW-1 do Begin
+    Row:=Dst+(Int64(Oy)*OW+Ox)*Cin*K*K;
+    For C:=0 to Cin-1 do
+     For Ky:=0 to K-1 do Begin
+      Y:=Oy*S+Ky-P;
+      For Kx:=0 to K-1 do Begin
+       X:=Ox*S+Kx-P;
+       If(Y>=0)and(Y<SH)and(X>=0)and(X<SW)Then
+        Row[(C*K+Ky)*K+Kx]:=Src[(Int64(Y)*SW+X)*Cin+C]
+       Else Row[(C*K+Ky)*K+Kx]:=0;
+      End;
+     End;
+   End;
+End;
+
+Procedure Im2Col(Src,Dst:PSingle;SH,SW,Cin,K,S,P,OH,OW:LongInt);
+Var
+ Cx:TIm2Ctx;
+Begin
+ Cx.Src:=Src;Cx.Dst:=Dst;Cx.SH:=SH;Cx.SW:=SW;Cx.Cin:=Cin;Cx.K:=K;Cx.S:=S;Cx.P:=P;Cx.OH:=OH;Cx.OW:=OW;
+ ParFor(OH,4,@Im2ColProc,@Cx);
+End;
+
+
+Type
+ TDwCtx=Record
+  X,W,B,Y:PSingle;
+  H,Wd,C:LongInt;
+ End;
+ PDwCtx=^TDwCtx;
+
+{ convolution 3x3 par canal (marge 1) ; W est transpose : [9][C] }
+Procedure DwProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ Cx:PDwCtx;
+ Y,X,Ky,Kx,Yy,Xx,I,C:LongInt;
+ Dp,Sp,Wp:PSingle;
+Begin
+ Cx:=PDwCtx(Ctx);
+ C:=Cx^.C;
+ For Y:=Lo to Hi-1 do
+  For X:=0 to Cx^.Wd-1 do Begin
+   Dp:=Cx^.Y+(Int64(Y)*Cx^.Wd+X)*C;
+   For I:=0 to C-1 do Dp[I]:=Cx^.B[I];
+   For Ky:=0 to 2 do Begin
+    Yy:=Y+Ky-1;
+    If(Yy<0)or(Yy>=Cx^.H)Then Continue;
+    For Kx:=0 to 2 do Begin
+     Xx:=X+Kx-1;
+     If(Xx<0)or(Xx>=Cx^.Wd)Then Continue;
+     Sp:=Cx^.X+(Int64(Yy)*Cx^.Wd+Xx)*C;
+     Wp:=Cx^.W+(Ky*3+Kx)*C;
+     For I:=0 to C-1 do Dp[I]:=Dp[I]+Sp[I]*Wp[I];
+    End;
+   End;
+  End;
+End;
+
+Procedure DwConv(X,WT,B,Y:PSingle;H,W,C:LongInt);
+Var
+ Cx:TDwCtx;
+Begin
+ Cx.X:=X;Cx.W:=WT;Cx.B:=B;Cx.Y:=Y;Cx.H:=H;Cx.Wd:=W;Cx.C:=C;
+ ParFor(H,2,@DwProc,@Cx);
+End;
+
+Type
+ TAttCtx=Record
+  Q,K,V,O,Scratch:PSingle;
+  N2,C,Heads:LongInt;
+  Scale:Single;
+ End;
+ PAttCtx=^TAttCtx;
+
+{ attention multi-tetes : O = softmax(Q K^T * Scale) V }
+Procedure AttProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ Cx:PAttCtx;
+ R,Hd,M,I,D,C,N2:LongInt;
+ S,Qp,Kp,Vp,Op:PSingle;
+ Mx,Sum,T,P:Single;
+Begin
+ Cx:=PAttCtx(Ctx);
+ C:=Cx^.C;N2:=Cx^.N2;
+ D:=C div Cx^.Heads;
+ S:=Cx^.Scratch+Int64(Tid)*N2;
+ For R:=Lo to Hi-1 do
+  For Hd:=0 to Cx^.Heads-1 do Begin
+   Qp:=Cx^.Q+Int64(R)*C+Hd*D;
+   Mx:=-1.0e30;
+   For M:=0 to N2-1 do Begin
+    Kp:=Cx^.K+Int64(M)*C+Hd*D;
+    T:=0;
+    For I:=0 to D-1 do T:=T+Qp[I]*Kp[I];
+    T:=T*Cx^.Scale;
+    S[M]:=T;
+    If T>Mx Then Mx:=T;
+   End;
+   Sum:=0;
+   For M:=0 to N2-1 do Begin
+    T:=Exp(S[M]-Mx);
+    S[M]:=T;
+    Sum:=Sum+T;
+   End;
+   Sum:=1.0/Sum;
+   Op:=Cx^.O+Int64(R)*C+Hd*D;
+   For I:=0 to D-1 do Op[I]:=0;
+   For M:=0 to N2-1 do Begin
+    P:=S[M]*Sum;
+    Vp:=Cx^.V+Int64(M)*C+Hd*D;
+    For I:=0 to D-1 do Op[I]:=Op[I]+P*Vp[I];
+   End;
+  End;
+End;
+
+Procedure Attention(Q,K,V,O:PSingle;N,N2,C,Heads:LongInt);
+Var
+ Cx:TAttCtx;
+ Sc:PSingle;
+Begin
+ Sc:=AllocF(Int64(GNThreads)*N2+16);
+ Cx.Q:=Q;Cx.K:=K;Cx.V:=V;Cx.O:=O;Cx.Scratch:=Sc;Cx.N2:=N2;Cx.C:=C;Cx.Heads:=Heads;
+ Cx.Scale:=1.0/Sqrt(C/Heads);
+ ParFor(N,8,@AttProc,@Cx);
+ FreeMem(Sc);
+End;
+
+Procedure AddInPlace(X,Y:PSingle;N:Int64);
+Var
+ I:Int64;
+Begin
+ For I:=0 to N-1 do X[I]:=X[I]+Y[I];
+End;
+
+Type
+ TUpCtx=Record
+  Dst,Src:PSingle;
+  H1,W1,Hj,Wj,D:LongInt;
+ End;
+ PUpCtx=^TUpCtx;
+
+{ Dst += agrandissement bilineaire (align_corners=False) de Src }
+Procedure UpAddProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ Cx:PUpCtx;
+ Oy,Ox,Y0,Y1,X0,X1,I,D:LongInt;
+ Sy,Sx,Ly,Lx,W00,W01,W10,W11:Single;
+ Dp,P00,P01,P10,P11:PSingle;
+Begin
+ Cx:=PUpCtx(Ctx);
+ D:=Cx^.D;
+ For Oy:=Lo to Hi-1 do Begin
+  Sy:=(Oy+0.5)*Cx^.Hj/Cx^.H1-0.5;
+  If Sy<0 Then Sy:=0;
+  Y0:=Trunc(Sy);
+  If Y0>Cx^.Hj-1 Then Y0:=Cx^.Hj-1;
+  Y1:=Y0+1;
+  If Y1>Cx^.Hj-1 Then Y1:=Cx^.Hj-1;
+  Ly:=Sy-Y0;
+  For Ox:=0 to Cx^.W1-1 do Begin
+   Sx:=(Ox+0.5)*Cx^.Wj/Cx^.W1-0.5;
+   If Sx<0 Then Sx:=0;
+   X0:=Trunc(Sx);
+   If X0>Cx^.Wj-1 Then X0:=Cx^.Wj-1;
+   X1:=X0+1;
+   If X1>Cx^.Wj-1 Then X1:=Cx^.Wj-1;
+   Lx:=Sx-X0;
+   W00:=(1-Ly)*(1-Lx);W01:=(1-Ly)*Lx;W10:=Ly*(1-Lx);W11:=Ly*Lx;
+   Dp:=Cx^.Dst+(Int64(Oy)*Cx^.W1+Ox)*D;
+   P00:=Cx^.Src+(Int64(Y0)*Cx^.Wj+X0)*D;
+   P01:=Cx^.Src+(Int64(Y0)*Cx^.Wj+X1)*D;
+   P10:=Cx^.Src+(Int64(Y1)*Cx^.Wj+X0)*D;
+   P11:=Cx^.Src+(Int64(Y1)*Cx^.Wj+X1)*D;
+   For I:=0 to D-1 do
+    Dp[I]:=Dp[I]+W00*P00[I]+W01*P01[I]+W10*P10[I]+W11*P11[I];
+  End;
+ End;
+End;
+
+Procedure UpAdd(Dst,Src:PSingle;H1,W1,Hj,Wj,D:LongInt);
+Var
+ Cx:TUpCtx;
+Begin
+ Cx.Dst:=Dst;Cx.Src:=Src;Cx.H1:=H1;Cx.W1:=W1;Cx.Hj:=Hj;Cx.Wj:=Wj;Cx.D:=D;
+ ParFor(H1,2,@UpAddProc,@Cx);
+End;
+
+Type
+ TBnCtx=Record
+  X,Sc,Sh:PSingle;
+  D:LongInt;
+ End;
+ PBnCtx=^TBnCtx;
+
+Procedure BnReluProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ Cx:PBnCtx;
+ R,I,D:LongInt;
+ Xp:PSingle;
+ V:Single;
+Begin
+ Cx:=PBnCtx(Ctx);
+ D:=Cx^.D;
+ For R:=Lo to Hi-1 do Begin
+  Xp:=Cx^.X+Int64(R)*D;
+  For I:=0 to D-1 do Begin
+   V:=Xp[I]*Cx^.Sc[I]+Cx^.Sh[I];
+   If V<0 Then V:=0;
+   Xp[I]:=V;
+  End;
+ End;
+End;
+
+{ ---- passe avant ---- }
+
+Var
+ SegT0:Double;
+
+Procedure SegStep(Const S:AnsiString);
+Begin
+ If Verbose Then Detail(S+' ('+FStr((NowMsF-SegT0)/1000.0,1)+' s)');
+End;
+
+{ Img : pixels normalises (y, x, RVB) de H x W (H et W multiples de 32 conseilles) ;
+  renvoie les logits [OH*OW][NumLabels] (resolution 1/4) }
+Function SegForward(Var M:TSegModel;Img:PSingle;H,W:LongInt;Var OH,OW:LongInt):PSingle;
+Var
+ I,J,N,N2,Hn,Wn,H2,W2,C,Mlp,Kc,D,L:LongInt;
+ S:^TSegStage;
+ B:^TSegBlock;
+ Feat:Array[0..3]of PSingle;
+ FH,FW:Array[0..3]of LongInt;
+ Cur:PSingle;
+ CurH,CurW,CurC:LongInt;
+ X,T,Q,A,Tm,Col,KB,VB,R,Hid,Hid2,Kin:PSingle;
+ ColSize:Int64;
+ Z:Array[0..3]of PSingle;
+ Cx:TBnCtx;
+ Lg:PSingle;
+Begin
+ SegT0:=NowMsF;
+ Cur:=Img;CurH:=H;CurW:=W;CurC:=3;
+ For I:=0 to 3 do Begin
+  S:=@M.Stage[I];
+  C:=S^.C;Mlp:=S^.Mlp;
+  If CurC<>S^.Cin Then Fatal('mod'#138'le incoh'#130'rent : canaux d''entr'#130'e de l''.'#130'tage '+IStr(I));
+  Hn:=(CurH+2*S^.PP-S^.PK)div S^.PS+1;
+  Wn:=(CurW+2*S^.PP-S^.PK)div S^.PS+1;
+  N:=Hn*Wn;
+  N2:=N;H2:=Hn;W2:=Wn;
+  If S^.SR>1 Then Begin
+   H2:=Hn div S^.SR;W2:=Wn div S^.SR;
+   If(H2<1)or(W2<1)Then Fatal('image trop petite pour le r'#130'seau');
+   N2:=H2*W2;
+  End;
+  ColSize:=Int64(N)*S^.Cin*S^.PK*S^.PK;
+  If S^.SR>1 Then If Int64(N2)*C*S^.SR*S^.SR>ColSize Then ColSize:=Int64(N2)*C*S^.SR*S^.SR;
+  Col:=AllocF(ColSize);
+  X:=AllocF(Int64(N)*C);T:=AllocF(Int64(N)*C);Q:=AllocF(Int64(N)*C);
+  A:=AllocF(Int64(N)*C);Tm:=AllocF(Int64(N)*C);
+  KB:=AllocF(Int64(N2)*C);VB:=AllocF(Int64(N2)*C);R:=AllocF(Int64(N2)*C);
+  Hid:=AllocF(Int64(N)*Mlp);Hid2:=AllocF(Int64(N)*Mlp);
+  { plongement de patchs : convolution + normalisation }
+  Im2Col(Cur,Col,CurH,CurW,S^.Cin,S^.PK,S^.PS,S^.PP,Hn,Wn);
+  Gemm(Col,S^.PEW,S^.PEB,X,N,S^.Cin*S^.PK*S^.PK,C);
+  LayerNorm(X,S^.PENW,S^.PENB,X,N,C);
+  For J:=0 to S^.Depth-1 do Begin
+   B:=@S^.Blocks[J];
+   LayerNorm(X,B^.LN1W,B^.LN1B,T,N,C);
+   Gemm(T,B^.QW,B^.QB,Q,N,C,C);
+   If S^.SR>1 Then Begin
+    Im2Col(T,Col,Hn,Wn,C,S^.SR,S^.SR,0,H2,W2);
+    Gemm(Col,B^.SRW,B^.SRB,R,N2,C*S^.SR*S^.SR,C);
+    LayerNorm(R,B^.SRNW,B^.SRNB,R,N2,C);
+    Kin:=R;
+   End
+    Else Kin:=T;
+   Gemm(Kin,B^.KW,B^.KB,KB,N2,C,C);
+   Gemm(Kin,B^.VW,B^.VB,VB,N2,C,C);
+   Attention(Q,KB,VB,A,N,N2,C,S^.Heads);
+   Gemm(A,B^.OW,B^.OB,Tm,N,C,C);
+   AddInPlace(X,Tm,Int64(N)*C);
+   LayerNorm(X,B^.LN2W,B^.LN2B,T,N,C);
+   Gemm(T,B^.D1W,B^.D1B,Hid,N,C,Mlp);
+   DwConv(Hid,B^.DWT,B^.DWB,Hid2,Hn,Wn,Mlp);
+   Gelu(Hid2,Int64(N)*Mlp);
+   Gemm(Hid2,B^.D2W,B^.D2B,Tm,N,Mlp,C);
+   AddInPlace(X,Tm,Int64(N)*C);
+  End;
+  Feat[I]:=AllocF(Int64(N)*C);
+  LayerNorm(X,S^.NW,S^.NB,Feat[I],N,C);
+  FH[I]:=Hn;FW[I]:=Wn;
+  FreeMem(Col);FreeMem(X);FreeMem(T);FreeMem(Q);FreeMem(A);FreeMem(Tm);
+  FreeMem(KB);FreeMem(VB);FreeMem(R);FreeMem(Hid);FreeMem(Hid2);
+  Cur:=Feat[I];CurH:=Hn;CurW:=Wn;CurC:=C;
+  SegStep('r'#130'seau : '#130'tage '+IStr(I+1)+'/4 ('+IStr(Wn)+'x'+IStr(Hn)+', '+IStr(C)+' canaux)');
+ End;
+ { decodeur MLP : produit au plus bas niveau puis agrandissement, somme, BN, ReLU }
+ D:=M.Dec;L:=M.NumLabels;
+ For I:=0 to 3 do Begin
+  Z[I]:=AllocF(Int64(FH[I])*FW[I]*D);
+  Gemm(Feat[I],M.Comp[I],Nil,Z[I],FH[I]*FW[I],M.Stage[I].C,D);
+  FreeMem(Feat[I]);
+ End;
+ OH:=FH[0];OW:=FW[0];
+ For I:=1 to 3 do Begin
+  UpAdd(Z[0],Z[I],OH,OW,FH[I],FW[I],D);
+  FreeMem(Z[I]);
+ End;
+ Cx.X:=Z[0];Cx.Sc:=M.BnScale;Cx.Sh:=M.BnShift;Cx.D:=D;
+ ParFor(OH*OW,64,@BnReluProc,@Cx);
+ Lg:=AllocF(Int64(OH)*OW*L);
+ Gemm(Z[0],M.ClsW,M.ClsB,Lg,OH*OW,D,L);
+ FreeMem(Z[0]);
+ SegStep('r'#130'seau : d'#130'codeur');
+ SegForward:=Lg;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Operations sur les images : couleurs, filtres, redimensionnement,    }
+{ composantes connexes, remplissage                                    }
+{ ------------------------------------------------------------------ }
+
+Const
+ LinSize=16384;
+ LabSize=4096;
+
+Var
+ SrgbLin:Array[0..4095]of Single;       { sRGB (0..255 par pas de 1/16) -> lineaire }
+ LinSrgb:Array[0..LinSize]of Single;    { lineaire (0..1) -> sRGB 0..255 }
+ LabF:Array[0..LabSize]of Single;       { f(t) de CIE Lab pour t dans [0,1,2] }
+ ColReady:Boolean=False;
+
+Procedure ColorInit;
+Var
+ I:LongInt;
+ V,T:Double;
+Begin
+ If ColReady Then Exit;
+ ColReady:=True;
+ For I:=0 to 4095 do Begin
+  V:=I/16.0/255.0;
+  If V<=0.04045 Then T:=V/12.92 Else T:=Exp(2.4*Ln((V+0.055)/1.055));
+  SrgbLin[I]:=T;
+ End;
+ For I:=0 to LinSize do Begin
+  V:=I/LinSize;
+  If V<=0.0031308 Then T:=V*12.92 Else T:=1.055*Exp(Ln(V)/2.4)-0.055;
+  LinSrgb[I]:=T*255.0;
+ End;
+ For I:=0 to LabSize do Begin
+  V:=I/LabSize*2.0;
+  If V>0.008856 Then T:=Exp(Ln(V)/3.0) Else T:=7.787*V+16.0/116.0;
+  LabF[I]:=T;
+ End;
+End;
+
+Function ToLin(V:Single):Single;
+Var
+ I:LongInt;
+Begin
+ I:=Trunc(V*16.0+0.5);
+ If I<0 Then I:=0 Else If I>4095 Then I:=4095;
+ ToLin:=SrgbLin[I];
+End;
+
+Function FromLin(V:Single):Single;
+Var
+ F:Single;
+ I:LongInt;
+Begin
+ If V<=0 Then Begin FromLin:=0;Exit;End;
+ If V>=1 Then Begin FromLin:=255;Exit;End;
+ F:=V*LinSize;
+ I:=Trunc(F);
+ FromLin:=LinSrgb[I]+(LinSrgb[I+1]-LinSrgb[I])*(F-I);
+End;
+
+Function LabFn(T:Single):Single;
+Var
+ F:Single;
+ I:LongInt;
+Begin
+ If T<=0 Then Begin LabFn:=16.0/116.0;Exit;End;
+ If T>=2 Then T:=1.999;
+ F:=T/2.0*LabSize;
+ I:=Trunc(F);
+ LabFn:=LabF[I]+(LabF[I+1]-LabF[I])*(F-I);
+End;
+
+Function LabInv(F:Single):Single;
+Var
+ C:Single;
+Begin
+ C:=F*F*F;
+ If C>0.008856 Then LabInv:=C Else LabInv:=(F-16.0/116.0)/7.787;
+End;
+
+{ sRGB 0..255 vers CIE Lab (D65) }
+Procedure RgbToLab(R,G,B:Single;Var L,A,Bb:Single);
+Var
+ Rl,Gl,Bl,X,Y,Z,Fx,Fy,Fz:Single;
+Begin
+ Rl:=ToLin(R);Gl:=ToLin(G);Bl:=ToLin(B);
+ X:=(0.4124564*Rl+0.3575761*Gl+0.1804375*Bl)/0.95047;
+ Y:=0.2126729*Rl+0.7151522*Gl+0.0721750*Bl;
+ Z:=(0.0193339*Rl+0.1191920*Gl+0.9503041*Bl)/1.08883;
+ Fx:=LabFn(X);Fy:=LabFn(Y);Fz:=LabFn(Z);
+ L:=116.0*Fy-16.0;
+ A:=500.0*(Fx-Fy);
+ Bb:=200.0*(Fy-Fz);
+End;
+
+Procedure LabToRgb(L,A,Bb:Single;Var R,G,B:Single);
+Var
+ Fx,Fy,Fz,X,Y,Z,Rl,Gl,Bl:Single;
+Begin
+ Fy:=(L+16.0)/116.0;
+ Fx:=Fy+A/500.0;
+ Fz:=Fy-Bb/200.0;
+ X:=LabInv(Fx)*0.95047;Y:=LabInv(Fy);Z:=LabInv(Fz)*1.08883;
+ Rl:=3.2404542*X-1.5371385*Y-0.4985314*Z;
+ Gl:=-0.9692660*X+1.8760108*Y+0.0415560*Z;
+ Bl:=0.0556434*X-0.2040259*Y+1.0572252*Z;
+ R:=FromLin(Rl);G:=FromLin(Gl);B:=FromLin(Bl);
+End;
+
+Function Luma(R,G,B:Single):Single;
+Begin
+ Luma:=0.299*R+0.587*G+0.114*B;
+End;
+
+{ ---- filtres sur plans flottants (W x H) ---- }
+
+{ moyenne sur une fenetre carree de rayon R ; Src et Dst peuvent etre identiques }
+Procedure BoxBlur(Src,Dst:PSingle;W,H,R:LongInt);
+Var
+ X,Y,A,B,Y0,Y1:LongInt;
+ Pre:Array of Double;
+ Col:Array of Double;
+ Tmp:PSingle;
+ Cnt:Double;
+Begin
+ If R<=0 Then Begin
+  If Src<>Dst Then Move(Src^,Dst^,Int64(W)*H*4);
+  Exit;
+ End;
+ SetLength(Pre,W+1);
+ SetLength(Col,W);
+ Tmp:=AllocF(Int64(W)*H);
+ For Y:=0 to H-1 do Begin
+  Pre[0]:=0;
+  For X:=0 to W-1 do Pre[X+1]:=Pre[X]+Src[Int64(Y)*W+X];
+  For X:=0 to W-1 do Begin
+   A:=X-R;If A<0 Then A:=0;
+   B:=X+R;If B>W-1 Then B:=W-1;
+   Tmp[Int64(Y)*W+X]:=(Pre[B+1]-Pre[A])/(B-A+1);
+  End;
+ End;
+ For X:=0 to W-1 do Col[X]:=0;
+ Y1:=-1;
+ For Y:=0 to H-1 do Begin
+  A:=Y-R;If A<0 Then A:=0;
+  B:=Y+R;If B>H-1 Then B:=H-1;
+  While Y1<B do Begin
+   Inc(Y1);
+   For X:=0 to W-1 do Col[X]:=Col[X]+Tmp[Int64(Y1)*W+X];
+  End;
+  If Y-R-1>=0 Then Begin
+   Y0:=Y-R-1;
+   For X:=0 to W-1 do Col[X]:=Col[X]-Tmp[Int64(Y0)*W+X];
+  End;
+  Cnt:=B-A+1;
+  For X:=0 to W-1 do Dst[Int64(Y)*W+X]:=Col[X]/Cnt;
+ End;
+ FreeMem(Tmp);
+End;
+
+{ flou approximativement gaussien (3 passes de boite) }
+Procedure BlurPlane(P:PSingle;W,H:LongInt;Sigma:Single);
+Var
+ R:LongInt;
+Begin
+ R:=Round(Sigma*0.9);
+ If R<1 Then R:=1;
+ BoxBlur(P,P,W,H,R);
+ BoxBlur(P,P,W,H,R);
+ BoxBlur(P,P,W,H,R);
+End;
+
+Type
+ TGuide=Record
+  W,H:LongInt;
+  I,MeanI,VarI:PSingle;
+  R:LongInt;
+  Eps:Single;
+ End;
+
+{ filtre guide (He et al.) : lisse un masque P en suivant les contours de l'image guide I (0..1) }
+Procedure GuideInit(Var G:TGuide;Pix:PSingle;W,H,R:LongInt;Eps:Single);
+Var
+ N,K:Int64;
+ Ii:PSingle;
+Begin
+ G.W:=W;G.H:=H;G.R:=R;G.Eps:=Eps;
+ N:=Int64(W)*H;
+ G.I:=AllocF(N);G.MeanI:=AllocF(N);G.VarI:=AllocF(N);
+ For K:=0 to N-1 do G.I[K]:=Luma(Pix[K*3],Pix[K*3+1],Pix[K*3+2])/255.0;
+ BoxBlur(G.I,G.MeanI,W,H,R);
+ Ii:=AllocF(N);
+ For K:=0 to N-1 do Ii[K]:=G.I[K]*G.I[K];
+ BoxBlur(Ii,G.VarI,W,H,R);
+ For K:=0 to N-1 do G.VarI[K]:=G.VarI[K]-G.MeanI[K]*G.MeanI[K];
+ FreeMem(Ii);
+End;
+
+Procedure GuideFree(Var G:TGuide);
+Begin
+ FreeMem(G.I);FreeMem(G.MeanI);FreeMem(G.VarI);
+End;
+
+Procedure GuideApply(Var G:TGuide;P,Q:PSingle);
+Var
+ N,K:Int64;
+ MeanP,Ip,A,B:PSingle;
+ Cov:Single;
+Begin
+ N:=Int64(G.W)*G.H;
+ MeanP:=AllocF(N);Ip:=AllocF(N);A:=AllocF(N);B:=AllocF(N);
+ BoxBlur(P,MeanP,G.W,G.H,G.R);
+ For K:=0 to N-1 do Ip[K]:=G.I[K]*P[K];
+ BoxBlur(Ip,Ip,G.W,G.H,G.R);
+ For K:=0 to N-1 do Begin
+  Cov:=Ip[K]-G.MeanI[K]*MeanP[K];
+  A[K]:=Cov/(G.VarI[K]+G.Eps);
+  B[K]:=MeanP[K]-A[K]*G.MeanI[K];
+ End;
+ BoxBlur(A,A,G.W,G.H,G.R);
+ BoxBlur(B,B,G.W,G.H,G.R);
+ For K:=0 to N-1 do Begin
+  Cov:=A[K]*G.I[K]+B[K];
+  If Cov<0 Then Cov:=0 Else If Cov>1 Then Cov:=1;
+  Q[K]:=Cov;
+ End;
+ FreeMem(MeanP);FreeMem(Ip);FreeMem(A);FreeMem(B);
+End;
+
+{ ---- redimensionnement (filtre triangulaire adapte a l'echelle) ---- }
+
+Type
+ TTaps=Record
+  First,Count:LongInt;
+  Off:LongInt;
+ End;
+
+Procedure MakeTaps(SrcN,DstN:LongInt;Var Taps:Array of TTaps;Var Wt:PSingle);
+Var
+ X,I,F,L,K,Tot:LongInt;
+ Scale,Sup,C,W,Sum:Double;
+ Tmp:Array of Single;
+Begin
+ Scale:=SrcN/DstN;
+ Sup:=Scale;
+ If Sup<1 Then Sup:=1;
+ Tot:=0;
+ For X:=0 to DstN-1 do Begin
+  C:=(X+0.5)*Scale;
+  F:=Trunc(C-Sup);If F<0 Then F:=0;
+  L:=Trunc(C+Sup)+1;If L>SrcN-1 Then L:=SrcN-1;
+  Taps[X].First:=F;Taps[X].Count:=L-F+1;Taps[X].Off:=Tot;
+  Inc(Tot,Taps[X].Count);
+ End;
+ Wt:=AllocF(Tot+1);
+ For X:=0 to DstN-1 do Begin
+  C:=(X+0.5)*Scale;
+  Sum:=0;
+  For K:=0 to Taps[X].Count-1 do Begin
+   I:=Taps[X].First+K;
+   W:=1.0-Abs(I+0.5-C)/Sup;
+   If W<0 Then W:=0;
+   Wt[Taps[X].Off+K]:=W;
+   Sum:=Sum+W;
+  End;
+  If Sum<=0 Then Begin Wt[Taps[X].Off]:=1;Sum:=1;End;
+  For K:=0 to Taps[X].Count-1 do Wt[Taps[X].Off+K]:=Wt[Taps[X].Off+K]/Sum;
+ End;
+End;
+
+{ Src : SW x SH x Ch flottants ; Dst : DW x DH x Ch }
+Procedure ResizeF(Src:PSingle;SW,SH:LongInt;Dst:PSingle;DW,DH,Ch:LongInt);
+Var
+ TX,TY:Array of TTaps;
+ WX,WY,Tmp:PSingle;
+ X,Y,K,C:LongInt;
+ Acc:Single;
+ Base:Int64;
+Begin
+ If(SW=DW)and(SH=DH)Then Begin
+  Move(Src^,Dst^,Int64(SW)*SH*Ch*4);
+  Exit;
+ End;
+ SetLength(TX,DW);SetLength(TY,DH);
+ MakeTaps(SW,DW,TX,WX);
+ MakeTaps(SH,DH,TY,WY);
+ Tmp:=AllocF(Int64(DW)*SH*Ch);
+ For Y:=0 to SH-1 do
+  For X:=0 to DW-1 do
+   For C:=0 to Ch-1 do Begin
+    Acc:=0;
+    For K:=0 to TX[X].Count-1 do
+     Acc:=Acc+WX[TX[X].Off+K]*Src[(Int64(Y)*SW+TX[X].First+K)*Ch+C];
+    Tmp[(Int64(Y)*DW+X)*Ch+C]:=Acc;
+   End;
+ For Y:=0 to DH-1 do
+  For X:=0 to DW-1 do
+   For C:=0 to Ch-1 do Begin
+    Acc:=0;
+    For K:=0 to TY[Y].Count-1 do Begin
+     Base:=(Int64(TY[Y].First+K)*DW+X)*Ch+C;
+     Acc:=Acc+WY[TY[Y].Off+K]*Tmp[Base];
+    End;
+    Dst[(Int64(Y)*DW+X)*Ch+C]:=Acc;
+   End;
+ FreeMem(WX);FreeMem(WY);FreeMem(Tmp);
+End;
+
+{ echantillonnage bilineaire d'un plan a Ch canaux (coordonnees de pixels, centres a +0,5) }
+Procedure SampleBilinear(Src:PSingle;W,H,Ch:LongInt;X,Y:Single;Dst:PSingle);
+Var
+ X0,Y0,X1,Y1,C:LongInt;
+ Fx,Fy:Single;
+Begin
+ X:=X-0.5;Y:=Y-0.5;
+ If X<0 Then X:=0;
+ If Y<0 Then Y:=0;
+ If X>W-1 Then X:=W-1;
+ If Y>H-1 Then Y:=H-1;
+ X0:=Trunc(X);Y0:=Trunc(Y);
+ X1:=X0+1;If X1>W-1 Then X1:=W-1;
+ Y1:=Y0+1;If Y1>H-1 Then Y1:=H-1;
+ Fx:=X-X0;Fy:=Y-Y0;
+ For C:=0 to Ch-1 do
+  Dst[C]:=(Src[(Int64(Y0)*W+X0)*Ch+C]*(1-Fx)+Src[(Int64(Y0)*W+X1)*Ch+C]*Fx)*(1-Fy)+
+          (Src[(Int64(Y1)*W+X0)*Ch+C]*(1-Fx)+Src[(Int64(Y1)*W+X1)*Ch+C]*Fx)*Fy;
+End;
+
+{ ---- masques binaires (octets 0/255) ---- }
+
+{ dilatation (ou erosion si Erode) par un carre de rayon R }
+Procedure MorphMask(M:PByte;W,H,R:LongInt;Erode:Boolean);
+Var
+ X,Y,K,A,B:LongInt;
+ Tmp:PByte;
+ V:Byte;
+Begin
+ If R<=0 Then Exit;
+ Tmp:=PByte(AllocBytes(Int64(W)*H));
+ For Y:=0 to H-1 do
+  For X:=0 to W-1 do Begin
+   A:=X-R;If A<0 Then A:=0;
+   B:=X+R;If B>W-1 Then B:=W-1;
+   If Erode Then V:=255 Else V:=0;
+   For K:=A to B do
+    If Erode Then Begin If M[Int64(Y)*W+K]<V Then V:=M[Int64(Y)*W+K];End
+    Else Begin If M[Int64(Y)*W+K]>V Then V:=M[Int64(Y)*W+K];End;
+   Tmp[Int64(Y)*W+X]:=V;
+  End;
+ For Y:=0 to H-1 do Begin
+  A:=Y-R;If A<0 Then A:=0;
+  B:=Y+R;If B>H-1 Then B:=H-1;
+  For X:=0 to W-1 do Begin
+   If Erode Then V:=255 Else V:=0;
+   For K:=A to B do
+    If Erode Then Begin If Tmp[Int64(K)*W+X]<V Then V:=Tmp[Int64(K)*W+X];End
+    Else Begin If Tmp[Int64(K)*W+X]>V Then V:=Tmp[Int64(K)*W+X];End;
+   M[Int64(Y)*W+X]:=V;
+  End;
+ End;
+ FreeMem(Tmp);
+End;
+
+{ etiquette les composantes connexes (4 voisins) des pixels > 0 ;
+  Lab recoit l'etiquette (1..N) ; renvoie N ; Areas[1..N] }
+Function Components(M:PByte;W,H:LongInt;Lab:PIntArr;Var Areas:TIntArray):LongInt;
+Var
+ Stack:PIntArr;
+ Sp,N,P,Q,X,Y,Cnt:LongInt;
+ Tot:Int64;
+Begin
+ Tot:=Int64(W)*H;
+ Stack:=PIntArr(AllocBytes(Tot*4));
+ FillChar(Lab^,Tot*4,0);
+ SetLength(Areas,1);
+ Areas[0]:=0;
+ N:=0;
+ For P:=0 to Tot-1 do Begin
+  If(M[P]=0)or(Lab[P]<>0)Then Continue;
+  Inc(N);
+  SetLength(Areas,N+1);
+  Cnt:=0;
+  Sp:=0;
+  Stack[Sp]:=P;Inc(Sp);
+  Lab[P]:=N;
+  While Sp>0 do Begin
+   Dec(Sp);
+   Q:=Stack[Sp];
+   Inc(Cnt);
+   X:=Q mod W;Y:=Q div W;
+   If(X>0)and(M[Q-1]<>0)and(Lab[Q-1]=0)Then Begin Lab[Q-1]:=N;Stack[Sp]:=Q-1;Inc(Sp);End;
+   If(X<W-1)and(M[Q+1]<>0)and(Lab[Q+1]=0)Then Begin Lab[Q+1]:=N;Stack[Sp]:=Q+1;Inc(Sp);End;
+   If(Y>0)and(M[Q-W]<>0)and(Lab[Q-W]=0)Then Begin Lab[Q-W]:=N;Stack[Sp]:=Q-W;Inc(Sp);End;
+   If(Y<H-1)and(M[Q+W]<>0)and(Lab[Q+W]=0)Then Begin Lab[Q+W]:=N;Stack[Sp]:=Q+W;Inc(Sp);End;
+  End;
+  Areas[N]:=Cnt;
+ End;
+ FreeMem(Stack);
+ Components:=N;
+End;
+
+{ ---- remplissage par propagation multi-echelle (pull-push) ----
+  Pix : RVB flottant W x H ; Known : poids 0..1 (1 = pixel fiable) }
+Procedure PushPullFill(Pix:PSingle;Known:PSingle;W,H:LongInt);
+Const
+ MaxLev=14;
+Var
+ LW,LH:Array[0..MaxLev]of LongInt;
+ Col:Array[0..MaxLev]of PSingle;
+ Wt:Array[0..MaxLev]of PSingle;
+ NL,L,X,Y,C,Dx,Dy,X2,Y2,X0,X1,Y0,Y1:LongInt;
+ Sw,Sum:Single;
+ Fx,Fy,Sx,Sy,V00,V01,V10,V11,Up:Single;
+ N:Int64;
+ Any:Boolean;
+Begin
+ NL:=0;
+ LW[0]:=W;LH[0]:=H;
+ N:=Int64(W)*H;
+ Col[0]:=AllocF(N*3);Wt[0]:=AllocF(N);
+ Any:=False;
+ For N:=0 to Int64(W)*H-1 do Begin
+  Wt[0][N]:=Known[N];
+  If Known[N]>0 Then Any:=True;
+  For C:=0 to 2 do Col[0][N*3+C]:=Pix[N*3+C];
+ End;
+ If not Any Then Begin
+  FreeMem(Col[0]);FreeMem(Wt[0]);
+  Exit;
+ End;
+ While(LW[NL]>1)or(LH[NL]>1)do Begin
+  If NL>=MaxLev Then Break;
+  LW[NL+1]:=(LW[NL]+1)div 2;LH[NL+1]:=(LH[NL]+1)div 2;
+  Col[NL+1]:=AllocF(Int64(LW[NL+1])*LH[NL+1]*3);
+  Wt[NL+1]:=AllocF(Int64(LW[NL+1])*LH[NL+1]);
+  For Y:=0 to LH[NL+1]-1 do
+   For X:=0 to LW[NL+1]-1 do Begin
+    Sw:=0;
+    Sx:=0;Sy:=0;V00:=0;
+    For Dy:=0 to 1 do
+     For Dx:=0 to 1 do Begin
+      X2:=X*2+Dx;Y2:=Y*2+Dy;
+      If(X2<LW[NL])and(Y2<LH[NL])Then Begin
+       Sum:=Wt[NL][Int64(Y2)*LW[NL]+X2];
+       Sw:=Sw+Sum;
+       Sx:=Sx+Sum*Col[NL][(Int64(Y2)*LW[NL]+X2)*3];
+       Sy:=Sy+Sum*Col[NL][(Int64(Y2)*LW[NL]+X2)*3+1];
+       V00:=V00+Sum*Col[NL][(Int64(Y2)*LW[NL]+X2)*3+2];
+      End;
+     End;
+    N:=Int64(Y)*LW[NL+1]+X;
+    If Sw>0 Then Begin
+     Col[NL+1][N*3]:=Sx/Sw;Col[NL+1][N*3+1]:=Sy/Sw;Col[NL+1][N*3+2]:=V00/Sw;
+    End;
+    If Sw>1 Then Sw:=1;
+    Wt[NL+1][N]:=Sw;
+   End;
+  Inc(NL);
+ End;
+ { poussee : du niveau le plus grossier vers le plus fin }
+ For L:=NL-1 downto 0 do
+  For Y:=0 to LH[L]-1 do
+   For X:=0 to LW[L]-1 do Begin
+    N:=Int64(Y)*LW[L]+X;
+    If Wt[L][N]>=1 Then Continue;
+    Sx:=(X+0.5)/2-0.5;Sy:=(Y+0.5)/2-0.5;
+    If Sx<0 Then Sx:=0;
+    If Sy<0 Then Sy:=0;
+    X0:=Trunc(Sx);Y0:=Trunc(Sy);
+    X1:=X0+1;If X1>LW[L+1]-1 Then X1:=LW[L+1]-1;
+    Y1:=Y0+1;If Y1>LH[L+1]-1 Then Y1:=LH[L+1]-1;
+    If X0>LW[L+1]-1 Then X0:=LW[L+1]-1;
+    If Y0>LH[L+1]-1 Then Y0:=LH[L+1]-1;
+    Fx:=Sx-X0;Fy:=Sy-Y0;
+    For C:=0 to 2 do Begin
+     V00:=Col[L+1][(Int64(Y0)*LW[L+1]+X0)*3+C];
+     V01:=Col[L+1][(Int64(Y0)*LW[L+1]+X1)*3+C];
+     V10:=Col[L+1][(Int64(Y1)*LW[L+1]+X0)*3+C];
+     V11:=Col[L+1][(Int64(Y1)*LW[L+1]+X1)*3+C];
+     Up:=(V00*(1-Fx)+V01*Fx)*(1-Fy)+(V10*(1-Fx)+V11*Fx)*Fy;
+     Col[L][N*3+C]:=Col[L][N*3+C]*Wt[L][N]+Up*(1-Wt[L][N]);
+    End;
+    Wt[L][N]:=1;
+   End;
+ For N:=0 to Int64(W)*H-1 do
+  For C:=0 to 2 do Pix[N*3+C]:=Pix[N*3+C]*Known[N]+Col[0][N*3+C]*(1-Known[N]);
+ For L:=0 to NL do Begin FreeMem(Col[L]);FreeMem(Wt[L]);End;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Scene : image de travail et cartes de categories (analyse IA)       }
+{ ------------------------------------------------------------------ }
+
+Type
+ TScene=Record
+  W,H:LongInt;
+  Pix:PSingle;                          { RVB 0..255 }
+  Cat:Array[0..NumCat-1]of PByte;       { opacite 0..255 de chaque categorie }
+ End;
+
+Const
+ { ensembles de categories (masques de bits) }
+ msTop=1 shl cTop;
+ msSkirt=1 shl cSkirt;
+ msPants=1 shl cPants;
+ msDress=1 shl cDress;
+ msBelt=1 shl cBelt;
+ msShoes=1 shl cShoes;
+ msHat=1 shl cHat;
+ msGlasses=1 shl cGlasses;
+ msBag=1 shl cBag;
+ msScarf=1 shl cScarf;
+ msFace=1 shl cFace;
+ msHair=1 shl cHair;
+ msArms=1 shl cArms;
+ msLegs=1 shl cLegs;
+ msSkin=(1 shl cFace)or(1 shl cLegs)or(1 shl cArms)or(1 shl cSkin);
+ msClothes=(1 shl cTop)or(1 shl cSkirt)or(1 shl cPants)or(1 shl cDress);
+
+Procedure SceneFree(Var S:TScene);
+Var
+ C:LongInt;
+Begin
+ If S.Pix<>Nil Then FreeMem(S.Pix);
+ S.Pix:=Nil;
+ For C:=0 to NumCat-1 do Begin
+  If S.Cat[C]<>Nil Then FreeMem(S.Cat[C]);
+  S.Cat[C]:=Nil;
+ End;
+End;
+
+{ reduit une image d'octets par moyenne de blocs K x K }
+Procedure ImgBlockReduce(Var I:TImage;K:LongInt);
+Var
+ N:TImage;
+ X,Y,Dx,Dy,C,NW,NH:LongInt;
+ Sum:LongInt;
+Begin
+ NW:=I.W div K;NH:=I.H div K;
+ If(NW<1)or(NH<1)Then Exit;
+ ImgAlloc(N,NW,NH,False);
+ For Y:=0 to NH-1 do
+  For X:=0 to NW-1 do
+   For C:=0 to 2 do Begin
+    Sum:=0;
+    For Dy:=0 to K-1 do
+     For Dx:=0 to K-1 do Inc(Sum,I.Px[(Int64(Y*K+Dy)*I.W+X*K+Dx)*3+C]);
+    N.Px[(Int64(Y)*NW+X)*3+C]:=(Sum+(K*K)div 2)div(K*K);
+   End;
+ ImgFree(I);
+ I:=N;
+End;
+
+{ cree la scene a partir d'une image ; la grande dimension est limitee a MaxSide }
+Procedure SceneFromImage(Var Img:TImage;MaxSide:LongInt;Var S:TScene);
+Var
+ Side,NW,NH,K,C:LongInt;
+ Src:PSingle;
+ N:Int64;
+ Sc:Double;
+Begin
+ FillChar(S,SizeOf(S),0);
+ ColorInit;
+ Side:=Img.W;If Img.H>Side Then Side:=Img.H;
+ If(MaxSide>0)and(Side>MaxSide)Then Begin
+  K:=Side div MaxSide;
+  If K>=2 Then ImgBlockReduce(Img,K);
+  Side:=Img.W;If Img.H>Side Then Side:=Img.H;
+ End;
+ NW:=Img.W;NH:=Img.H;
+ If(MaxSide>0)and(Side>MaxSide)Then Begin
+  Sc:=MaxSide/Side;
+  NW:=Round(Img.W*Sc);NH:=Round(Img.H*Sc);
+  If NW<1 Then NW:=1;
+  If NH<1 Then NH:=1;
+ End;
+ N:=Int64(Img.W)*Img.H*3;
+ Src:=AllocF(N);
+ For K:=0 to N-1 do Src[K]:=Img.Px[K];
+ S.W:=NW;S.H:=NH;
+ S.Pix:=AllocF(Int64(NW)*NH*3);
+ ResizeF(Src,Img.W,Img.H,S.Pix,NW,NH,3);
+ FreeMem(Src);
+ For C:=0 to NumCat-1 do S.Cat[C]:=PByte(AllocBytes(Int64(NW)*NH));
+ FillChar(S.Cat[cBg]^,Int64(NW)*NH,255);
+End;
+
+{ convertit la scene en image 8 bits }
+Procedure SceneToImage(Const S:TScene;Var Img:TImage);
+Var
+ N,K:Int64;
+ V:Single;
+Begin
+ ImgAlloc(Img,S.W,S.H,False);
+ N:=Int64(S.W)*S.H*3;
+ For K:=0 to N-1 do Begin
+  V:=S.Pix[K];
+  If V<0 Then V:=0 Else If V>255 Then V:=255;
+  Img.Px[K]:=Trunc(V+0.5);
+ End;
+End;
+
+{ ---- analyse avec le reseau ---- }
+
+Function ChooseNetSize(W,H,Side:LongInt;Var NW,NH:LongInt):Boolean;
+Var
+ Sc:Double;
+Begin
+ Sc:=Side/IMax(W,H);
+ NW:=Round(W*Sc/32.0)*32;
+ NH:=Round(H*Sc/32.0)*32;
+ If NW<64 Then NW:=64;
+ If NH<64 Then NH:=64;
+ ChooseNetSize:=True;
+End;
+
+Const
+ ImgMean:Array[0..2]of Single=(0.485,0.456,0.406);
+ ImgStd:Array[0..2]of Single=(0.229,0.224,0.225);
+
+{ prepare l'entree du reseau (redimensionnee et normalisee) }
+Function NetInput(Const S:TScene;NW,NH:LongInt):PSingle;
+Var
+ Tmp:PSingle;
+ N,K:Int64;
+ C:LongInt;
+Begin
+ Tmp:=AllocF(Int64(NW)*NH*3);
+ ResizeF(S.Pix,S.W,S.H,Tmp,NW,NH,3);
+ For K:=0 to Int64(NW)*NH-1 do
+  For C:=0 to 2 do Tmp[K*3+C]:=(Tmp[K*3+C]/255.0-ImgMean[C])/ImgStd[C];
+ NetInput:=Tmp;
+End;
+
+{ carte d'une categorie a la resolution du reseau -> plan 0..255 de la scene }
+Procedure UpsampleCat(Map:PSingle;MW,MH:LongInt;Dst:PSingle;W,H:LongInt);
+Var
+ X,Y,X0,X1,Y0,Y1:LongInt;
+ Sx,Sy,Fx,Fy:Single;
+Begin
+ For Y:=0 to H-1 do Begin
+  Sy:=(Y+0.5)*MH/H-0.5;
+  If Sy<0 Then Sy:=0;
+  Y0:=Trunc(Sy);If Y0>MH-1 Then Y0:=MH-1;
+  Y1:=Y0+1;If Y1>MH-1 Then Y1:=MH-1;
+  Fy:=Sy-Y0;
+  For X:=0 to W-1 do Begin
+   Sx:=(X+0.5)*MW/W-0.5;
+   If Sx<0 Then Sx:=0;
+   X0:=Trunc(Sx);If X0>MW-1 Then X0:=MW-1;
+   X1:=X0+1;If X1>MW-1 Then X1:=MW-1;
+   Fx:=Sx-X0;
+   Dst[Int64(Y)*W+X]:=(Map[Int64(Y0)*MW+X0]*(1-Fx)+Map[Int64(Y0)*MW+X1]*Fx)*(1-Fy)+
+                      (Map[Int64(Y1)*MW+X0]*(1-Fx)+Map[Int64(Y1)*MW+X1]*Fx)*Fy;
+  End;
+ End;
+End;
+
+{ renormalise les categories pour que leur somme vaille 255 en chaque pixel }
+Procedure SceneNormalize(Var S:TScene);
+Var
+ N,K:Int64;
+ C:LongInt;
+ T:LongInt;
+ Q:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ For K:=0 to N-1 do Begin
+  T:=0;
+  For C:=0 to NumCat-1 do Inc(T,S.Cat[C][K]);
+  If T=0 Then S.Cat[cBg][K]:=255
+  Else If T<>255 Then Begin
+   Q:=255.0/T;
+   For C:=0 to NumCat-1 do S.Cat[C][K]:=Trunc(S.Cat[C][K]*Q+0.5);
+  End;
+ End;
+End;
+
+Var
+ DumpPath:AnsiString='';
+
+{ ecrit les logits bruts (OH, OW, puis OH*OW*L flottants) pour la mise au point }
+Procedure DumpLogits(Lg:PSingle;OH,OW,L:LongInt);
+Var
+ F:File;
+ Hd:Array[0..1]of LongInt;
+Begin
+ Assign(F,DumpPath);
+ Rewrite(F,1);
+ If IOResult<>0 Then Exit;
+ Hd[0]:=OH;Hd[1]:=OW;
+ BlockWrite(F,Hd[0],8);
+ BlockWrite(F,Lg^,Int64(OH)*OW*L*4);
+ Close(F);
+End;
+
+{ analyse la scene avec le reseau ; Side : taille de la grande dimension de l'entree }
+Procedure ParseWithNet(Var S:TScene;Var Net:TSegModel;Side:LongInt;Refine:Boolean);
+Var
+ NW,NH,OH,OW,L,I,C,Rad:LongInt;
+ Inp,Lg:PSingle;
+ Maps:Array[0..NumCat-1]of PSingle;
+ Mx,Sum,E:Single;
+ NCell,K:Int64;
+ Plane,Q:PSingle;
+ G:TGuide;
+ Used:Array[0..NumCat-1]of Boolean;
+ N:Int64;
+ V:Single;
+Begin
+ ChooseNetSize(S.W,S.H,Side,NW,NH);
+ Detail('entr'#130'e du r'#130'seau : '+IStr(NW)+'x'+IStr(NH));
+ Inp:=NetInput(S,NW,NH);
+ Lg:=SegForward(Net,Inp,NH,NW,OH,OW);
+ FreeMem(Inp);
+ L:=Net.NumLabels;
+ If DumpPath<>'' Then DumpLogits(Lg,OH,OW,L);
+ NCell:=Int64(OH)*OW;
+ For C:=0 to NumCat-1 do Begin Maps[C]:=AllocF(NCell);Used[C]:=False;End;
+ For K:=0 to NCell-1 do Begin
+  Mx:=Lg[K*L];
+  For I:=1 to L-1 do If Lg[K*L+I]>Mx Then Mx:=Lg[K*L+I];
+  Sum:=0;
+  For I:=0 to L-1 do Begin
+   E:=Exp(Lg[K*L+I]-Mx);
+   Lg[K*L+I]:=E;
+   Sum:=Sum+E;
+  End;
+  For I:=0 to L-1 do Begin
+   Maps[LabelCat[I]][K]:=Maps[LabelCat[I]][K]+Lg[K*L+I]/Sum;
+   Used[LabelCat[I]]:=True;
+  End;
+ End;
+ FreeMem(Lg);
+ N:=Int64(S.W)*S.H;
+ Plane:=AllocF(N);
+ Q:=AllocF(N);
+ If Refine Then Begin
+  Rad:=Round(IMin(S.W,S.H)/180.0);
+  If Rad<2 Then Rad:=2;
+  GuideInit(G,S.Pix,S.W,S.H,Rad,0.004);
+ End;
+ For C:=0 to NumCat-1 do Begin
+  If not Used[C]Then Continue;
+  UpsampleCat(Maps[C],OW,OH,Plane,S.W,S.H);
+  { categories absentes : inutile de filtrer }
+  Mx:=0;
+  For K:=0 to N-1 do If Plane[K]>Mx Then Mx:=Plane[K];
+  If Mx<0.02 Then Begin
+   FillChar(S.Cat[C]^,N,0);
+   Continue;
+  End;
+  If Refine Then Begin
+   GuideApply(G,Plane,Q);
+   For K:=0 to N-1 do Begin
+    V:=Q[K];
+    S.Cat[C][K]:=Trunc(V*255.0+0.5);
+   End;
+  End
+   Else For K:=0 to N-1 do S.Cat[C][K]:=Trunc(Plane[K]*255.0+0.5);
+ End;
+ If Refine Then GuideFree(G);
+ FreeMem(Plane);FreeMem(Q);
+ For C:=0 to NumCat-1 do FreeMem(Maps[C]);
+ SceneNormalize(S);
+End;
+
+{ analyse issue d'une image d'etiquettes (valeur du pixel = numero de classe) }
+Function ParseFromLabels(Var S:TScene;Const FileName:AnsiString;Var Err:AnsiString):Boolean;
+Var
+ Im:TImage;
+ X,Y,SX,SY,Id,C:LongInt;
+ N:Int64;
+Begin
+ ParseFromLabels:=False;
+ If not ImgLoad(FileName,Im,Err)Then Exit;
+ SetupLabels(Length(DefaultLabels),'');
+ N:=Int64(S.W)*S.H;
+ For C:=0 to NumCat-1 do FillChar(S.Cat[C]^,N,0);
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   SX:=X*Im.W div S.W;SY:=Y*Im.H div S.H;
+   Id:=Im.Px[(Int64(SY)*Im.W+SX)*3];
+   If Id>=Length(LabelCat)Then C:=cOther Else C:=LabelCat[Id];
+   S.Cat[C][Int64(Y)*S.W+X]:=255;
+  End;
+ { adoucit legerement les bords des masques durs }
+ Detail('analyse lue depuis '+FileName);
+ ImgFree(Im);
+ ParseFromLabels:=True;
+End;
+
+{ adoucit les masques durs en suivant les contours de l'image (filtre guide) }
+Procedure SceneRefine(Var S:TScene);
+Var
+ N,K:Int64;
+ C,Rad:LongInt;
+ G:TGuide;
+ P,Q:PSingle;
+ Any:Boolean;
+Begin
+ N:=Int64(S.W)*S.H;
+ Rad:=Round(IMin(S.W,S.H)/180.0);
+ If Rad<2 Then Rad:=2;
+ GuideInit(G,S.Pix,S.W,S.H,Rad,0.004);
+ P:=AllocF(N);Q:=AllocF(N);
+ For C:=0 to NumCat-1 do Begin
+  Any:=False;
+  For K:=0 to N-1 do Begin
+   P[K]:=S.Cat[C][K]/255.0;
+   If S.Cat[C][K]<>0 Then Any:=True;
+  End;
+  If not Any Then Continue;
+  BoxBlur(P,P,S.W,S.H,1);
+  GuideApply(G,P,Q);
+  For K:=0 to N-1 do S.Cat[C][K]:=Trunc(Q[K]*255.0+0.5);
+ End;
+ GuideFree(G);
+ FreeMem(P);FreeMem(Q);
+ SceneNormalize(S);
+End;
+
+{ ---- requetes sur les categories ---- }
+
+{ opacite cumulee (0..1) des categories de l'ensemble }
+Procedure CatMask(Const S:TScene;Mask:LongWord;Dst:PSingle);
+Var
+ N,K:Int64;
+ C:LongInt;
+ T:LongInt;
+Begin
+ N:=Int64(S.W)*S.H;
+ For K:=0 to N-1 do Begin
+  T:=0;
+  For C:=0 to NumCat-1 do If(Mask and(LongWord(1)shl C))<>0 Then Inc(T,S.Cat[C][K]);
+  If T>255 Then T:=255;
+  Dst[K]:=T/255.0;
+ End;
+End;
+
+Function CatArea(Const S:TScene;Mask:LongWord):Int64;
+Var
+ N,K,A:Int64;
+ C:LongInt;
+ T:LongInt;
+Begin
+ N:=Int64(S.W)*S.H;
+ A:=0;
+ For K:=0 to N-1 do Begin
+  T:=0;
+  For C:=0 to NumCat-1 do If(Mask and(LongWord(1)shl C))<>0 Then Inc(T,S.Cat[C][K]);
+  If T>=128 Then Inc(A);
+ End;
+ CatArea:=A;
+End;
+
+{ boite englobante des pixels de l'ensemble (opacite >= 128) ; faux si vide }
+Function CatBBox(Const S:TScene;Mask:LongWord;Var X0,Y0,X1,Y1:LongInt):Boolean;
+Var
+ X,Y,C:LongInt;
+ T:LongInt;
+ P:Int64;
+Begin
+ X0:=S.W;Y0:=S.H;X1:=-1;Y1:=-1;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   P:=Int64(Y)*S.W+X;
+   T:=0;
+   For C:=0 to NumCat-1 do If(Mask and(LongWord(1)shl C))<>0 Then Inc(T,S.Cat[C][P]);
+   If T>=128 Then Begin
+    If X<X0 Then X0:=X;
+    If X>X1 Then X1:=X;
+    If Y<Y0 Then Y0:=Y;
+    If Y>Y1 Then Y1:=Y;
+   End;
+  End;
+ CatBBox:=X1>=X0;
+End;
+
+{ nom lisible d'un ensemble de categories }
+Function MaskName(Mask:LongWord):AnsiString;
+Var
+ C:LongInt;
+ R:AnsiString;
+Begin
+ R:='';
+ For C:=0 to NumCat-1 do If(Mask and(LongWord(1)shl C))<>0 Then Begin
+  If R<>'' Then R:=R+'+';
+  R:=R+CatNames[C];
+ End;
+ MaskName:=R;
+End;
+
+{ colore l'analyse en fausses couleurs (pour -save-parsing) }
+Procedure ParsingToImage(Const S:TScene;Var Img:TImage);
+Const
+ Pal:Array[0..NumCat-1]of LongWord=($000000,$FF9500,$7B3F00,$00C8FF,$FF0000,$00B050,
+   $0000FF,$FF00FF,$FFFF00,$800080,$FFC8A0,$C8A06E,$E6B478,$00FFFF,$FF8080,$A0A0A0,
+   $606060);
+Var
+ K,N:Int64;
+ C,Best,V:LongInt;
+Begin
+ ImgAlloc(Img,S.W,S.H,False);
+ N:=Int64(S.W)*S.H;
+ For K:=0 to N-1 do Begin
+  Best:=0;V:=-1;
+  For C:=0 to NumCat-1 do If S.Cat[C][K]>V Then Begin V:=S.Cat[C][K];Best:=C;End;
+  Img.Px[K*3]:=(Pal[Best]shr 16)and $FF;
+  Img.Px[K*3+1]:=(Pal[Best]shr 8)and $FF;
+  Img.Px[K*3+2]:=Pal[Best]and $FF;
+ End;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Langage naturel (francais / anglais) : demande -> liste de retouches   }
+{ ------------------------------------------------------------------ }
+
+Const
+ { genres de vetement }
+ gkNone=0;gkTop=1;gkBottom=2;gkDress=3;gkFull=4;gkShoes=5;gkHat=6;gkGlasses=7;
+ gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;
+ { natures de mots du lexique }
+ lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
+ lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;
+ { modificateurs }
+ mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
+ { motifs }
+ pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
+ { actions }
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;
+
+Type
+ TLex=Record
+  W:String[24];
+  Kind:LongInt;
+  V1:LongInt;
+  V2:LongWord;
+ End;
+ TEdit=Record
+  Action:LongInt;
+  Target:LongWord;          { ensemble de categories visees (0 = non precise) }
+  Kind:LongInt;             { genre du vetement vise }
+  HasSrc,HasDst:Boolean;
+  SrcRGB,DstRGB:LongWord;
+  SrcName,DstName:AnsiString;
+  LGain,CGain:Single;       { 1 = inchange }
+  Pattern:LongInt;
+  HasColor2:Boolean;
+  Color2RGB:LongWord;
+  Color2Name:AnsiString;
+  DstGarment:LongInt;       { genre de vetement cite comme resultat }
+  Text:AnsiString;
+ End;
+ TEditArray=Array of TEdit;
+
+Var
+ Lex:Array[0..1023]of TLex;
+ NLex:LongInt=0;
+ Phrase:Array[0..127]of TLex;
+ NPhrase:LongInt=0;
+ LexReady:Boolean=False;
+
+Procedure AddLex(Const Words:AnsiString;Kind,V1:LongInt;V2:LongWord);
+Var
+ I,P:LongInt;
+ W:AnsiString;
+Begin
+ P:=1;
+ For I:=1 to Length(Words)+1 do
+  If(I>Length(Words))or(Words[I]=' ')Then Begin
+   W:=Copy(Words,P,I-P);
+   P:=I+1;
+   If W<>'' Then Begin
+    Lex[NLex].W:=W;Lex[NLex].Kind:=Kind;Lex[NLex].V1:=V1;Lex[NLex].V2:=V2;
+    Inc(NLex);
+   End;
+  End;
+End;
+
+Procedure AddPhrase(Const Words:AnsiString;RGB:LongWord);
+Begin
+ Phrase[NPhrase].W:=Words;
+ Phrase[NPhrase].Kind:=lkColor;
+ Phrase[NPhrase].V1:=0;
+ Phrase[NPhrase].V2:=RGB;
+ Inc(NPhrase);
+End;
+
+Function RgbOf(R,G,B:LongWord):LongWord;
+Begin
+ RgbOf:=(R shl 16)or(G shl 8)or B;
+End;
+
+Procedure LexInit;
+Begin
+ If LexReady Then Exit;
+ LexReady:=True;
+ { vetements : genre, ensemble de categories }
+ AddLex('chandail pull tricot chemise chemisier tshirt polo veste blouson manteau parka veston blazer cardigan gilet sweat sweatshirt hoodie camisole debardeur top maillot jersey doudoune imper trench tunique shirt sweater jumper jacket coat blouse tank vest turtleneck haut',
+   lkGarment,gkTop,msTop);
+ AddLex('pantalon jean short bermuda legging pants trousers slacks chinos jogging',lkGarment,gkBottom,msPants);
+ AddLex('jupe skirt',lkGarment,gkSkirt,msSkirt);
+ AddLex('robe dress combinaison jumpsuit',lkGarment,gkDress,msDress);
+ AddLex('chaussure soulier botte basket espadrille sandale escarpin sneaker shoe boot sandal tennis',lkGarment,gkShoes,msShoes);
+ AddLex('chapeau casquette tuque bonnet beret hat cap beanie',lkGarment,gkHat,msHat);
+ AddLex('lunette lunettes glasses sunglasses eyeglasses',lkGarment,gkGlasses,msGlasses);
+ AddLex('sac sacoche bag handbag purse backpack',lkGarment,gkBag,msBag);
+ AddLex('foulard echarpe cravate scarf tie shawl chale',lkGarment,gkScarf,msScarf);
+ AddLex('ceinture belt',lkGarment,gkBelt,msBelt);
+ AddLex('vetement habit tenue outfit clothes clothing ensemble costume',lkGarment,gkAll,msClothes);
+ AddLex('tout tous toute toutes everything all',lkAll,0,0);
+ { couleurs }
+ AddLex('rouge red',lkColor,0,RgbOf(200,30,40));
+ AddLex('bleu bleue blue',lkColor,0,RgbOf(30,70,200));
+ AddLex('vert verte green',lkColor,0,RgbOf(40,150,70));
+ AddLex('jaune yellow',lkColor,0,RgbOf(240,210,40));
+ AddLex('orange',lkColor,0,RgbOf(240,130,30));
+ AddLex('rose pink',lkColor,0,RgbOf(245,150,180));
+ AddLex('violet violette purple mauve pourpre',lkColor,0,RgbOf(130,60,170));
+ AddLex('marron brun brune brown',lkColor,0,RgbOf(110,70,40));
+ AddLex('beige tan',lkColor,0,RgbOf(225,205,170));
+ AddLex('noir noire black',lkColor,0,RgbOf(22,22,25));
+ AddLex('blanc blanche white',lkColor,0,RgbOf(245,245,245));
+ AddLex('gris grise gray grey',lkColor,0,RgbOf(128,128,128));
+ AddLex('turquoise teal',lkColor,0,RgbOf(40,185,185));
+ AddLex('cyan',lkColor,0,RgbOf(0,190,230));
+ AddLex('magenta',lkColor,0,RgbOf(210,30,150));
+ AddLex('fuchsia',lkColor,0,RgbOf(230,40,160));
+ AddLex('bordeaux burgundy maroon grenat',lkColor,0,RgbOf(110,20,40));
+ AddLex('kaki khaki',lkColor,0,RgbOf(130,130,70));
+ AddLex('marine navy',lkColor,0,RgbOf(20,35,90));
+ AddLex('or dore gold golden',lkColor,0,RgbOf(212,175,55));
+ AddLex('argent argente silver',lkColor,0,RgbOf(190,190,195));
+ AddLex('lavande lavender lilas lilac',lkColor,0,RgbOf(185,160,220));
+ AddLex('saumon salmon',lkColor,0,RgbOf(250,130,110));
+ AddLex('corail coral',lkColor,0,RgbOf(255,110,90));
+ AddLex('moutarde mustard',lkColor,0,RgbOf(210,170,40));
+ AddLex('olive',lkColor,0,RgbOf(110,120,40));
+ AddLex('creme cream ivoire ivory',lkColor,0,RgbOf(255,248,220));
+ AddLex('camel',lkColor,0,RgbOf(190,140,80));
+ AddLex('indigo',lkColor,0,RgbOf(50,40,130));
+ AddLex('menthe mint',lkColor,0,RgbOf(150,225,180));
+ AddLex('emeraude emerald',lkColor,0,RgbOf(20,140,90));
+ AddLex('denim',lkColor,0,RgbOf(60,90,140));
+ AddLex('anthracite charcoal',lkColor,0,RgbOf(55,58,64));
+ AddLex('ciel',lkColor,0,RgbOf(130,190,235));
+ AddPhrase('bleu marine',RgbOf(20,35,90));
+ AddPhrase('bleu ciel',RgbOf(130,190,235));
+ AddPhrase('bleu roi',RgbOf(40,70,210));
+ AddPhrase('bleu royal',RgbOf(40,70,210));
+ AddPhrase('royal blue',RgbOf(40,70,210));
+ AddPhrase('bleu nuit',RgbOf(15,20,70));
+ AddPhrase('bleu turquoise',RgbOf(40,185,185));
+ AddPhrase('sky blue',RgbOf(130,190,235));
+ AddPhrase('navy blue',RgbOf(20,35,90));
+ AddPhrase('vert pomme',RgbOf(130,200,50));
+ AddPhrase('vert bouteille',RgbOf(10,70,40));
+ AddPhrase('vert olive',RgbOf(110,120,40));
+ AddPhrase('vert menthe',RgbOf(150,225,180));
+ AddPhrase('vert emeraude',RgbOf(20,140,90));
+ AddPhrase('vert sapin',RgbOf(20,80,50));
+ AddPhrase('lime green',RgbOf(130,200,50));
+ AddPhrase('forest green',RgbOf(25,90,45));
+ AddPhrase('hot pink',RgbOf(240,60,150));
+ AddPhrase('rose bonbon',RgbOf(240,100,170));
+ AddPhrase('rose pale',RgbOf(250,205,215));
+ AddPhrase('rouge vif',RgbOf(230,20,30));
+ AddPhrase('jaune moutarde',RgbOf(210,170,40));
+ AddPhrase('gris anthracite',RgbOf(55,58,64));
+ AddPhrase('gris perle',RgbOf(200,200,205));
+ AddPhrase('gris souris',RgbOf(120,120,125));
+ { modificateurs de teinte }
+ AddLex('fonce foncee sombre dark deep',lkMod,mdDark,0);
+ AddLex('clair claire light lighter pale pales pastel',lkMod,mdLight,0);
+ AddLex('vif vive vives vifs vivid bright saturated sature saturee',lkMod,mdVivid,0);
+ AddLex('terne ternes dull muted delave delavee faded desature',lkMod,mdDull,0);
+ AddLex('eclaircis eclaircir lighten brighten',lkVLight,mdLight,0);
+ AddLex('assombris assombrir darken fonce',lkVLight,mdDark,0);
+ { motifs }
+ AddLex('rayure rayures raye raye rayee rayees stripe stripes striped',lkPattern,pkStripes,0);
+ AddLex('carreau carreaux carre carres plaid tartan ecossais ecossaise checkered checked gingham vichy',lkPattern,pkChecks,0);
+ AddLex('pois polka dots dotted',lkPattern,pkDots,0);
+ AddLex('uni unie unis unies solid plain',lkPattern,pkPlain,0);
+ { verbes }
+ AddLex('change changer changez modifie modifier modifiez transforme transformer colorie colorier colorer teinte teindre peins peindre repeins repeindre recolor recolorer convertis convertir change switch swap remplace remplacer replace',lkVRecolor,0,0);
+ AddLex('rends rendre mets met mettre passe passer make turn paint dye color colour',lkVResult,0,0);
+ AddLex('enleve enlever enlevez retire retirer retirez supprime supprimer supprimez efface effacer effacez ote oter remove delete erase sans without',lkVRemove,0,0);
+ AddLex('essaie essaye essayer essayez porte porter habille habiller try wear',lkVTryOn,0,0);
+ { prepositions de destination }
+ AddLex('en in into to par by as vers',lkPrepDst,0,0);
+ AddLex('de from',lkSrcPrep,0,0);
+ AddLex('et and puis then ensuite afterwards also aussi',lkSplit,0,0);
+End;
+
+{ ---- normalisation du texte : UTF-8 -> minuscules ASCII ---- }
+
+Function FoldText(Const S:AnsiString):AnsiString;
+Var
+ R:AnsiString;
+ I,N,B,B2,B3,Code:LongInt;
+ C:Char;
+ Function Fold1(Code:LongInt):AnsiString;
+ Begin
+  Fold1:=' ';
+  Case Code of
+   192..197,224..229:Fold1:='a';
+   199,231:Fold1:='c';
+   200..203,232..235:Fold1:='e';
+   204..207,236..239:Fold1:='i';
+   209,241:Fold1:='n';
+   210..214,242..246:Fold1:='o';
+   217..220,249..252:Fold1:='u';
+   221,253,255:Fold1:='y';
+   338,339:Fold1:='oe';
+   198,230:Fold1:='ae';
+   8217,8216,180,96:Fold1:=' ';
+  End;
+ End;
+Begin
+ R:='';
+ N:=Length(S);
+ I:=1;
+ While I<=N do Begin
+  B:=Ord(S[I]);
+  Code:=B;
+  If B<$80 Then Inc(I)
+  Else If(B and $E0)=$C0 Then Begin
+   If I+1<=N Then Code:=((B and $1F)shl 6)or(Ord(S[I+1])and $3F);
+   Inc(I,2);
+  End
+   Else If(B and $F0)=$E0 Then Begin
+    If I+2<=N Then Code:=((B and $0F)shl 12)or((Ord(S[I+1])and $3F)shl 6)or(Ord(S[I+2])and $3F);
+    Inc(I,3);
+   End
+    Else If(B and $F8)=$F0 Then Begin Code:=0;Inc(I,4);End
+    Else Begin
+     { octet isole : page ANSI (Latin-1) }
+     Inc(I);
+    End;
+  If Code<128 Then Begin
+   C:=Chr(Code);
+   If C in['A'..'Z']Then C:=Chr(Ord(C)+32);
+   If C in['a'..'z','0'..'9','#',',',';','.','-']Then R:=R+C
+   Else If C in['!','?']Then R:=R+'.'
+   Else R:=R+' ';
+  End
+   Else R:=R+Fold1(Code);
+ End;
+ { t-shirt et consorts }
+ B:=Pos('t-shirt',R);
+ While B>0 do Begin Delete(R,B+1,1);B:=Pos('t-shirt',R);End;
+ B:=Pos('tee-shirt',R);
+ While B>0 do Begin Delete(R,B+3,1);B:=Pos('tee-shirt',R);End;
+ B:=Pos('tee shirt',R);
+ While B>0 do Begin Delete(R,B+3,1);B:=Pos('tee shirt',R);End;
+ B:=Pos('teeshirt',R);
+ While B>0 do Begin Delete(R,B,3);B:=Pos('teeshirt',R);End;
+ For I:=1 to Length(R)do If R[I]='-' Then R[I]:=' ';
+ FoldText:=R;
+End;
+
+{ decoupe en mots ; ',', ';' et '.' deviennent des mots a part }
+Procedure Tokenize(Const S:AnsiString;Var T:TStrArray);
+Var
+ I:LongInt;
+ Cur:AnsiString;
+Begin
+ SetLength(T,0);
+ Cur:='';
+ For I:=1 to Length(S)do Begin
+  If S[I]in[',',';','.']Then Begin
+   If Cur<>'' Then AddStr(T,Cur);
+   Cur:='';
+   AddStr(T,S[I]);
+  End
+   Else If S[I]=' ' Then Begin
+    If Cur<>'' Then AddStr(T,Cur);
+    Cur:='';
+   End
+   Else Cur:=Cur+S[I];
+ End;
+ If Cur<>'' Then AddStr(T,Cur);
+End;
+
+{ cherche un mot du lexique (avec variantes de pluriel) ; renvoie l'indice ou -1 }
+Function LexFind(Const W:AnsiString;Kind:LongInt):LongInt;
+Var
+ I,L:LongInt;
+ V1,V2,V3:AnsiString;
+Begin
+ LexFind:=-1;
+ L:=Length(W);
+ V1:=W;V2:='';V3:='';
+ If(L>3)and(W[L]='s')Then V2:=Copy(W,1,L-1);
+ If(L>4)and(Copy(W,L-1,2)='es')Then V3:=Copy(W,1,L-2);
+ If(L>3)and(W[L]='x')Then V3:=Copy(W,1,L-1);
+ For I:=0 to NLex-1 do
+  If(Lex[I].Kind=Kind)or(Kind=0)Then
+   If(Lex[I].W=V1)or((V2<>'')and(Lex[I].W=V2))or((V3<>'')and(Lex[I].W=V3))Then Begin
+    LexFind:=I;Exit;
+   End;
+End;
+
+Function IsHexColor(Const W:AnsiString;Var RGB:LongWord):Boolean;
+Var
+ I,V:LongInt;
+ D:Array[0..5]of LongInt;
+Begin
+ IsHexColor:=False;
+ If(Length(W)<>4)and(Length(W)<>7)Then Exit;
+ If W[1]<>'#' Then Exit;
+ For I:=2 to Length(W)do If HexVal(W[I])<0 Then Exit;
+ If Length(W)=4 Then Begin
+  For I:=0 to 2 do D[I*2]:=HexVal(W[I+2])*17;
+  RGB:=(D[0]shl 16)or(D[2]shl 8)or D[4];
+ End
+  Else Begin
+   V:=0;
+   For I:=2 to 7 do V:=V*16+HexVal(W[I]);
+   RGB:=V;
+  End;
+ IsHexColor:=True;
+End;
+
+{ lit une couleur a la position I (mots composes, modificateurs adjacents) ;
+  Used : nombre de mots consommes ; renvoie faux si ce n'est pas une couleur }
+Function ReadColor(Const T:TStrArray;I:LongInt;Var RGB:LongWord;Var Name:AnsiString;
+  Var Used:LongInt;Var Mod_:LongInt):Boolean;
+Var
+ K,X:LongInt;
+ J:LongInt;
+Begin
+ ReadColor:=False;
+ Mod_:=0;Used:=1;
+ If IsHexColor(T[I],RGB)Then Begin Name:=T[I];ReadColor:=True;Exit;End;
+ If I+1<=High(T)Then
+  For K:=0 to NPhrase-1 do If Phrase[K].W=T[I]+' '+T[I+1]Then Begin
+   RGB:=Phrase[K].V2;Name:=T[I]+' '+T[I+1];Used:=2;ReadColor:=True;Exit;
+  End;
+ K:=LexFind(T[I],lkColor);
+ If K<0 Then Exit;
+ RGB:=Lex[K].V2;Name:=T[I];
+ { modificateur juste apres : ? bleu fonce ? }
+ If I+1<=High(T)Then Begin
+  X:=LexFind(T[I+1],lkMod);
+  If X>=0 Then Begin Mod_:=Lex[X].V1;Used:=2;Name:=Name+' '+T[I+1];End;
+ End;
+ { modificateur juste avant : ? dark blue ? (deja consomme par l'appelant) }
+ ReadColor:=True;
+End;
+
+{ applique un modificateur de teinte a une couleur RVB }
+Function ApplyShade(RGB:LongWord;Md:LongInt):LongWord;
+Var
+ R,G,B,L,A,Bb:Single;
+ Cc:Single;
+Begin
+ ColorInit;
+ If Md=0 Then Begin ApplyShade:=RGB;Exit;End;
+ R:=(RGB shr 16)and $FF;G:=(RGB shr 8)and $FF;B:=RGB and $FF;
+ RgbToLab(R,G,B,L,A,Bb);
+ Case Md of
+  mdDark:Begin L:=L*0.62;A:=A*0.95;Bb:=Bb*0.95;End;
+  mdLight:Begin L:=L+(100-L)*0.45;A:=A*0.7;Bb:=Bb*0.7;End;
+  mdVivid:Begin A:=A*1.3;Bb:=Bb*1.3;End;
+  mdPale:Begin L:=L+(100-L)*0.35;A:=A*0.5;Bb:=Bb*0.5;End;
+  mdDull:Begin A:=A*0.5;Bb:=Bb*0.5;End;
+ End;
+ LabToRgb(L,A,Bb,R,G,B);
+ ApplyShade:=(Round(R)shl 16)or(Round(G)shl 8)or Round(B);
+End;
+
+Procedure ClearEdit(Var E:TEdit);
+Begin
+ FillChar(E,SizeOf(E),0);
+ E.LGain:=1;E.CGain:=1;
+ E.SrcName:='';E.DstName:='';E.Color2Name:='';E.Text:='';
+End;
+
+{ interprete une clause (mots T[A..B]) ; faux si elle ne contient rien d'exploitable }
+Function ParseClause(Const T:TStrArray;A,B:LongInt;Var E:TEdit;Var HasChange:Boolean;
+  Var HasVerb:Boolean):Boolean;
+Var
+ I,K,X,Used,Md,NCol,PrepPos,NTargets:LongInt;
+ RGB:LongWord;
+ Nm:AnsiString;
+ Cols:Array[0..7]of LongWord;
+ ColNames:Array[0..7]of AnsiString;
+ ColPos:Array[0..7]of LongInt;
+ ColMd:Array[0..7]of LongInt;
+ Consumed:Array of Boolean;
+ Remove,Result_,Recolor,TryOn,AllWord:Boolean;
+ FirstPrep:LongInt;
+ SrcIdx,DstIdx,J:LongInt;
+ GarmPos:Array[0..7]of LongInt;
+ GarmKind:Array[0..7]of LongInt;
+ GarmMask:Array[0..7]of LongWord;
+ NG:LongInt;
+ MdWord:LongInt;
+ Gx:LongInt;
+ HasPat:Boolean;
+Begin
+ ParseClause:=False;
+ ClearEdit(E);
+ HasChange:=False;HasVerb:=False;
+ SetLength(Consumed,High(T)+2);
+ NCol:=0;NG:=0;
+ Remove:=False;Result_:=False;Recolor:=False;TryOn:=False;AllWord:=False;
+ FirstPrep:=-1;
+ HasPat:=False;
+ For I:=A to B do Begin
+  If Consumed[I]Then Continue;
+  { verbes }
+  If LexFind(T[I],lkVRemove)>=0 Then Begin Remove:=True;HasVerb:=True;Continue;End;
+  If LexFind(T[I],lkVTryOn)>=0 Then Begin TryOn:=True;HasVerb:=True;Continue;End;
+  If LexFind(T[I],lkVResult)>=0 Then Begin Result_:=True;HasVerb:=True;Continue;End;
+  If LexFind(T[I],lkAll)>=0 Then Begin AllWord:=True;Continue;End;
+  { couleur (avec modificateur precedent eventuel) }
+  Md:=0;
+  If ReadColor(T,I,RGB,Nm,Used,Md)Then Begin
+   If(Md=0)and(I>A)Then Begin
+    X:=LexFind(T[I-1],lkMod);
+    If(X>=0)and not Consumed[I-1]Then Begin Md:=Lex[X].V1;Consumed[I-1]:=True;Nm:=T[I-1]+' '+Nm;End;
+   End;
+   If NCol<8 Then Begin
+    Cols[NCol]:=ApplyShade(RGB,Md);ColNames[NCol]:=Nm;ColPos[NCol]:=I;ColMd[NCol]:=Md;
+    Inc(NCol);
+   End;
+   For K:=1 to Used-1 do Consumed[I+K]:=True;
+   Continue;
+  End;
+  { motifs }
+  K:=LexFind(T[I],lkPattern);
+  If K>=0 Then Begin E.Pattern:=Lex[K].V1;HasPat:=True;Continue;End;
+  { vetements }
+  K:=LexFind(T[I],lkGarment);
+  If K>=0 Then Begin
+   If NG<8 Then Begin GarmPos[NG]:=I;GarmKind[NG]:=Lex[K].V1;GarmMask[NG]:=Lex[K].V2;Inc(NG);End;
+   Continue;
+  End;
+  { clair/fonce hors d'une couleur : reglage de luminosite }
+  K:=LexFind(T[I],lkMod);
+  If K<0 Then Begin
+   K:=LexFind(T[I],lkVLight);
+   If K>=0 Then Begin MdWord:=Lex[K].V1;HasVerb:=True;End Else MdWord:=0;
+  End
+   Else MdWord:=Lex[K].V1;
+  If MdWord<>0 Then Begin
+   Case MdWord of
+    mdDark:E.LGain:=E.LGain*0.62;
+    mdLight:Begin E.LGain:=E.LGain*1.3;E.CGain:=E.CGain*0.85;End;
+    mdVivid:E.CGain:=E.CGain*1.4;
+    mdPale,mdDull:E.CGain:=E.CGain*0.6;
+   End;
+   Continue;
+  End;
+  If(FirstPrep<0)and(LexFind(T[I],lkPrepDst)>=0)Then FirstPrep:=I;
+  If LexFind(T[I],lkVRecolor)>=0 Then Begin Recolor:=True;HasVerb:=True;End;
+ End;
+ { vetements cibles : ceux situes avant la preposition de destination, sinon tous }
+ NTargets:=0;
+ E.Target:=0;E.Kind:=gkNone;
+ For I:=0 to NG-1 do
+  If(FirstPrep<0)or(GarmPos[I]<FirstPrep)Then Begin
+   E.Target:=E.Target or GarmMask[I];
+   If E.Kind=gkNone Then E.Kind:=GarmKind[I];
+   Inc(NTargets);
+  End;
+ If(NTargets=0)and(NG>0)Then Begin
+  { ? en chemise bleue ? sans cible : la cible reste a determiner, le genre est un resultat }
+  E.DstGarment:=GarmKind[0];
+ End
+  Else If(FirstPrep>=0)Then
+   For I:=0 to NG-1 do If GarmPos[I]>FirstPrep Then Begin E.DstGarment:=GarmKind[I];Break;End;
+ If AllWord and(E.Target=0)Then Begin E.Target:=msClothes;E.Kind:=gkAll;End;
+ { couleurs : source / destination }
+ SrcIdx:=-1;DstIdx:=-1;
+ If NCol>0 Then Begin
+  If FirstPrep>=0 Then Begin
+   For I:=0 to NCol-1 do
+    If ColPos[I]>FirstPrep Then Begin
+     If DstIdx<0 Then DstIdx:=I
+     Else If(E.Pattern<>pkNone)and not E.HasColor2 Then Begin
+      E.HasColor2:=True;E.Color2RGB:=Cols[I];E.Color2Name:=ColNames[I];
+     End;
+    End
+    Else If SrcIdx<0 Then SrcIdx:=I;
+   If DstIdx<0 Then Begin
+    { ? change le rouge en motif... ? ou couleur avant la preposition seule }
+    If SrcIdx>=0 Then Begin
+     If NCol=1 Then Begin DstIdx:=SrcIdx;SrcIdx:=-1;End;
+    End;
+   End;
+  End
+   Else Begin
+    If NCol>=2 Then Begin
+     If E.Pattern<>pkNone Then Begin
+      DstIdx:=0;E.HasColor2:=True;E.Color2RGB:=Cols[1];E.Color2Name:=ColNames[1];
+     End
+      Else Begin
+       { sans preposition : ? change le rouge bleu ? ou ? rends le pull rouge et noir ? }
+       If Recolor and not Result_ Then Begin SrcIdx:=0;DstIdx:=1;End
+       Else Begin DstIdx:=0;E.HasColor2:=True;E.Color2RGB:=Cols[1];E.Color2Name:=ColNames[1];End;
+      End;
+    End
+     Else DstIdx:=0;
+   End;
+ End;
+ If SrcIdx>=0 Then Begin E.HasSrc:=True;E.SrcRGB:=Cols[SrcIdx];E.SrcName:=ColNames[SrcIdx];End;
+ If DstIdx>=0 Then Begin E.HasDst:=True;E.DstRGB:=Cols[DstIdx];E.DstName:=ColNames[DstIdx];End;
+ { le motif sans couleur de fond : second ton blanc (ou noir sur couleur claire) }
+ If(E.Pattern in[pkStripes,pkChecks,pkDots])and E.HasDst and not E.HasColor2 Then Begin
+  E.HasColor2:=True;E.Color2Name:='';
+  If Luma((E.DstRGB shr 16)and $FF,(E.DstRGB shr 8)and $FF,E.DstRGB and $FF)>150 Then Begin E.Color2RGB:=RgbOf(30,30,35);E.Color2Name:='noir';End
+  Else Begin E.Color2RGB:=RgbOf(245,245,245);E.Color2Name:='blanc';End;
+ End;
+ { action }
+ If Remove Then E.Action:=eaRemove
+ Else If E.HasDst or(E.Pattern<>pkNone)or(Abs(E.LGain-1)>0.01)or(Abs(E.CGain-1)>0.01)Then E.Action:=eaRecolor
+ Else If TryOn Then E.Action:=eaTryOn;
+ HasChange:=E.Action in[eaRecolor,eaRemove];
+ ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0);
+End;
+
+{ interprete la demande complete ; renvoie la liste des retouches }
+Function Interpret(Const Prompt:AnsiString;Var Edits:TEditArray;Var Err:AnsiString):Boolean;
+Var
+ T:TStrArray;
+ Bounds:Array of LongInt;
+ S0,I,J,K,A,B,N:LongInt;
+ E:TEdit;
+ HasChange,HasVerb:Boolean;
+ Pending:LongWord;
+ PendKind:LongInt;
+ Segs:Array of LongInt;
+ NSeg:LongInt;
+ HasG:Boolean;
+ Cut:Boolean;
+Begin
+ Interpret:=False;
+ Err:='';
+ SetLength(Edits,0);
+ LexInit;
+ Tokenize(FoldText(Prompt),T);
+ If Length(T)=0 Then Begin Err:='la demande est vide';Exit;End;
+ { decoupage en clauses : separateurs durs, puis ? et ? devant un nouveau vetement }
+ SetLength(Segs,0);
+ S0:=0;
+ For I:=0 to High(T)do Begin
+  Cut:=False;
+  If(T[I]=',')or(T[I]=';')or(T[I]='.')Then Cut:=True
+  Else If LexFind(T[I],lkSplit)>=0 Then Begin
+   { ? et ? coupe seulement s'il introduit un autre vetement ou un autre verbe }
+   HasG:=False;
+   For J:=I+1 to High(T)do Begin
+    If(T[J]=',')or(T[J]=';')or(T[J]='.')or(LexFind(T[J],lkSplit)>=0)Then Break;
+    If(LexFind(T[J],lkGarment)>=0)or(LexFind(T[J],lkVRemove)>=0)or(LexFind(T[J],lkVRecolor)>=0)or
+      (LexFind(T[J],lkVResult)>=0)Then HasG:=True;
+   End;
+   Cut:=HasG;
+  End;
+  If Cut Then Begin
+   SetLength(Segs,Length(Segs)+2);
+   Segs[High(Segs)-1]:=S0;Segs[High(Segs)]:=I-1;
+   S0:=I+1;
+  End;
+ End;
+ SetLength(Segs,Length(Segs)+2);
+ Segs[High(Segs)-1]:=S0;Segs[High(Segs)]:=High(T);
+ Pending:=0;PendKind:=gkNone;
+ K:=0;
+ While K<Length(Segs)do Begin
+  A:=Segs[K];B:=Segs[K+1];
+  Inc(K,2);
+  If A>B Then Continue;
+  If not ParseClause(T,A,B,E,HasChange,HasVerb)Then Continue;
+  { clause sans changement mais avec un vetement : cible reportee sur la clause suivante }
+  If(not HasChange)and(E.Target<>0)and(E.Action=eaNone)Then Begin
+   { ? enleve le chapeau et les lunettes ? : la retouche precedente s'applique aussi }
+   If(not HasVerb)and(Length(Edits)>0)and(Edits[High(Edits)].Action=eaRemove)Then Begin
+    SetLength(Edits,Length(Edits)+1);
+    Edits[High(Edits)]:=Edits[High(Edits)-1];
+    Edits[High(Edits)].Target:=E.Target;
+    Edits[High(Edits)].Kind:=E.Kind;
+    Continue;
+   End;
+   Pending:=Pending or E.Target;
+   If PendKind=gkNone Then PendKind:=E.Kind;
+   Continue;
+  End;
+  If HasChange or(E.Action=eaTryOn)Then Begin
+   If Pending<>0 Then Begin
+    E.Target:=E.Target or Pending;
+    If E.Kind=gkNone Then E.Kind:=PendKind;
+    Pending:=0;PendKind:=gkNone;
+   End;
+   E.Text:='';
+   For I:=A to B do E.Text:=E.Text+T[I]+' ';
+   SetLength(Edits,Length(Edits)+1);
+   Edits[High(Edits)]:=E;
+  End;
+ End;
+ If Length(Edits)=0 Then Begin
+  Err:='je n''ai pas compris la demande (exemple : "Change le chandail rouge en bleu")';
+  Exit;
+ End;
+ Interpret:=True;
+End;
+
+Function ColorHex(RGB:LongWord):AnsiString;
+Const
+ Hx:AnsiString='0123456789abcdef';
+Var
+ I:LongInt;
+ R:AnsiString;
+Begin
+ R:='#';
+ For I:=5 downto 0 do R:=R+Hx[((RGB shr(I*4))and 15)+1];
+ ColorHex:=R;
+End;
+
+Function GarmentKindName(K:LongInt):AnsiString;
+Begin
+ Case K of
+  gkTop:GarmentKindName:='haut';
+  gkBottom:GarmentKindName:='pantalon';
+  gkSkirt:GarmentKindName:='jupe';
+  gkDress:GarmentKindName:='robe';
+  gkFull:GarmentKindName:='tenue compl'#138'te';
+  gkShoes:GarmentKindName:='chaussures';
+  gkHat:GarmentKindName:='chapeau';
+  gkGlasses:GarmentKindName:='lunettes';
+  gkBag:GarmentKindName:='sac';
+  gkScarf:GarmentKindName:=#130'charpe';
+  gkBelt:GarmentKindName:='ceinture';
+  gkAll:GarmentKindName:='v'#136'tements';
+  Else GarmentKindName:='?';
+ End;
+End;
+
+{ decrit une retouche pour -verbose }
+Function DescribeEdit(Const E:TEdit):AnsiString;
+Var
+ R:AnsiString;
+Begin
+ Case E.Action of
+  eaRecolor:R:='recolorer';
+  eaRemove:R:='retirer';
+  eaTryOn:R:='essayer';
+  Else R:='?';
+ End;
+ If E.Target<>0 Then R:=R+' '+MaskName(E.Target)Else R:=R+' (cible '#133' d'#130'terminer)';
+ If E.HasSrc Then R:=R+', de '+E.SrcName;
+ If E.HasDst Then R:=R+', vers '+E.DstName+' '+ColorHex(E.DstRGB);
+ Case E.Pattern of
+  pkStripes:R:=R+', motif rayures';
+  pkChecks:R:=R+', motif carreaux';
+  pkDots:R:=R+', motif pois';
+  pkPlain:R:=R+', uni';
+ End;
+ If E.HasColor2 Then R:=R+' + '+E.Color2Name;
+ If Abs(E.LGain-1)>0.01 Then R:=R+', luminosit'#130' x'+FStr(E.LGain,2);
+ If Abs(E.CGain-1)>0.01 Then R:=R+', saturation x'+FStr(E.CGain,2);
+ DescribeEdit:=R;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Retouches : recoloration, motifs, retrait d'accessoires              }
+{ ------------------------------------------------------------------ }
+
+Type
+ TRecolor=Record
+  HasDst:Boolean;
+  DstL,DstA,DstB:Single;
+  Pattern:LongInt;
+  C2L,C2A,C2B:Single;
+  LGain,CGain:Single;
+  Vertical:Boolean;
+  BX0,BY0,BW,BH:Single;
+ End;
+
+Procedure RgbIntToLab(RGB:LongWord;Var L,A,B:Single);
+Begin
+ ColorInit;
+ RgbToLab((RGB shr 16)and $FF,(RGB shr 8)and $FF,RGB and $FF,L,A,B);
+End;
+
+{ onde triangulaire douce : 0 au centre d'une bande, 1 a la frontiere }
+Function BandWave(T,U:Single):Single;
+Var
+ F,Wv,E:Single;
+Begin
+ F:=T/(2*U);
+ F:=F-Trunc(F);
+ If F<0 Then F:=F+1;
+ Wv:=Abs(F*2-1);
+ E:=0.7/U;
+ BandWave:=SmoothStep(0.5-E,0.5+E,Wv);
+End;
+
+{ 0 = couleur 1, 1 = couleur 2 }
+Function PatternMix(Const P:TRecolor;X,Y:Single):Single;
+Var
+ U,T,Gx,Gy,Fx,Fy,D,R,Px,Py,Pitch:Single;
+ Row:LongInt;
+Begin
+ U:=FMax(5,FMax(P.BW,P.BH)/13.0);
+ X:=X-P.BX0;Y:=Y-P.BY0;
+ Case P.Pattern of
+  pkStripes:Begin
+    If P.Vertical Then T:=X Else T:=Y;
+    PatternMix:=BandWave(T,U);
+   End;
+  pkChecks:Begin
+    Px:=BandWave(X,U);Py:=BandWave(Y,U);
+    PatternMix:=(Px+Py)*0.5;
+   End;
+  pkDots:Begin
+    Pitch:=2*U;
+    Gy:=Y/Pitch;
+    Row:=FloorI(Gy);
+    Gx:=X/Pitch;
+    If Odd(Row)Then Gx:=Gx+0.5;
+    Fx:=Gx-FloorI(Gx)-0.5;
+    Fy:=Gy-Row-0.5;
+    D:=Sqrt(Fx*Fx+Fy*Fy)*Pitch;
+    R:=0.27*Pitch;
+    PatternMix:=1-SmoothStep(R-0.8,R+0.8,D);
+   End;
+  Else PatternMix:=0;
+ End;
+End;
+
+{ recolore les pixels de l'opacite Alpha (0..1) en conservant l'ombrage et la texture ;
+  renvoie faux si la region est trop petite }
+Function RecolorRegion(Pix:PSingle;W,H:LongInt;Alpha:PSingle;Const P:TRecolor):Boolean;
+Var
+ N,K:Int64;
+ X,Y:LongInt;
+ SumL,SumW,Lm:Double;
+ L,A,B,Lt,At,Bt,Mx,L2,A2,B2,Mix,F,Wgt,R,G,Bl,Q:Single;
+Begin
+ RecolorRegion:=False;
+ ColorInit;
+ N:=Int64(W)*H;
+ SumL:=0;SumW:=0;
+ For K:=0 to N-1 do If Alpha[K]>0.5 Then Begin
+  RgbToLab(Pix[K*3],Pix[K*3+1],Pix[K*3+2],L,A,B);
+  SumL:=SumL+L;SumW:=SumW+1;
+ End;
+ If SumW<30 Then Exit;
+ Lm:=SumL/SumW;
+ If Lm<3 Then Lm:=3;
+ If Lm>97 Then Lm:=97;
+ For Y:=0 to H-1 do
+  For X:=0 to W-1 do Begin
+   K:=Int64(Y)*W+X;
+   Wgt:=Alpha[K];
+   If Wgt<=0.004 Then Continue;
+   RgbToLab(Pix[K*3],Pix[K*3+1],Pix[K*3+2],L,A,B);
+   If P.HasDst Then Begin
+    Lt:=P.DstL;At:=P.DstA;Bt:=P.DstB;
+    If P.Pattern<>pkNone Then Begin
+     Mix:=PatternMix(P,X+0.5,Y+0.5);
+     Lt:=Lt+(P.C2L-Lt)*Mix;At:=At+(P.C2A-At)*Mix;Bt:=Bt+(P.C2B-Bt)*Mix;
+    End;
+    { courbe de tons : moyenne de la region -> luminosite cible, 0 et 100 fixes }
+    If L<=Lm Then L2:=L*Lt/Lm
+    Else L2:=Lt+(L-Lm)*(100-Lt)/(100-Lm);
+    If L2<0 Then L2:=0 Else If L2>100 Then L2:=100;
+    If P.LGain>1 Then L2:=L2+(100-L2)*(1-1/P.LGain)
+    Else L2:=L2*P.LGain;
+    { la chroma decroit vers le noir et le blanc }
+    F:=1;
+    If(L2<Lt)and(Lt>1)Then F:=Sqrt(L2/Lt)
+    Else If(L2>Lt)and(Lt<99)Then F:=Sqrt((100-L2)/(100-Lt));
+    If F<0 Then F:=0 Else If F>1 Then F:=1;
+    A2:=At*F*P.CGain;B2:=Bt*F*P.CGain;
+   End
+    Else Begin
+     L2:=L;
+     If P.LGain>1 Then L2:=L+(100-L)*(1-1/P.LGain)Else L2:=L*P.LGain;
+     A2:=A*P.CGain;B2:=B*P.CGain;
+    End;
+   LabToRgb(L2,A2,B2,R,G,Bl);
+   If Wgt>1 Then Wgt:=1;
+   Pix[K*3]:=Pix[K*3]+(R-Pix[K*3])*Wgt;
+   Pix[K*3+1]:=Pix[K*3+1]+(G-Pix[K*3+1])*Wgt;
+   Pix[K*3+2]:=Pix[K*3+2]+(Bl-Pix[K*3+2])*Wgt;
+  End;
+ RecolorRegion:=True;
+End;
+
+{ durcit un masque flou : supprime les halos de faible opacite }
+Procedure SharpenAlpha(M:PSingle;N:Int64);
+Var
+ K:Int64;
+Begin
+ For K:=0 to N-1 do M[K]:=SmoothStep(0.25,0.75,M[K]);
+End;
+
+{ couleur moyenne (Lab) d'un ensemble ; faux si trop petit }
+Function MeanLabOf(Const S:TScene;Mask:LongWord;Var L,A,B:Single;Var Area:Int64):Boolean;
+Var
+ M:PSingle;
+ N,K:Int64;
+ SL,SA,SB:Double;
+ Cnt:Int64;
+ Ll,Aa,Bb:Single;
+Begin
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ CatMask(S,Mask,M);
+ SL:=0;SA:=0;SB:=0;Cnt:=0;
+ For K:=0 to N-1 do If M[K]>=0.5 Then Begin
+  RgbToLab(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2],Ll,Aa,Bb);
+  SL:=SL+Ll;SA:=SA+Aa;SB:=SB+Bb;Inc(Cnt);
+ End;
+ FreeMem(M);
+ Area:=Cnt;
+ MeanLabOf:=Cnt>0;
+ If Cnt>0 Then Begin L:=SL/Cnt;A:=SA/Cnt;B:=SB/Cnt;End;
+End;
+
+{ ecart de couleur (distance euclidienne dans Lab) }
+Function DeltaE(L1,A1,B1,L2,A2,B2:Single):Single;
+Begin
+ DeltaE:=Sqrt((L1-L2)*(L1-L2)+(A1-A2)*(A1-A2)+(B1-B2)*(B1-B2));
+End;
+
+{ choisit, parmi les vetements visibles, la categorie dont la couleur moyenne
+  est la plus proche de SrcRGB ; 0 si aucune }
+Function FindRegionByColor(Const S:TScene;SrcRGB:LongWord;Var Dist:Single):LongWord;
+Const
+ Cands:Array[0..7]of LongInt=(cTop,cPants,cSkirt,cDress,cShoes,cHat,cBag,cScarf);
+Var
+ I:LongInt;
+ L,A,B,Ls,As_,Bs,D,Best:Single;
+ Area:Int64;
+ BestMask:LongWord;
+Begin
+ RgbIntToLab(SrcRGB,Ls,As_,Bs);
+ Best:=1.0e9;BestMask:=0;
+ For I:=0 to 7 do
+  If MeanLabOf(S,LongWord(1)shl Cands[I],L,A,B,Area)Then
+   If Area>=Int64(S.W)*S.H div 800 Then Begin
+    D:=DeltaE(L,A,B,Ls,As_,Bs);
+    If D<Best Then Begin Best:=D;BestMask:=LongWord(1)shl Cands[I];End;
+   End;
+ Dist:=Best;
+ FindRegionByColor:=BestMask;
+End;
+
+{ remplit les parties marquees par propagation multi-echelle, avec un grain }
+Procedure InpaintHoles(Var S:TScene;Hole:PSingle);
+Var
+ N,K:Int64;
+ Known:PSingle;
+ Sigma:Single;
+ C:LongInt;
+Begin
+ N:=Int64(S.W)*S.H;
+ Known:=AllocF(N);
+ For K:=0 to N-1 do Known[K]:=1-Hole[K];
+ PushPullFill(S.Pix,Known,S.W,S.H);
+ Sigma:=1.6;
+ For K:=0 to N-1 do If Hole[K]>0.05 Then
+  For C:=0 to 2 do
+   S.Pix[K*3+C]:=S.Pix[K*3+C]+RngGauss*Sigma*Hole[K];
+ FreeMem(Known);
+End;
+
+{ retire un accessoire : le masque est dilate puis rempli ; renvoie le nombre de pixels }
+Function RemoveCategory(Var S:TScene;Mask:LongWord):Int64;
+Var
+ N,K:Int64;
+ M:PSingle;
+ B:PByte;
+ C,R:LongInt;
+ Cnt:Int64;
+ Mv:LongInt;
+Begin
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ CatMask(S,Mask,M);
+ B:=PByte(AllocBytes(N));
+ Cnt:=0;
+ For K:=0 to N-1 do If M[K]>=0.3 Then Begin B[K]:=255;Inc(Cnt);End;
+ If Cnt=0 Then Begin FreeMem(M);FreeMem(B);RemoveCategory:=0;Exit;End;
+ R:=IMax(2,IMin(S.W,S.H)div 250);
+ MorphMask(B,S.W,S.H,R,False);
+ For K:=0 to N-1 do M[K]:=B[K]/255.0;
+ BoxBlur(M,M,S.W,S.H,1);
+ For K:=0 to N-1 do If B[K]<>0 Then If M[K]<0.99 Then M[K]:=0.99;
+ InpaintHoles(S,M);
+ { les categories retirees deviennent de l'arriere-plan }
+ For K:=0 to N-1 do If M[K]>0.5 Then Begin
+  For C:=0 to NumCat-1 do If C<>cBg Then
+   If(Mask and(LongWord(1)shl C))<>0 Then Begin
+    Mv:=S.Cat[C][K];
+    S.Cat[C][K]:=0;
+    Mv:=Mv+S.Cat[cBg][K];
+    If Mv>255 Then Mv:=255;
+    S.Cat[cBg][K]:=Mv;
+   End;
+ End;
+ FreeMem(M);FreeMem(B);
+ RemoveCategory:=Cnt;
+End;
+
+{ remplit les parametres de recoloration d'une retouche ; la boite du motif vient de Mask }
+Procedure BuildRecolor(Const E:TEdit;Var P:TRecolor;BX0,BY0,BW,BH:Single;Vertical:Boolean);
+Begin
+ FillChar(P,SizeOf(P),0);
+ P.LGain:=E.LGain;P.CGain:=E.CGain;
+ P.Pattern:=E.Pattern;
+ If P.Pattern=pkPlain Then P.Pattern:=pkNone;
+ P.HasDst:=E.HasDst;
+ If E.HasDst Then RgbIntToLab(E.DstRGB,P.DstL,P.DstA,P.DstB)
+ Else If E.Pattern in[pkStripes,pkChecks,pkDots]Then Begin
+  { motif sans couleur : ton neutre sombre sur fond clair }
+  P.HasDst:=True;
+  RgbIntToLab(RgbOf(40,60,140),P.DstL,P.DstA,P.DstB);
+ End;
+ If E.HasColor2 Then RgbIntToLab(E.Color2RGB,P.C2L,P.C2A,P.C2B)
+ Else RgbIntToLab(RgbOf(245,245,245),P.C2L,P.C2A,P.C2B);
+ P.BX0:=BX0;P.BY0:=BY0;P.BW:=BW;P.BH:=BH;
+ P.Vertical:=Vertical;
+End;
+
+{ applique une retouche de recoloration / de retrait sur la scene }
+Function ApplyEdit(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Var
+ Mask:LongWord;
+ D:Single;
+ N,K:Int64;
+ M:PSingle;
+ X0,Y0,X1,Y1:LongInt;
+ P:TRecolor;
+ L,A,B:Single;
+ Area:Int64;
+ Vert:Boolean;
+ Cnt:Int64;
+Begin
+ ApplyEdit:=False;
+ Msg:='';
+ Mask:=E.Target;
+ If Mask=0 Then Begin
+  If E.HasSrc Then Begin
+   Mask:=FindRegionByColor(S,E.SrcRGB,D);
+   If Mask=0 Then Begin Msg:='aucun v'#136'tement de couleur '+E.SrcName+' trouv'#130;Exit;End;
+   Detail('cible d'#130'duite de la couleur '+E.SrcName+' : '+MaskName(Mask)+' ('#130'cart '+FStr(D,0)+')');
+  End
+   Else Begin Msg:='la demande ne pr'#130'cise pas quel v'#136'tement modifier';Exit;End;
+ End;
+ If E.Action=eaRemove Then Begin
+  If(Mask and(msTop or msPants or msSkirt or msDress))<>0 Then Begin
+   Msg:='le retrait d''un v'#136'tement principal ('+MaskName(Mask)+') n''est pas pris en charge : indiquez plut'#147't un v'#136'tement '#133' essayer';
+   Exit;
+  End;
+  If(Mask and msShoes)<>0 Then Begin
+   Msg:='le retrait des chaussures n''est pas pris en charge';
+   Exit;
+  End;
+  Cnt:=RemoveCategory(S,Mask);
+  If Cnt=0 Then Begin Msg:='aucun '+MaskName(Mask)+' d'#130'tect'#130' sur la photo';Exit;End;
+  Info('  '+MaskName(Mask)+' retir'#130+' ('+IStr(Cnt)+' pixels remplis)');
+  ApplyEdit:=True;
+  Exit;
+ End;
+ { recoloration : plusieurs categories visees se traitent ensemble }
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ CatMask(S,Mask,M);
+ SharpenAlpha(M,N);
+ If not CatBBox(S,Mask,X0,Y0,X1,Y1)Then Begin
+  FreeMem(M);
+  Msg:='aucun '+MaskName(Mask)+' d'#130'tect'#130' sur la photo';
+  Exit;
+ End;
+ If E.HasSrc and(E.Target<>0)Then
+  If MeanLabOf(S,Mask,L,A,B,Area)Then Begin
+   RgbIntToLab(E.SrcRGB,P.DstL,P.DstA,P.DstB);
+   D:=DeltaE(L,A,B,P.DstL,P.DstA,P.DstB);
+   If D>48 Then Warn('la couleur '+E.SrcName+' ne correspond pas bien au '+MaskName(Mask)+' d'#130'tect'#130' ('#130'cart '+FStr(D,0)+')');
+  End;
+ Vert:=(Mask and(msPants or msSkirt))<>0;
+ BuildRecolor(E,P,X0,Y0,X1-X0+1,Y1-Y0+1,Vert);
+ If RecolorRegion(S.Pix,S.W,S.H,M,P)Then Begin
+  ApplyEdit:=True;
+  Info('  '+MaskName(Mask)+' recolor'#130);
+ End
+  Else Msg:='la r'#130'gion '+MaskName(Mask)+' est trop petite pour '#136'tre retouch'#130'e';
+ FreeMem(M);
+End;
+
+{ ------------------------------------------------------------------ }
+{ Essayage : extraction du vetement et pose sur la personne           }
+{ ------------------------------------------------------------------ }
+
+Type
+ TGarment=Record
+  W,H:LongInt;
+  Rgb:PSingle;       { RVB 0..255, W x H }
+  Mask:PSingle;      { opacite 0..1, W x H }
+  Note:AnsiString;
+ End;
+
+Procedure GarmentFree(Var G:TGarment);
+Begin
+ If G.Rgb<>Nil Then FreeMem(G.Rgb);
+ If G.Mask<>Nil Then FreeMem(G.Mask);
+ G.Rgb:=Nil;G.Mask:=Nil;
+End;
+
+{ seuil d'Otsu d'un histogramme de 256 classes }
+Function OtsuThreshold(Const Hist:Array of Int64):LongInt;
+Var
+ I,T,Best:LongInt;
+ Tot,SumAll,SumB,WB,WF:Double;
+ MB,MF,Between,BestV:Double;
+Begin
+ Tot:=0;SumAll:=0;
+ For I:=0 to 255 do Begin Tot:=Tot+Hist[I];SumAll:=SumAll+I*Hist[I];End;
+ SumB:=0;WB:=0;BestV:=-1;Best:=20;
+ For T:=0 to 255 do Begin
+  WB:=WB+Hist[T];
+  If WB=0 Then Continue;
+  WF:=Tot-WB;
+  If WF=0 Then Break;
+  SumB:=SumB+T*Hist[T];
+  MB:=SumB/WB;MF:=(SumAll-SumB)/WF;
+  Between:=WB*WF*(MB-MF)*(MB-MF);
+  If Between>BestV Then Begin BestV:=Between;Best:=T;End;
+ End;
+ OtsuThreshold:=Best;
+End;
+
+{ vrai si la couleur ne saute pas entre deux pixels voisins }
+Function BgStep(Rgb:PSingle;A,B:LongInt):Boolean;
+Var
+ D:Single;
+Begin
+ D:=Abs(Rgb[Int64(A)*3]-Rgb[Int64(B)*3]);
+ If Abs(Rgb[Int64(A)*3+1]-Rgb[Int64(B)*3+1])>D Then D:=Abs(Rgb[Int64(A)*3+1]-Rgb[Int64(B)*3+1]);
+ If Abs(Rgb[Int64(A)*3+2]-Rgb[Int64(B)*3+2])>D Then D:=Abs(Rgb[Int64(A)*3+2]-Rgb[Int64(B)*3+2]);
+ BgStep:=D<=7;
+End;
+
+{ extrait le vetement d'une photo (canal alpha, sinon suppression du fond uni) }
+Function GarmentFromImage(Var Img:TImage;Var G:TGarment;Var Err:AnsiString):Boolean;
+Var
+ W,H,K0,X,Y,I,C,Side,NW,NH:LongInt;
+ N,K:Int64;
+ Src:PSingle;
+ Hist:Array[0..2]of Array[0..255]of LongInt;
+ Bg:Array[0..2]of Single;
+ Cnt,Close_:Int64;
+ Cum,Half:Int64;
+ D:PSingle;
+ Dh:Array[0..255]of Int64;
+ Thr,Dv:LongInt;
+ Fg,Seen:PByte;
+ Stack:PIntArr;
+ Sp,Q:LongInt;
+ UseAlpha:Boolean;
+ NLow:Int64;
+ Lab:PIntArr;
+ Areas:TIntArray;
+ NC,Mx,J:LongInt;
+ Keep:Array of Boolean;
+ X0,Y0,X1,Y1:LongInt;
+ Area:Int64;
+ M2,Rg2:PSingle;
+ Sc:Double;
+Begin
+ GarmentFromImage:=False;
+ Err:='';
+ FillChar(G,SizeOf(G),0);
+ ColorInit;
+ W:=Img.W;H:=Img.H;
+ { reduction prealable des tres grandes photos }
+ Side:=IMax(W,H);
+ If Side>1400 Then Begin
+  Sc:=1400/Side;
+  NW:=Round(W*Sc);NH:=Round(H*Sc);
+ End
+  Else Begin NW:=W;NH:=H;End;
+ N:=Int64(W)*H;
+ Src:=AllocF(N*3);
+ For K:=0 to N*3-1 do Src[K]:=Img.Px[K];
+ G.Rgb:=AllocF(Int64(NW)*NH*3);
+ ResizeF(Src,W,H,G.Rgb,NW,NH,3);
+ FreeMem(Src);
+ G.Mask:=AllocF(Int64(NW)*NH);
+ UseAlpha:=False;
+ If Img.Alpha<>Nil Then Begin
+  NLow:=0;
+  For K:=0 to N-1 do If Img.Alpha[K]<250 Then Inc(NLow);
+  If NLow>N div 200 Then UseAlpha:=True;
+ End;
+ W:=NW;H:=NH;
+ N:=Int64(W)*H;
+ If UseAlpha Then Begin
+  Src:=AllocF(Int64(Img.W)*Img.H);
+  For K:=0 to Int64(Img.W)*Img.H-1 do Src[K]:=Img.Alpha[K]/255.0;
+  ResizeF(Src,Img.W,Img.H,G.Mask,W,H,1);
+  FreeMem(Src);
+  G.Note:='canal alpha de l''image utilis'#130;
+ End
+  Else Begin
+   { couleur du fond : mediane des bords }
+   FillChar(Hist,SizeOf(Hist),0);
+   Cnt:=0;
+   For Y:=0 to H-1 do
+    For X:=0 to W-1 do
+     If(X<3)or(Y<3)or(X>=W-3)or(Y>=H-3)Then Begin
+      For C:=0 to 2 do Inc(Hist[C][ClampI(Trunc(G.Rgb[(Int64(Y)*W+X)*3+C]+0.5),0,255)]);
+      Inc(Cnt);
+     End;
+   For C:=0 to 2 do Begin
+    Cum:=0;Half:=Cnt div 2;
+    Bg[C]:=0;
+    For I:=0 to 255 do Begin
+     Inc(Cum,Hist[C][I]);
+     If Cum>Half Then Begin Bg[C]:=I;Break;End;
+    End;
+   End;
+   D:=AllocF(N);
+   FillChar(Dh,SizeOf(Dh),0);
+   Close_:=0;
+   For K:=0 to N-1 do Begin
+    D[K]:=FMax(Abs(G.Rgb[K*3]-Bg[0]),FMax(Abs(G.Rgb[K*3+1]-Bg[1]),Abs(G.Rgb[K*3+2]-Bg[2])));
+    Inc(Dh[ClampI(Trunc(D[K]),0,255)]);
+   End;
+   For Y:=0 to H-1 do
+    For X:=0 to W-1 do
+     If(X<3)or(Y<3)or(X>=W-3)or(Y>=H-3)Then
+      If D[Int64(Y)*W+X]<=28 Then Inc(Close_);
+   If Close_<Cnt*6 div 10 Then Begin
+    For K:=0 to N-1 do G.Mask[K]:=1;
+    G.Note:='fond non uniforme : toute l''image est utilis'#130'e comme v'#136'tement';
+    FreeMem(D);
+   End
+    Else Begin
+     { propagation depuis les bords : on avance tant que la couleur reste proche du fond
+       ET qu'elle ne saute pas d'un pixel a l'autre (un vetement blanc sur fond blanc
+       garde ainsi son contour) }
+     Thr:=Round(OtsuThreshold(Dh)*0.8);
+     If Thr<22 Then Thr:=22;
+     If Thr>70 Then Thr:=70;
+     Seen:=PByte(AllocBytes(N));
+     Fg:=PByte(AllocBytes(N));
+     Stack:=PIntArr(AllocBytes(N*4));
+     Sp:=0;
+     For Y:=0 to H-1 do
+      For X:=0 to W-1 do
+       If(X=0)or(Y=0)or(X=W-1)or(Y=H-1)Then Begin
+        K:=Int64(Y)*W+X;
+        If(Seen[K]=0)and(D[K]<Thr)Then Begin Seen[K]:=1;Stack[Sp]:=K;Inc(Sp);End;
+       End;
+     While Sp>0 do Begin
+      Dec(Sp);
+      Q:=Stack[Sp];
+      X:=Q mod W;Y:=Q div W;
+      If(X>0)and(Seen[Q-1]=0)and(D[Q-1]<Thr)and BgStep(G.Rgb,Q,Q-1)Then Begin Seen[Q-1]:=1;Stack[Sp]:=Q-1;Inc(Sp);End;
+      If(X<W-1)and(Seen[Q+1]=0)and(D[Q+1]<Thr)and BgStep(G.Rgb,Q,Q+1)Then Begin Seen[Q+1]:=1;Stack[Sp]:=Q+1;Inc(Sp);End;
+      If(Y>0)and(Seen[Q-W]=0)and(D[Q-W]<Thr)and BgStep(G.Rgb,Q,Q-W)Then Begin Seen[Q-W]:=1;Stack[Sp]:=Q-W;Inc(Sp);End;
+      If(Y<H-1)and(Seen[Q+W]=0)and(D[Q+W]<Thr)and BgStep(G.Rgb,Q,Q+W)Then Begin Seen[Q+W]:=1;Stack[Sp]:=Q+W;Inc(Sp);End;
+     End;
+     FreeMem(Stack);FreeMem(D);
+     For K:=0 to N-1 do If Seen[K]=0 Then Fg[K]:=255;
+     FreeMem(Seen);
+     { ouverture legere puis suppression des petits ilots }
+     MorphMask(Fg,W,H,1,True);
+     Lab:=PIntArr(AllocBytes(N*4));
+     NC:=Components(Fg,W,H,Lab,Areas);
+     Mx:=0;
+     For J:=1 to NC do If Areas[J]>Mx Then Mx:=Areas[J];
+     SetLength(Keep,NC+1);
+     For J:=1 to NC do Keep[J]:=Areas[J]*100>=Int64(Mx)*8;
+     For K:=0 to N-1 do
+      If(Lab[K]>0)and Keep[Lab[K]]Then Fg[K]:=255 Else Fg[K]:=0;
+     FreeMem(Lab);
+     MorphMask(Fg,W,H,1,False);
+     For K:=0 to N-1 do G.Mask[K]:=Fg[K]/255.0;
+     BlurPlane(G.Mask,W,H,1.0);
+     For K:=0 to N-1 do G.Mask[K]:=SmoothStep(0.3,0.8,G.Mask[K]);
+     FreeMem(Fg);
+     G.Note:='fond supprim'#130' (seuil '+IStr(Thr)+')';
+    End;
+  End;
+ G.W:=W;G.H:=H;
+ { rognage sur la boite du vetement }
+ X0:=W;Y0:=H;X1:=-1;Y1:=-1;Area:=0;
+ For Y:=0 to H-1 do
+  For X:=0 to W-1 do If G.Mask[Int64(Y)*W+X]>=0.5 Then Begin
+   If X<X0 Then X0:=X;
+   If X>X1 Then X1:=X;
+   If Y<Y0 Then Y0:=Y;
+   If Y>Y1 Then Y1:=Y;
+   Inc(Area);
+  End;
+ If(X1<X0)or(Area<N div 40)Then Begin
+  Err:='impossible de trouver le v'#136'tement dans l''image (fond trop complexe ?)';
+  GarmentFree(G);
+  Exit;
+ End;
+ NW:=X1-X0+1;NH:=Y1-Y0+1;
+ M2:=AllocF(Int64(NW)*NH);Rg2:=AllocF(Int64(NW)*NH*3);
+ For Y:=0 to NH-1 do Begin
+  Move(G.Mask[Int64(Y+Y0)*W+X0],M2[Int64(Y)*NW],NW*4);
+  Move(G.Rgb[(Int64(Y+Y0)*W+X0)*3],Rg2[Int64(Y)*NW*3],NW*12);
+ End;
+ FreeMem(G.Mask);FreeMem(G.Rgb);
+ G.Mask:=M2;G.Rgb:=Rg2;G.W:=NW;G.H:=NH;
+ { decontamination des bords : les couleurs proches du contour (melangees au fond)
+   sont remplacees par celles de l'interieur du tissu }
+ Fg:=PByte(AllocBytes(Int64(NW)*NH));
+ For K:=0 to Int64(NW)*NH-1 do If G.Mask[K]>=0.5 Then Fg[K]:=255;
+ MorphMask(Fg,NW,NH,IMax(1,IMin(NW,NH)div 250),True);
+ M2:=AllocF(Int64(NW)*NH);
+ For K:=0 to Int64(NW)*NH-1 do If Fg[K]<>0 Then M2[K]:=1;
+ PushPullFill(G.Rgb,M2,NW,NH);
+ FreeMem(M2);FreeMem(Fg);
+ GarmentFromImage:=True;
+End;
+
+{ extremites gauche/droite (premier/dernier pixel > 0,5) de chaque rangee ; -1 si vide }
+Procedure RowExtents(M:PSingle;W,H:LongInt;L,R:PSingle);
+Var
+ X,Y,A,B:LongInt;
+Begin
+ For Y:=0 to H-1 do Begin
+  A:=-1;B:=-1;
+  For X:=0 to W-1 do If M[Int64(Y)*W+X]>=0.5 Then Begin
+   If A<0 Then A:=X;
+   B:=X;
+  End;
+  If A<0 Then Begin L[Y]:=-1;R[Y]:=-1;End
+  Else Begin L[Y]:=A;R[Y]:=B+1;End;
+ End;
+End;
+
+{ comble les rangees vides par la plus proche et lisse sur une fenetre de rayon Rad }
+Procedure FillSmoothExtents(L,R:PSingle;H,Rad:LongInt);
+Var
+ Y,K,Last:LongInt;
+ TmpL,TmpR:PSingle;
+ SL,SR_:Double;
+ Cnt:LongInt;
+Begin
+ Last:=-1;
+ For Y:=0 to H-1 do Begin
+  If L[Y]>=0 Then Last:=Y
+  Else If Last>=0 Then Begin L[Y]:=L[Last];R[Y]:=R[Last];End;
+ End;
+ Last:=-1;
+ For Y:=H-1 downto 0 do Begin
+  If(L[Y]>=0)and(Y<H)Then Last:=Y
+  Else If(Last>=0)and(L[Y]<0)Then Begin L[Y]:=L[Last];R[Y]:=R[Last];End;
+ End;
+ TmpL:=AllocF(H);TmpR:=AllocF(H);
+ For Y:=0 to H-1 do Begin
+  SL:=0;SR_:=0;Cnt:=0;
+  For K:=Y-Rad to Y+Rad do If(K>=0)and(K<H)Then Begin SL:=SL+L[K];SR_:=SR_+R[K];Inc(Cnt);End;
+  TmpL[Y]:=SL/Cnt;TmpR[Y]:=SR_/Cnt;
+ End;
+ Move(TmpL^,L^,H*4);Move(TmpR^,R^,H*4);
+ FreeMem(TmpL);FreeMem(TmpR);
+End;
+
+{ comble les trous entre les manches et le corps d'un vetement photographie a plat
+  (a partir de la rangee FromRow), le tissu manquant etant prolonge par propagation }
+Procedure CloseRowGaps(Var G:TGarment;FromRow:LongInt);
+Var
+ X,Y,A,B:LongInt;
+ Known,Fill:PSingle;
+ N,K:Int64;
+ Any:Boolean;
+Begin
+ N:=Int64(G.W)*G.H;
+ Known:=AllocF(N);Fill:=AllocF(N);
+ Any:=False;
+ For K:=0 to N-1 do If G.Mask[K]>=0.5 Then Known[K]:=1;
+ For Y:=FromRow to G.H-1 do Begin
+  A:=-1;B:=-1;
+  For X:=0 to G.W-1 do If Known[Int64(Y)*G.W+X]>0 Then Begin
+   If A<0 Then A:=X;
+   B:=X;
+  End;
+  If A>=0 Then
+   For X:=A to B do If Known[Int64(Y)*G.W+X]=0 Then Begin Fill[Int64(Y)*G.W+X]:=1;Any:=True;End;
+ End;
+ If Any Then Begin
+  PushPullFill(G.Rgb,Known,G.W,G.H);
+  For K:=0 to N-1 do If Fill[K]>0 Then G.Mask[K]:=1;
+ End;
+ FreeMem(Known);FreeMem(Fill);
+End;
+
+{ categories remplacees / protegees selon le genre de vetement }
+Procedure KindSets(Kind:LongInt;Var Repl,Alt,Prot:LongWord);
+Const
+ Always=msFace or msHair or msHat or msGlasses;
+Begin
+ Alt:=0;
+ Case Kind of
+  gkTop:Begin Repl:=msTop;Alt:=msDress;Prot:=Always or msScarf or msBag or msBelt or msPants or msSkirt or msShoes or msLegs;End;
+  gkBottom,gkSkirt:Begin Repl:=msPants or msSkirt;Prot:=Always or msTop or msBag or msBelt or msShoes or msScarf;End;
+  gkDress:Begin Repl:=msDress or msTop or msSkirt or msPants;Prot:=Always or msShoes or msBag or msScarf;End;
+  gkFull:Begin Repl:=msDress or msTop or msSkirt or msPants or msBelt;Prot:=Always or msShoes or msBag or msScarf;End;
+  gkShoes:Begin Repl:=msShoes;Prot:=Always or msTop or msPants or msSkirt or msDress or msBag;End;
+  gkHat:Begin Repl:=msHat;Prot:=msFace or msGlasses;End;
+  gkGlasses:Begin Repl:=msGlasses;Prot:=msHair or msHat;End;
+  gkBag:Begin Repl:=msBag;Prot:=Always;End;
+  gkScarf:Begin Repl:=msScarf;Prot:=Always;End;
+  gkBelt:Begin Repl:=msBelt;Prot:=Always or msTop;End;
+  Else Begin Repl:=msTop;Prot:=Always;End;
+ End;
+End;
+
+Function KindCategory(Kind:LongInt):LongInt;
+Begin
+ Case Kind of
+  gkTop:KindCategory:=cTop;
+  gkBottom:KindCategory:=cPants;
+  gkSkirt:KindCategory:=cSkirt;
+  gkDress,gkFull:KindCategory:=cDress;
+  gkShoes:KindCategory:=cShoes;
+  gkHat:KindCategory:=cHat;
+  gkGlasses:KindCategory:=cGlasses;
+  gkBag:KindCategory:=cBag;
+  gkScarf:KindCategory:=cScarf;
+  gkBelt:KindCategory:=cBelt;
+  Else KindCategory:=cTop;
+ End;
+End;
+
+{ boite cible deduite du visage lorsque la personne ne porte pas ce genre de vetement }
+Function LandmarkBox(Const S:TScene;Kind:LongInt;Var Bx0,By0,Bx1,By1:Single):Boolean;
+Var
+ Fx0,Fy0,Fx1,Fy1,Lx0,Ly0,Lx1,Ly1,Tx0,Ty0,Tx1,Ty1:LongInt;
+ Fw,Fh,Cx:Single;
+Begin
+ LandmarkBox:=False;
+ If not CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Exit;
+ Fw:=Fx1-Fx0+1;Fh:=Fy1-Fy0+1;
+ Cx:=(Fx0+Fx1+1)/2;
+ Case Kind of
+  gkTop,gkDress,gkFull:Begin
+    Bx0:=Cx-1.4*Fw;Bx1:=Cx+1.4*Fw;By0:=Fy1+0.25*Fh;
+    Case Kind of
+     gkTop:By1:=By0+2.5*Fh;
+     gkDress:By1:=By0+5.0*Fh;
+     Else By1:=By0+6.2*Fh;
+    End;
+    LandmarkBox:=True;
+   End;
+  gkHat:Begin Bx0:=Fx0-0.2*Fw;Bx1:=Fx1+0.2*Fw;By1:=Fy0+0.25*Fh;By0:=By1-0.9*Fh;LandmarkBox:=True;End;
+  gkGlasses:Begin Bx0:=Fx0-0.05*Fw;Bx1:=Fx1+0.05*Fw;By0:=Fy0+0.30*Fh;By1:=Fy0+0.57*Fh;LandmarkBox:=True;End;
+  gkScarf:Begin Bx0:=Cx-0.9*Fw;Bx1:=Cx+0.9*Fw;By0:=Fy1-0.05*Fh;By1:=By0+0.7*Fh;LandmarkBox:=True;End;
+  gkBottom,gkSkirt:
+   If CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)and CatBBox(S,msLegs or msShoes,Lx0,Ly0,Lx1,Ly1)Then Begin
+    Bx0:=IMin(Tx0,Lx0);Bx1:=IMax(Tx1,Lx1);By0:=Ty1-0.05*(Ty1-Ty0);By1:=Ly1;LandmarkBox:=True;
+   End;
+ End;
+End;
+
+{ couleur de peau moyenne (RVB) : jambes, sinon bras, sinon visage }
+Function SkinColor(Const S:TScene;ArmsFirst:Boolean;Var R,G,B:Single):Boolean;
+Const
+ SetsLow:Array[0..2]of LongWord=(msLegs,msArms,msFace);
+ SetsTop:Array[0..2]of LongWord=(msArms,msFace,msLegs);
+Var
+ I:LongInt;
+ Sets:Array[0..2]of LongWord;
+ N,K,Cnt:Int64;
+ M:PSingle;
+ Sr,Sg,Sb:Double;
+Begin
+ SkinColor:=False;
+ For I:=0 to 2 do If ArmsFirst Then Sets[I]:=SetsTop[I]Else Sets[I]:=SetsLow[I];
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ For I:=0 to 2 do Begin
+  CatMask(S,Sets[I],M);
+  Sr:=0;Sg:=0;Sb:=0;Cnt:=0;
+  For K:=0 to N-1 do If M[K]>=0.8 Then Begin
+   Sr:=Sr+S.Pix[K*3];Sg:=Sg+S.Pix[K*3+1];Sb:=Sb+S.Pix[K*3+2];Inc(Cnt);
+  End;
+  If Cnt>=N div 3000 Then Begin
+   R:=Sr/Cnt;G:=Sg/Cnt;B:=Sb/Cnt;
+   SkinColor:=True;
+   Break;
+  End;
+ End;
+ FreeMem(M);
+End;
+
+{ pose le vetement sur la personne }
+Function TryOnGarment(Var S:TScene;Var G:TGarment;Kind,Quality:LongInt;Var Msg:AnsiString):Boolean;
+Var
+ Repl,Alt,Prot:LongWord;
+ W,H,X,Y,C,R0,GR:LongInt;
+ N,K:Int64;
+ Ro,Prot_,Cov,Left,Lrw,Lr:PSingle;
+ GRgb,GA:PSingle;
+ X0,Y0,X1,Y1:LongInt;
+ Have:Boolean;
+ Tx0,Ty0,Tx1,Ty1,Cx,Gcx,Sx,Sy,SyFit,Lam:Single;
+ UsedLandmarks:Boolean;
+ GL,GRr,SL,SR_:PSingle;
+ Gx0,Gx1:LongInt;
+ Lt,Rt,Ls,Rs,Lf,Rf,Gy,U,Gxx,Sc:Single;
+ Tmp:Array[0..3]of Single;
+ Yb,Ye:LongInt;
+ UniformScale:Boolean;
+ Area:Int64;
+ MeanL:Double;
+ CntL:Int64;
+ Rad:LongInt;
+ F,Cvg,Lef:Double;
+ Bw,Bh:Single;
+ MaxCat:LongInt;
+ Mv:LongInt;
+ AnchorBottom:Boolean;
+ ArmMask:PSingle;
+ M_:Single;
+ RoArea:Double;
+ SA,SB:PSingle;
+ SkR,SkG,SkB,Sv:Single;
+ Sleeveless:Boolean;
+ RowL,RowR:PSingle;
+ LeftSkin:PSingle;
+ Sum1,Sum2:Double;
+ N1,N2:LongInt;
+
+ Procedure FillSkin(Wt:PSingle);
+ Var
+  Kk:Int64;
+  Cc:LongInt;
+  V:Single;
+ Begin
+  For Kk:=0 to Int64(S.W)*S.H-1 do If Wt[Kk]>0.02 Then
+   For Cc:=0 to 2 do Begin
+    V:=SkR;
+    If Cc=1 Then V:=SkG Else If Cc=2 Then V:=SkB;
+    S.Pix[Kk*3+Cc]:=S.Pix[Kk*3+Cc]*(1-Wt[Kk])+(V+RngGauss*1.6)*Wt[Kk];
+   End;
+ End;
+
+Begin
+ TryOnGarment:=False;
+ Msg:='';
+ W:=S.W;H:=S.H;N:=Int64(W)*H;
+ KindSets(Kind,Repl,Alt,Prot);
+ Ro:=AllocF(N);
+ CatMask(S,Repl,Ro);
+ Have:=CatBBox(S,Repl,X0,Y0,X1,Y1);
+ If Have Then Begin
+  Area:=CatArea(S,Repl);
+  If Area<N div 600 Then Have:=False;
+ End;
+ If(not Have)and(Alt<>0)Then Begin
+  CatMask(S,Alt,Ro);
+  Have:=CatBBox(S,Alt,X0,Y0,X1,Y1);
+  If Have Then Repl:=Alt;
+ End;
+ UsedLandmarks:=False;
+ If Have Then Begin
+  Tx0:=X0;Tx1:=X1+1;Ty0:=Y0;Ty1:=Y1+1;
+  { robe / tenue : la longueur depend du genre, pas de l'ancien vetement }
+  If(Kind=gkDress)or(Kind=gkFull)Then Begin
+   Ye:=Y1;
+   If CatBBox(S,msPants or msSkirt or msDress or msLegs,X0,R0,X1,Ye)Then Begin
+    If Kind=gkDress Then Ty1:=Ty0+0.62*(Ye-Ty0+1)Else Ty1:=Ye+1;
+   End;
+   If Ty1<Y1+1 Then Ty1:=Y1+1;
+  End;
+ End
+  Else Begin
+   FillChar(Ro^,N*4,0);
+   If not LandmarkBox(S,Kind,Tx0,Ty0,Tx1,Ty1)Then Begin
+    Msg:='impossible de situer o'#151' poser ce v'#136'tement sur la personne (aucun visage ni '+
+         'v'#136'tement de ce type d'#130'tect'#130')';
+    FreeMem(Ro);
+    Exit;
+   End;
+   UsedLandmarks:=True;
+   Detail('position estim'#130'e '#133' partir du visage');
+  End;
+ If Tx0<0 Then Tx0:=0;If Ty0<0 Then Ty0:=0;
+ If Tx1>W Then Tx1:=W;If Ty1>H Then Ty1:=H;
+ Bw:=Tx1-Tx0;Bh:=Ty1-Ty0;
+ If(Bw<8)or(Bh<8)Then Begin Msg:='zone cible trop petite';FreeMem(Ro);Exit;End;
+ { echelle : largeur ajustee, hauteur bornee pour limiter la deformation }
+ Sx:=Bw/G.W;
+ SyFit:=Bh/G.H;
+ UniformScale:=Kind in[gkShoes,gkHat,gkGlasses,gkBag,gkScarf,gkBelt];
+ If UniformScale Then Sy:=Sx
+ Else If(Kind=gkTop)and Have and not UsedLandmarks Then Sy:=Clamp(SyFit,0.6*Sx,3.0*Sx)
+ Else Sy:=Clamp(SyFit,0.8*Sx,1.25*Sx);
+ AnchorBottom:=Kind in[gkShoes,gkHat];
+ If AnchorBottom Then Ty0:=Ty1-Sy*G.H
+ Else If UniformScale Then Ty0:=(Ty0+Ty1)/2-Sy*G.H/2;
+ Cx:=(Tx0+Tx1)/2;
+ Gcx:=G.W/2;
+ Lam:=0;
+ If(Kind=gkTop)and Have and not UsedLandmarks Then Lam:=0.8;
+ If Kind=gkTop Then CloseRowGaps(G,G.H div 4);
+ { etendues du vetement et de l'ancien vetement, rangee par rangee }
+ GL:=AllocF(G.H);GRr:=AllocF(G.H);
+ RowExtents(G.Mask,G.W,G.H,GL,GRr);
+ FillSmoothExtents(GL,GRr,G.H,IMax(1,G.H div 50));
+ Sleeveless:=False;
+ If Kind=gkTop Then Begin
+  { vetement sans manches : largeur maximale en haut comparable a celle du corps }
+  Sum1:=0;N1:=0;Sum2:=0;N2:=0;
+  For Y:=0 to G.H-1 do Begin
+   If(Y>=G.H*55 div 100)and(Y<=G.H*90 div 100)Then Begin Sum1:=Sum1+(GRr[Y]-GL[Y]);Inc(N1);End;
+   If(Y>=G.H*12 div 100)and(Y<=G.H*50 div 100)Then If GRr[Y]-GL[Y]>Sum2 Then Sum2:=GRr[Y]-GL[Y];
+  End;
+  If(N1>0)and(Sum1>0)Then Sleeveless:=Sum2/(Sum1/N1)<1.2;
+  If Sleeveless Then Begin
+   Lam:=0.1;
+   Detail('v'#136'tement sans manches d'#130'tect'#130);
+  End;
+ End;
+ SL:=AllocF(H);SR_:=AllocF(H);
+ For Y:=0 to H-1 do Begin SL[Y]:=-1;SR_[Y]:=-1;End;
+ If Lam>0 Then Begin
+  Cov:=AllocF(N);
+  For K:=0 to N-1 do If Ro[K]>=0.5 Then Cov[K]:=1;
+  RowExtents(Cov,W,H,SL,SR_);
+  FreeMem(Cov);
+  FillSmoothExtents(SL,SR_,H,IMax(2,H div 120));
+ End;
+ GRgb:=AllocF(N*3);GA:=AllocF(N);
+ RowL:=AllocF(H);RowR:=AllocF(H);
+ For Y:=0 to H-1 do Begin RowL[Y]:=-1000;RowR[Y]:=-1000;End;
+ RoArea:=0;
+ For K:=0 to N-1 do If Ro[K]>=0.5 Then RoArea:=RoArea+1;
+ Yb:=Trunc(Ty0);If Yb<0 Then Yb:=0;
+ Ye:=Trunc(Ty0+Sy*G.H)+1;If Ye>H-1 Then Ye:=H-1;
+ For Y:=Yb to Ye do Begin
+  Gy:=(Y+0.5-Ty0)/Sy;
+  If(Gy<0)or(Gy>=G.H)Then Continue;
+  GR:=Trunc(Gy);
+  If GR>G.H-1 Then GR:=G.H-1;
+  Ls:=Cx+(GL[GR]-Gcx)*Sx;
+  Rs:=Cx+(GRr[GR]-Gcx)*Sx;
+  Lf:=Ls;Rf:=Rs;
+  If(Lam>0)and(SL[Y]>=0)Then Begin
+   Lf:=(1-Lam)*Ls+Lam*SL[Y];
+   Rf:=(1-Lam)*Rs+Lam*SR_[Y];
+  End;
+  If Rf-Lf<2 Then Continue;
+  RowL[Y]:=Lf;RowR[Y]:=Rf;
+  For X:=Trunc(Lf)-1 to Trunc(Rf)+1 do Begin
+   If(X<0)or(X>=W)Then Continue;
+   U:=(X+0.5-Lf)/(Rf-Lf);
+   If(U<-0.02)or(U>1.02)Then Continue;
+   Gxx:=GL[GR]+U*(GRr[GR]-GL[GR]);
+   SampleBilinear(G.Mask,G.W,G.H,1,Gxx,Gy,@Tmp[0]);
+   If Tmp[0]<=0.003 Then Continue;
+   K:=Int64(Y)*W+X;
+   GA[K]:=Tmp[0];
+   SampleBilinear(G.Rgb,G.W,G.H,3,Gxx,Gy,@GRgb[K*3]);
+  End;
+ End;
+ FreeMem(GL);FreeMem(GRr);
+ { ombrage : variations lentes de la luminosite de l'ancien vetement }
+ If(Quality>=2)and Have and not UsedLandmarks Then Begin
+  Lrw:=AllocF(N);Lr:=AllocF(N);
+  MeanL:=0;CntL:=0;
+  For K:=0 to N-1 do Begin
+   Lrw[K]:=Ro[K];
+   Lr[K]:=Ro[K]*Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+   If Ro[K]>=0.5 Then Begin MeanL:=MeanL+Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);Inc(CntL);End;
+  End;
+  If CntL>0 Then Begin
+   MeanL:=MeanL/CntL;
+   If MeanL<20 Then MeanL:=20;
+   Rad:=IMax(3,Trunc(Bw/14));
+   BoxBlur(Lrw,Lrw,W,H,Rad);BoxBlur(Lrw,Lrw,W,H,Rad);
+   BoxBlur(Lr,Lr,W,H,Rad);BoxBlur(Lr,Lr,W,H,Rad);
+   For K:=0 to N-1 do Begin
+    If Lrw[K]>0.05 Then Begin
+     F:=(Lr[K]/Lrw[K])/MeanL;
+     If F<0.7 Then F:=0.7 Else If F>1.3 Then F:=1.3;
+     F:=Exp(0.65*Ln(F));
+    End
+     Else F:=1;
+    If GA[K]>0 Then Begin
+     GRgb[K*3]:=GRgb[K*3]*F;GRgb[K*3+1]:=GRgb[K*3+1]*F;GRgb[K*3+2]:=GRgb[K*3+2]*F;
+    End;
+   End;
+  End;
+  FreeMem(Lrw);FreeMem(Lr);
+ End;
+ { objets au premier plan qui ne doivent pas etre recouverts }
+ Prot_:=AllocF(N);
+ CatMask(S,Prot,Prot_);
+ If Kind=gkTop Then Begin
+  ArmMask:=AllocF(N);
+  CatMask(S,msArms,ArmMask);
+  If Have Then Begin
+   Cov:=AllocF(N);
+   For K:=0 to N-1 do If Ro[K]>=0.5 Then Cov[K]:=1;
+   SA:=AllocF(H);SB:=AllocF(H);
+   RowExtents(Cov,W,H,SA,SB);
+   FreeMem(Cov);
+   For Y:=0 to H-1 do If SA[Y]>=0 Then Begin
+    M_:=(SB[Y]-SA[Y])*0.08;
+    For X:=Trunc(SA[Y]+M_) to Trunc(SB[Y]-M_) do
+     If(X>=0)and(X<W)Then Begin
+      K:=Int64(Y)*W+X;
+      If ArmMask[K]>Prot_[K]Then Prot_[K]:=ArmMask[K];
+     End;
+   End;
+   FreeMem(SA);FreeMem(SB);
+  End;
+  FreeMem(ArmMask);
+ End;
+ { composition }
+ Cov:=AllocF(N);
+ Cvg:=0;
+ For K:=0 to N-1 do Begin
+  Cov[K]:=GA[K]*(1-SmoothStep(0.15,0.85,Prot_[K]));
+  Cvg:=Cvg+Cov[K];
+ End;
+ Left:=AllocF(N);
+ Lef:=0;
+ If Have Then Begin
+  For K:=0 to N-1 do If Ro[K]>=0.5 Then Begin
+   Left[K]:=1-Cov[K];
+   If Left[K]<0.3 Then Left[K]:=0;
+   Lef:=Lef+Left[K];
+  End;
+ End;
+ For K:=0 to N-1 do If Cov[K]>0 Then
+  For C:=0 to 2 do
+   S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Cov[K])+GRgb[K*3+C]*Cov[K];
+ If Lef>0 Then Begin
+  BoxBlur(Left,Left,W,H,1);
+  For K:=0 to N-1 do If Left[K]>0.02 Then Begin
+   Left[K]:=Left[K]*2;If Left[K]>1 Then Left[K]:=1;
+   If Cov[K]>0.9 Then Left[K]:=0;
+  End;
+  If(Kind in[gkDress,gkFull,gkBottom,gkSkirt])and SkinColor(S,False,SkR,SkG,SkB)Then Begin
+   { jambes nues sous une robe ou un short : couleur de la peau de la personne }
+   FillSkin(Left);
+   Detail('zone d'#130'couverte remplie avec la couleur de la peau');
+  End
+   Else Begin
+    If Sleeveless and SkinColor(S,True,SkR,SkG,SkB)Then Begin
+     { bras nus : ce qui depasse sur les cotes du vetement sans manches }
+     LeftSkin:=AllocF(N);
+     For K:=0 to N-1 do If Left[K]>0.02 Then Begin
+      Y:=K div W;X:=K mod W;
+      If(RowL[Y]>-999)and((X<RowL[Y]-1)or(X>RowR[Y]+1))Then Begin LeftSkin[K]:=Left[K];Left[K]:=0;End;
+     End;
+     FillSkin(LeftSkin);
+     FreeMem(LeftSkin);
+     Detail('bras d'#130'couverts remplis avec la couleur de la peau');
+    End;
+    InpaintHoles(S,Left);
+   End;
+ End;
+ { mise a jour des categories }
+ MaxCat:=KindCategory(Kind);
+ For K:=0 to N-1 do Begin
+  If Cov[K]>0.004 Then Begin
+   Mv:=Trunc(Cov[K]*255+0.5);
+   For C:=0 to NumCat-1 do
+    S.Cat[C][K]:=Trunc(S.Cat[C][K]*(1-Cov[K])+0.5);
+   Mv:=Mv+S.Cat[MaxCat][K];
+   If Mv>255 Then Mv:=255;
+   S.Cat[MaxCat][K]:=Mv;
+  End;
+  If Left[K]>0.5 Then
+   For C:=0 to NumCat-1 do If(Repl and(LongWord(1)shl C))<>0 Then Begin
+    Mv:=S.Cat[C][K]+S.Cat[cBg][K];
+    If Mv>255 Then Mv:=255;
+    S.Cat[cBg][K]:=Mv;
+    S.Cat[C][K]:=0;
+   End;
+ End;
+ Msg:='v'#136'tement pos'#130;
+ If RoArea>0 Then Msg:=Msg+' ('+FStr(100.0*FMin(1,Cvg/RoArea),0)+' % de l''ancienne zone couverts)';
+ If Lef>N*0.0005 Then Msg:=Msg+', '+IStr(Trunc(Lef))+' pixels de l''ancien v'#136'tement remplis par interpolation';
+ FreeMem(Ro);FreeMem(Prot_);FreeMem(Cov);FreeMem(Left);FreeMem(GRgb);FreeMem(GA);
+ FreeMem(SL);FreeMem(SR_);FreeMem(RowL);FreeMem(RowR);
+ TryOnGarment:=True;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Couche systeme : console, repertoires, telechargement (Windows)      }
+{ ------------------------------------------------------------------ }
+
+{$IFDEF WINDOWS}
+Function GetConsoleOutputCP:LongWord;stdcall;external 'kernel32.dll' name
+  'GetConsoleOutputCP';
+Function GetConsoleCP:LongWord;stdcall;external 'kernel32.dll' name
+  'GetConsoleCP';
+Function SetConsoleOutputCP(CP:LongWord):LongInt;stdcall;external
+  'kernel32.dll' name 'SetConsoleOutputCP';
+Function SetConsoleCP(CP:LongWord):LongInt;stdcall;external 'kernel32.dll' name
+  'SetConsoleCP';
+Function MultiByteToWideChar(CP,
+  Flags:LongWord;S:PChar;N:LongInt;W:PWideChar;WN:LongInt):LongInt;
+ stdcall;external 'kernel32.dll' name 'MultiByteToWideChar';
+Function WideCharToMultiByte(CP,
+  Flags:LongWord;W:PWideChar;WN:LongInt;S:PChar;N:LongInt;Def:PChar;Used:Pointer):LongInt;
+ stdcall;external 'kernel32.dll' name 'WideCharToMultiByte';
+Procedure WinSleep(Ms:LongWord);stdcall;external 'kernel32.dll' name 'Sleep';
+
+Function InternetOpenA(Agent:PChar;AccessType:LongWord;Proxy,
+  Bypass:PChar;Flags:LongWord):Pointer;
+ stdcall;external 'wininet.dll' name 'InternetOpenA';
+Function InternetOpenUrlA(H:Pointer;Url,
+  Headers:PChar;HeadersLen:LongWord;Flags:LongWord;Ctx:PtrUInt):Pointer;
+ stdcall;external 'wininet.dll' name 'InternetOpenUrlA';
+Function InternetReadFile(H:Pointer;Buf:Pointer;ToRead:LongWord;Var
+  Got:LongWord):LongInt;
+ stdcall;external 'wininet.dll' name 'InternetReadFile';
+Function InternetCloseHandle(H:Pointer):LongInt;stdcall;external 'wininet.dll'
+  name 'InternetCloseHandle';
+Function HttpQueryInfoA(H:Pointer;InfoLevel:LongWord;Buf:Pointer;Var
+  BufLen:LongWord;Index:Pointer):LongInt;
+ stdcall;external 'wininet.dll' name 'HttpQueryInfoA';
+Function
+  InternetSetOptionA(H:Pointer;Opt:LongWord;Buf:Pointer;BufLen:LongWord):LongInt;
+ stdcall;external 'wininet.dll' name 'InternetSetOptionA';
+
+Var
+ SavedOutCP,SavedInCP:LongWord;
+ OldExitProc:Pointer;
+
+{ remet la page de codes d'origine de la console a la fin du programme }
+Procedure RestoreConsole;
+Begin
+ ExitProc:=OldExitProc;
+ SetConsoleOutputCP(SavedOutCP);
+ SetConsoleCP(SavedInCP);
+End;
+
+Function IsValidUtf8(Const S:AnsiString):Boolean;
+Var
+ I,N,C,Need,K:LongInt;
+Begin
+ IsValidUtf8:=False;
+ I:=1;N:=Length(S);
+ While I<=N do Begin
+  C:=Ord(S[I]);
+  Need:=0;
+  If C>=$80 Then Begin
+   If(C>=$C2)and(C<=$DF)Then Need:=1
+    Else If(C>=$E0)and(C<=$EF)Then Need:=2
+    Else If(C>=$F0)and(C<=$F4)Then Need:=3
+    Else Exit;
+   If I+Need>N Then Exit;
+   For K:=1 to Need do If(Ord(S[I+K])and $C0)<>$80 Then Exit;
+  End;
+  Inc(I,Need+1);
+ End;
+ IsValidUtf8:=True;
+End;
+
+{ argument de la ligne de commande en UTF-8 (Windows le fournit en page ANSI) }
+Function ArgStr(I:LongInt):AnsiString;
+Var
+ S:AnsiString;
+ W:Array of Word;
+ N,M:LongInt;
+Begin
+ S:=ParamStr(I);
+ ArgStr:=S;
+ If IsValidUtf8(S)Then Exit;
+ SetLength(W,Length(S)+1);
+ N:=MultiByteToWideChar(0,0,PChar(S),Length(S),PWideChar(@W[0]),Length(S)+1);
+ If N<=0 Then Exit;
+ M:=WideCharToMultiByte(65001,0,PWideChar(@W[0]),N,Nil,0,Nil,Nil);
+ If M<=0 Then Exit;
+ SetLength(S,M);
+ WideCharToMultiByte(65001,0,PWideChar(@W[0]),N,PChar(S),M,Nil,Nil);
+ ArgStr:=S;
+End;
+
+Procedure InitConsole;
+Begin
+ SavedOutCP:=GetConsoleOutputCP;
+ SavedInCP:=GetConsoleCP;
+ SetConsoleOutputCP(65001);
+ SetConsoleCP(65001);
+ OldExitProc:=ExitProc;
+ ExitProc:=@RestoreConsole;
+ InstallUtf8Output;
+End;
+{$ELSE}
+Function ArgStr(I:LongInt):AnsiString;
+Begin
+ ArgStr:=ParamStr(I);
+End;
+
+Procedure InitConsole;
+Begin
+ InstallUtf8Output;
+End;
+{$ENDIF}
+
+Function HomeDir:AnsiString;
+Begin
+ HomeDir:=GetEnv('HOME');
+ If HomeDir='' Then HomeDir:=GetEnv('USERPROFILE');
+End;
+
+{ repertoire ou sont ranges les modeles telecharges }
+Function CacheDir:AnsiString;
+Var
+ D:AnsiString;
+Begin
+ D:=GetEnv('VTON_CACHE');
+ If D='' Then Begin
+  {$IFDEF WINDOWS}
+  D:=GetEnv('LOCALAPPDATA');
+  If D='' Then D:='.';
+  D:=D+'\vton';
+  {$ELSE}
+  D:=GetEnv('XDG_CACHE_HOME');
+  If D='' Then Begin
+   D:=HomeDir;
+   If D='' Then D:='.';
+   D:=D+'/.cache';
+  End;
+  D:=D+'/vton';
+  {$ENDIF}
+ End;
+ While(Length(D)>1)and(D[Length(D)]in['/','\'])do Delete(D,Length(D),1);
+ CacheDir:=D;
+End;
+
+Function NetSupported:Boolean;
+Begin
+ {$IFDEF WINDOWS}
+ NetSupported:=True;
+ {$ELSE}
+ NetSupported:=False;
+ {$ENDIF}
+End;
+
+Function HttpDownload(Const Url,Dest:AnsiString;Var Err:AnsiString):Boolean;
+{$IFDEF WINDOWS}
+Const
+ MaxTries=3;
+Var
+ Sess,H:Pointer;
+ Flags,Tmo,L,Buf:LongWord;
+ Status,Code,Try_,Pc,LastPc:LongInt;
+ Cl,Done:Int64;
+ SBuf:Array[0..63]of AnsiChar;
+ Got:LongWord;
+ Chunk:Array[0..65535]of Byte;
+ F:File;
+ Tmp:AnsiString;
+ Fin:Boolean;
+Begin
+ HttpDownload:=False;
+ Err:='';
+ MakeDirs(PathDir(Dest));
+ Tmp:=Dest+'.part';
+ Fin:=False;
+ Try_:=0;
+ While(not Fin)and(Try_<MaxTries)do Begin
+  Inc(Try_);
+  If Try_>1 Then Begin
+   Write(StdErr,'nouvelle tentative ',Try_,'/',MaxTries,' (',Err,')',#10);
+   WinSleep(3000);
+  End;
+  Err:='';
+  Sess:=InternetOpenA('vton',0,Nil,Nil,0);
+  If Sess=Nil Then Begin Err:='InternetOpen a '#130'chou'#130;Continue;End;
+  Tmo:=30000;
+  InternetSetOptionA(Sess,2,@Tmo,4);
+  InternetSetOptionA(Sess,6,@Tmo,4);
+  Flags:=$80000000 or $04000000;
+  If Copy(LoStr(Url),1,8)='https://' Then Flags:=Flags or $00800000;
+  H:=InternetOpenUrlA(Sess,PChar(Url),PChar('Accept: */*'#13#10),11,Flags,0);
+  If H=Nil Then Begin InternetCloseHandle(Sess);Err:='connexion impossible '#133' '+Url;Continue;End;
+  Status:=0;L:=4;Buf:=0;
+  If HttpQueryInfoA(H,19 or $20000000,@Buf,L,Nil)<>0 Then Status:=Buf;
+  Cl:=-1;
+  FillChar(SBuf,SizeOf(SBuf),0);
+  L:=SizeOf(SBuf)-1;
+  If HttpQueryInfoA(H,5,@SBuf[0],L,Nil)<>0 Then Val(AnsiString(PChar(@SBuf[0])),Cl,Code);
+  If(Status<200)or(Status>=300)Then Begin
+   Err:='le serveur a r'#130'pondu HTTP '+IStr(Status);
+   InternetCloseHandle(H);InternetCloseHandle(Sess);
+   If(Status>=400)and(Status<500)Then Break;
+   Continue;
+  End;
+  Assign(F,Tmp);
+  Rewrite(F,1);
+  If IOResult<>0 Then Begin Err:='impossible de cr'#130'er '+Tmp;InternetCloseHandle(H);InternetCloseHandle(Sess);Break;End;
+  Done:=0;LastPc:=-1;
+  Repeat
+   Got:=0;
+   If InternetReadFile(H,@Chunk[0],SizeOf(Chunk),Got)=0 Then Begin Err:='erreur de lecture r'#130'seau';Break;End;
+   If Got>0 Then Begin
+    BlockWrite(F,Chunk[0],Got);
+    Inc(Done,Got);
+    If Cl>0 Then Begin
+     Pc:=(Done*100)div Cl;
+     If Pc<>LastPc Then Begin
+      LastPc:=Pc;
+      Write(StdErr,#13'T'#130'l'#130'chargement de ',PathLastPart(Dest),' : ',Pc,'% (',HumanBytes(Done),')');
+      Flush(StdErr);
+     End;
+    End;
+   End;
+  Until Got=0;
+  Close(F);
+  If IOResult<>0 Then;
+  InternetCloseHandle(H);InternetCloseHandle(Sess);
+  Write(StdErr,#10);
+  If Err='' Then Begin
+   If(Cl>0)and(Done<>Cl)Then Err:='t'#130'l'#130'chargement incomplet' Else Fin:=True;
+  End;
+ End;
+ If not Fin Then Begin
+  If Err='' Then Err:=#130'chec du t'#130'l'#130'chargement';
+  Exit;
+ End;
+ If FileExistsP(Dest)Then Begin Assign(F,Dest);Erase(F);If IOResult<>0 Then;End;
+ Assign(F,Tmp);
+ Rename(F,Dest);
+ If IOResult<>0 Then Begin Err:='impossible de renommer le fichier t'#130'l'#130'charg'#130;Exit;End;
+ HttpDownload:=True;
+End;
+{$ELSE}
+Begin
+ Err:='le t'#130'l'#130'chargement n''est disponible que sous Windows';
+ HttpDownload:=False;
+End;
+{$ENDIF}
+
+{ ------------------------------------------------------------------ }
+{ Resolution du modele                                                 }
+{ ------------------------------------------------------------------ }
+
+Const
+ DefaultModelName='segformer_b2_clothes';
+ DefaultModelUrl='https://huggingface.co/mattmdjaga/segformer_b2_clothes/resolve/main/';
+
+Function SafeName(Const S:AnsiString):AnsiString;
+Var
+ I:LongInt;
+ R:AnsiString;
+Begin
+ R:=S;
+ For I:=1 to Length(R)do If R[I]in['/','\',':','*','?','"','<','>','|']Then R[I]:='_';
+ SafeName:=R;
+End;
+
+{ cherche le modele dans les emplacements habituels }
+Function FindDefaultModel(Const Name:AnsiString;Var Path,Config:AnsiString):Boolean;
+Var
+ Dirs:TStrArray;
+ I:LongInt;
+ D,Exe:AnsiString;
+ Procedure Try_(Const P:AnsiString;Const Cfg:AnsiString);
+ Begin
+  If(not FindDefaultModel)and FileExistsP(P)Then Begin
+   Path:=P;Config:='';
+   If FileExistsP(Cfg)Then Config:=Cfg;
+   FindDefaultModel:=True;
+  End;
+ End;
+Begin
+ FindDefaultModel:=False;
+ SetLength(Dirs,0);
+ AddStr(Dirs,'');
+ Exe:=PathDir(ParamStr(0));
+ If Exe<>'' Then Begin AddStr(Dirs,Exe);AddStr(Dirs,Exe+'models'+PathSep);End;
+ AddStr(Dirs,'models'+PathSep);
+ AddStr(Dirs,CacheDir+PathSep);
+ For I:=0 to High(Dirs)do Begin
+  D:=Dirs[I];
+  Try_(D+Name+'.safetensors',D+Name+'.json');
+  Try_(D+Name+PathSep+'model.safetensors',D+Name+PathSep+'config.json');
+ End;
+End;
+
+Function ResolveModel(Const Spec:AnsiString;Var Path,Config,Err:AnsiString):Boolean;
+Var
+ S,L,Name,Dir,BaseUrl,E2:AnsiString;
+ Repo:AnsiString;
+Begin
+ ResolveModel:=False;
+ Err:='';Path:='';Config:='';
+ S:=Spec;
+ L:=LoStr(S);
+ If(S='')or(L='default')or(L='segformer-clothes')or(L='clothes')or(L=DefaultModelName)Then Begin
+  If FindDefaultModel(DefaultModelName,Path,Config)Then Begin ResolveModel:=True;Exit;End;
+  Dir:=CacheDir+PathSep+DefaultModelName;
+  BaseUrl:=DefaultModelUrl;
+  Name:=DefaultModelName;
+ End
+  Else If StartsWith(L,'hf:')Then Begin
+   Repo:=Copy(S,4,Length(S));
+   If Pos('/',Repo)=0 Then Begin Err:='-model hf: doit '#136'tre de la forme hf:utilisateur/mod'#138'le';Exit;End;
+   Dir:=CacheDir+PathSep+SafeName(Repo);
+   BaseUrl:='https://huggingface.co/'+Repo+'/resolve/main/';
+   Name:=Repo;
+  End
+  Else If StartsWith(L,'http://')or StartsWith(L,'https://')Then Begin
+   Path:=CacheDir+PathSep+SafeName(PathLastPart(S));
+   If FileExistsP(Path)Then Begin ResolveModel:=True;Exit;End;
+   If not NetSupported Then Begin
+    Err:='le t'#130'l'#130'chargement n''est disponible que sous Windows ; t'#130'l'#130'chargez '+S+' puis utilisez -model FICHIER';
+    Exit;
+   End;
+   Info('t'#130'l'#130'chargement du mod'#138'le depuis '+S);
+   If not HttpDownload(S,Path,E2)Then Begin Err:=E2;Exit;End;
+   ResolveModel:=True;
+   Exit;
+  End
+  Else Begin
+   If DirExistsP(S)Then Begin
+    Path:=S+PathSep+'model.safetensors';
+    Config:=S+PathSep+'config.json';
+    If not FileExistsP(Path)Then Begin Err:='model.safetensors introuvable dans '+S;Exit;End;
+    If not FileExistsP(Config)Then Config:='';
+    ResolveModel:=True;
+    Exit;
+   End;
+   If not FileExistsP(S)Then Begin Err:='mod'#138'le introuvable : '+S;Exit;End;
+   Path:=S;
+   Config:=PathNoExt(S)+'.json';
+   If not FileExistsP(Config)Then Config:=PathDir(S)+'config.json';
+   If not FileExistsP(Config)Then Config:='';
+   ResolveModel:=True;
+   Exit;
+  End;
+ { telechargement du modele par defaut ou d'un depot Hugging Face }
+ Path:=Dir+PathSep+'model.safetensors';
+ Config:=Dir+PathSep+'config.json';
+ If FileExistsP(Path)Then Begin
+  If not FileExistsP(Config)Then Config:='';
+  ResolveModel:=True;
+  Exit;
+ End;
+ If not NetSupported Then Begin
+  Err:='mod'#138'le "'+Name+'" absent. T'#130'l'#130'chargez-le (110 Mio) puis indiquez-le avec -model :'#10+
+      '  '+BaseUrl+'model.safetensors'#10+
+      '  '+BaseUrl+'config.json  (facultatif : noms des classes)';
+  Exit;
+ End;
+ Info('mod'#138'le "'+Name+'" absent : t'#130'l'#130'chargement vers '+Dir);
+ If not HttpDownload(BaseUrl+'model.safetensors',Path,E2)Then Begin Err:=E2;Exit;End;
+ If not HttpDownload(BaseUrl+'config.json',Config,E2)Then Config:='';
+ ResolveModel:=True;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Ligne de commande                                                    }
+{ ------------------------------------------------------------------ }
+
+Procedure PrintHelp;
+Begin
+ WriteLn('VTON '+VersionStr);
+ WriteLn;
+ WriteLn('Essayage virtuel de v'#136'tements par intelligence artificielle.');
+ WriteLn;
+ WriteLn('Syntaxe :');
+ WriteLn('  VTON personne.jpg vetement.jpg -o resultat.png -type haut');
+ WriteLn('  VTON personne.jpg -prompt "Change le chandail rouge en bleu" -o resultat.png');
+ WriteLn('  VTON personne.jpg vetement.jpg -prompt "mets-le en vert" -type haut');
+ WriteLn;
+ WriteLn('Param'#138'tres :');
+ WriteLn('  -o FICHIER        Fichier image de sortie (.png, .jpg, .bmp, .ppm)');
+ WriteLn('  -type TYPE        Type de v'#136'tement : haut, bas, jupe, robe, tout, chaussures,');
+ WriteLn('                    chapeau, lunettes, sac, '#130'charpe, ceinture (ou top, bottom, ...)');
+ WriteLn('  -model MODELE     Mod'#138'le IA : fichier .safetensors SegFormer, dossier, hf:util/mod'#138'le');
+ WriteLn('                    ou URL (par d'#130'faut segformer_b2_clothes, voir ci-dessous)');
+ WriteLn('  -cpu              Ex'#130'cuter les calculs sur le processeur');
+ WriteLn('  -gpu              Utiliser l''acc'#130'l'#130'ration graphique (Direct3D 11, Windows)');
+ WriteLn('  -quality NIVEAU   Qualit'#130' du traitement : 1/rapide, 2/normal, 3/'#130'lev'#130' (d'#130'faut), 4/maximal');
+ WriteLn('  -seed N           Valeur de d'#130'part al'#130'atoire (grain, motifs) ; identique = r'#130'sultat identique');
+ WriteLn('  -verbose          Afficher les d'#130'tails du traitement');
+ WriteLn('  -prompt TEXTE     Demande en langage naturel (fran'#135'ais ou anglais)');
+ WriteLn;
+ WriteLn('Autres options :');
+ WriteLn('  -threads N        Nombre de fils de calcul (d'#130'faut : tous les processeurs)');
+ WriteLn('  -device N         P'#130'riph'#130'rique Direct3D 11 '#133' utiliser (voir -list-devices)');
+ WriteLn('  -list-devices     Lister les p'#130'riph'#130'riques Direct3D 11 puis quitter');
+ WriteLn('  -parsing FICHIER  Image d''analyse fournie (gris 8 bits, valeur = classe) au lieu du mod'#138'le');
+ WriteLn('  -save-parsing F   Enregistrer l''analyse du corps en fausses couleurs');
+ WriteLn('  -maxsize N        Taille maximale du grand c'#147't'#130' (d'#130'faut 2048)');
+ WriteLn('  -quiet            N''afficher que les erreurs');
+ WriteLn('  -h, --help        Cette aide        --version   Num'#130'ro de version');
+ WriteLn;
+ WriteLn('Exemples de demandes :');
+ WriteLn('  "Change le chandail rouge en bleu"      "Rends la robe plus fonc'#130'e"');
+ WriteLn('  "Mets le pantalon en noir et la veste en vert"');
+ WriteLn('  "Make the shirt striped blue and white" "Enl'#138've le chapeau et les lunettes"');
+ WriteLn;
+ WriteLn('Mod'#138'le : ');
+ WriteLn('  '+DefaultModelUrl+'model.safetensors');
+ WriteLn('  (Windows : t'#130'l'#130'charg'#130' automatiquement ; sinon placez le fichier '#133' c'#147't'#130' de VTON');
+ WriteLn('   sous le nom segformer_b2_clothes.safetensors, ou utilisez -model.)');
+End;
+
+Var
+ OptOut,OptType,OptModel,OptPrompt,OptParsing,OptSaveParsing,OptDump:AnsiString;
+ OptCpu,OptGpu,OptHelp,OptList:Boolean;
+ OptQuality:LongInt=3;
+ OptSeed:Int64=-1;
+ OptThreads:LongInt=0;
+ OptDevice:LongInt=-1;
+ OptMaxSize:LongInt=2048;
+ OptSize:LongInt=0;
+ Pos_:TStrArray;
+
+Function ParseQuality(Const S:AnsiString;Var Q:LongInt):Boolean;
+Var
+ L:AnsiString;
+ V:Int64;
+Begin
+ ParseQuality:=True;
+ L:=FoldText(S);
+ L:=TrimS(L);
+ If ParseInt(L,V)and(V>=1)and(V<=4)Then Begin Q:=V;Exit;End;
+ If(L='low')or(L='rapide')or(L='fast')or(L='draft')or(L='faible')or(L='bas')Then Q:=1
+ Else If(L='medium')or(L='moyen')or(L='normal')or(L='standard')Then Q:=2
+ Else If(L='high')or(L='eleve')or(L='haute')or(L='haut')or(L='best')Then Q:=3
+ Else If(L='ultra')or(L='max')or(L='maximal')or(L='maximum')Then Q:=4
+ Else ParseQuality:=False;
+End;
+
+{ genre de vetement demande par -type }
+Function ParseKind(Const S:AnsiString):LongInt;
+Var
+ L:AnsiString;
+ K:LongInt;
+Begin
+ LexInit;
+ L:=TrimS(FoldText(S));
+ ParseKind:=-1;
+ If(L='')or(L='auto')Then Begin ParseKind:=gkNone;Exit;End;
+ If(L='bas')or(L='bottom')or(L='bottoms')or(L='lower')Then Begin ParseKind:=gkBottom;Exit;End;
+ If(L='tout')or(L='full')or(L='complet')or(L='ensemble')or(L='outfit')or(L='fullbody')or(L='body')Then Begin ParseKind:=gkFull;Exit;End;
+ K:=LexFind(L,lkGarment);
+ If K>=0 Then Begin
+  If Lex[K].V1=gkAll Then ParseKind:=gkFull Else ParseKind:=Lex[K].V1;
+ End;
+End;
+
+Function IsImageName(Const S:AnsiString):Boolean;
+Var
+ E:AnsiString;
+Begin
+ E:=PathExt(S);
+ IsImageName:=(E='.jpg')or(E='.jpeg')or(E='.png')or(E='.bmp')or(E='.ppm')or(E='.pgm')or(E='.gif')or(E='.webp');
+End;
+
+Function ParseCommandLine:Boolean;
+Var
+ I,N:LongInt;
+ A,Key,Val_:AnsiString;
+ V:Int64;
+ HasEq:Boolean;
+ P:LongInt;
+
+ Function NeedVal:Boolean;
+ Begin
+  NeedVal:=True;
+  If HasEq Then Exit;
+  If I<N Then Begin Inc(I);Val_:=ArgStr(I);End
+  Else Begin
+   WriteLn(StdErr,'erreur : l''option -'+Key+' attend une valeur');
+   NeedVal:=False;
+  End;
+ End;
+
+Begin
+ ParseCommandLine:=False;
+ N:=ParamCount;
+ I:=1;
+ SetLength(Pos_,0);
+ While I<=N do Begin
+  A:=ArgStr(I);
+  If(Length(A)>1)and(A[1]='-')Then Begin
+   Key:=A;
+   While(Key<>'')and(Key[1]='-')do Delete(Key,1,1);
+   HasEq:=False;Val_:='';
+   P:=Pos('=',Key);
+   If P>0 Then Begin HasEq:=True;Val_:=Copy(Key,P+1,Length(Key));Key:=Copy(Key,1,P-1);End;
+   Key:=LoStr(Key);
+   If(Key='h')or(Key='help')or(Key='?')Then OptHelp:=True
+   Else If Key='version' Then Begin WriteLn('VTON ',VersionStr);Halt(0);End
+   Else If Key='cpu' Then OptCpu:=True
+   Else If Key='gpu' Then OptGpu:=True
+   Else If(Key='verbose')or(Key='v')Then Verbose:=True
+   Else If(Key='quiet')or(Key='q')Then Quiet:=True
+   Else If Key='list-devices' Then OptList:=True
+   Else If Key='o' Then Begin If not NeedVal Then Exit;OptOut:=Val_;End
+   Else If Key='type' Then Begin If not NeedVal Then Exit;OptType:=Val_;End
+   Else If Key='model' Then Begin If not NeedVal Then Exit;OptModel:=Val_;End
+   Else If(Key='prompt')or(Key='p')Then Begin If not NeedVal Then Exit;OptPrompt:=Val_;End
+   Else If Key='parsing' Then Begin If not NeedVal Then Exit;OptParsing:=Val_;End
+   Else If Key='save-parsing' Then Begin If not NeedVal Then Exit;OptSaveParsing:=Val_;End
+   Else If Key='dumplogits' Then Begin If not NeedVal Then Exit;OptDump:=Val_;End
+   Else If Key='quality' Then Begin
+    If not NeedVal Then Exit;
+    If not ParseQuality(Val_,OptQuality)Then Begin
+     WriteLn(StdErr,'erreur : niveau de qualit'#130' inconnu : ',Val_,' (1 '#133' 4, rapide, normal, '#130'lev'#130', maximal)');
+     Exit;
+    End;
+   End
+   Else If Key='seed' Then Begin
+    If not NeedVal Then Exit;
+    If not ParseInt(Val_,V)Then Begin WriteLn(StdErr,'erreur : valeur de -seed invalide : ',Val_);Exit;End;
+    OptSeed:=V;
+   End
+   Else If(Key='threads')or(Key='t')Then Begin
+    If not NeedVal Then Exit;
+    If not ParseInt(Val_,V)or(V<1)Then Begin WriteLn(StdErr,'erreur : valeur de -threads invalide : ',Val_);Exit;End;
+    OptThreads:=V;
+   End
+   Else If Key='device' Then Begin
+    If not NeedVal Then Exit;
+    If not ParseInt(Val_,V)or(V<0)Then Begin WriteLn(StdErr,'erreur : valeur de -device invalide : ',Val_);Exit;End;
+    OptDevice:=V;
+   End
+   Else If Key='maxsize' Then Begin
+    If not NeedVal Then Exit;
+    If not ParseInt(Val_,V)or(V<64)Then Begin WriteLn(StdErr,'erreur : valeur de -maxsize invalide : ',Val_);Exit;End;
+    OptMaxSize:=V;
+   End
+   Else If Key='size' Then Begin
+    If not NeedVal Then Exit;
+    If not ParseInt(Val_,V)or(V<64)Then Begin WriteLn(StdErr,'erreur : valeur de -size invalide : ',Val_);Exit;End;
+    OptSize:=V;
+   End
+   Else Begin
+    WriteLn(StdErr,'erreur : option inconnue : ',A,' (voir VTON -h)');
+    Exit;
+   End;
+  End
+   Else AddStr(Pos_,A);
+  Inc(I);
+ End;
+ ParseCommandLine:=True;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Programme principal                                                  }
+{ ------------------------------------------------------------------ }
+
+Var
+ Person,GarmentFile,PromptText:AnsiString;
+ Garment:Boolean;
+ Scene:TScene;
+ Net:TSegModel;
+ Img,GImg:TImage;
+ Err,ModelPath,ConfigPath,Msg:AnsiString;
+ Edits:TEditArray;
+ GarmentEdits:Array of LongInt;
+ GKind,I,J,JpegQ,NOk,NFail,Side:LongInt;
+ T0,T1:Double;
+ G:TGarment;
+ P:TRecolor;
+ Kind:LongInt;
+ Ed:^TEdit;
+ Tmp:PSingle;
+ OutName:AnsiString;
+ KindMask:LongWord;
+ ToG:Boolean;
+ Parsed:Boolean;
+ N:Int64;
+ Used:Boolean;
+ Dummy:LongWord;
+
+Procedure Die(Const S:AnsiString);
+Begin
+ Fatal(S);
+End;
+
+Begin
+ InitConsole;
+ ReturnNilIfGrowHeapFails:=True;
+ StartMs:=NowMsF;
+ OptCpu:=False;OptGpu:=False;OptHelp:=False;OptList:=False;
+ OptOut:='';OptType:='';OptModel:='';OptPrompt:='';OptParsing:='';OptSaveParsing:='';OptDump:='';
+ If ParamCount=0 Then Begin PrintHelp;Halt(1);End;
+ If not ParseCommandLine Then Halt(1);
+ If OptHelp Then Begin PrintHelp;Halt(0);End;
+ If OptList Then Begin GpuPrintDevices;Halt(0);End;
+ If Length(Pos_)=0 Then Die('aucune photo de personne indiqu'#130'e (voir VTON -h)');
+ If OptCpu and OptGpu Then Die('-cpu et -gpu sont incompatibles');
+ Person:=Pos_[0];
+ GarmentFile:='';Garment:=False;
+ PromptText:=OptPrompt;
+ I:=1;
+ If(Length(Pos_)>1)Then Begin
+  If FileExistsP(Pos_[1])or(IsImageName(Pos_[1])and(Pos(' ',Pos_[1])=0))Then Begin
+   GarmentFile:=Pos_[1];Garment:=True;I:=2;
+  End;
+ End;
+ { les mots restants forment la demande en langage naturel }
+ If PromptText='' Then Begin
+  For J:=I to High(Pos_)do Begin
+   If PromptText<>'' Then PromptText:=PromptText+' ';
+   PromptText:=PromptText+Pos_[J];
+  End;
+ End;
+ If(not Garment)and(PromptText='')Then Die('indiquez une image de v'#136'tement ou une demande avec -prompt');
+ GKind:=ParseKind(OptType);
+ If GKind<0 Then Die('type de v'#136'tement inconnu : '+OptType+' (haut, bas, jupe, robe, tout, chaussures, chapeau, lunettes, sac, '#130'charpe, ceinture)');
+ If OptSeed<0 Then OptSeed:=MakeSeed and $7FFFFFFF;
+ RngSeed(LongWord(OptSeed));
+ OutName:=OptOut;
+ If OutName='' Then OutName:=PathNoExt(Person)+'_vton.png';
+ Case OptQuality of
+  1:JpegQ:=80;
+  2:JpegQ:=88;
+  3:JpegQ:=92;
+  Else JpegQ:=96;
+ End;
+ GNThreads:=CpuCount;
+ If OptThreads>0 Then GNThreads:=OptThreads;
+ If GNThreads>MaxThreads Then GNThreads:=MaxThreads;
+ If Verbose Then Begin
+  Detail('VTON '+VersionStr);
+  Detail('personne : '+Person);
+  If Garment Then Detail('v'#136'tement : '+GarmentFile);
+  If PromptText<>'' Then Detail('demande : '+PromptText);
+  Detail('qualit'#130' '+IStr(OptQuality)+', graine '+IStr(OptSeed)+', fils de calcul '+IStr(GNThreads));
+ End;
+ { demande en langage naturel }
+ SetLength(Edits,0);
+ If PromptText<>'' Then Begin
+  If not Interpret(PromptText,Edits,Err)Then Die(Err);
+  For I:=0 to High(Edits)do Detail('interpr'#130'tation : '+DescribeEdit(Edits[I]));
+ End;
+ { photo de la personne }
+ If not ImgLoad(Person,Img,Err)Then Die(Err);
+ Detail('photo '+IStr(Img.W)+'x'+IStr(Img.H));
+ SceneFromImage(Img,OptMaxSize,Scene);
+ ImgFree(Img);
+ If (Scene.W<64)or(Scene.H<64)Then Die('la photo est trop petite (64 pixels minimum)');
+ If Verbose Then Detail('image de travail '+IStr(Scene.W)+'x'+IStr(Scene.H));
+ { GPU }
+ If not OptCpu Then Begin
+  Err:='';
+  If GpuSetup(OptDevice,Err)Then Info('GPU : '+GpuName+' (Direct3D 11)')
+  Else Begin
+   If OptGpu Then Warn('GPU indisponible ('+Err+') : calcul sur le processeur');
+   If(not OptGpu)and Verbose Then Detail('GPU non utilis'#130' : '+Err);
+  End;
+ End;
+ { analyse de la personne }
+ T0:=NowMsF;
+ If OptParsing<>'' Then Begin
+  If not ParseFromLabels(Scene,OptParsing,Err)Then Die(Err);
+  If OptQuality>=2 Then SceneRefine(Scene);
+ End
+  Else Begin
+   If not ResolveModel(OptModel,ModelPath,ConfigPath,Err)Then Die(Err);
+   Info('Chargement du mod'#138'le '+PathLastPart(ModelPath)+' ...');
+   If not StLoad(ModelPath,Err)Then Die(Err);
+   If not SegBuild(Net,ConfigPath)Then Die(SegErr);
+   Detail(IStr(StN)+' tenseurs, '+IStr(Net.NumLabels)+' classes, d'#130'codeur '+IStr(Net.Dec));
+   Case OptQuality of
+    1:Side:=256;
+    2:Side:=384;
+    3:Side:=512;
+    Else Side:=768;
+   End;
+   If OptSize>0 Then Side:=OptSize;
+   DumpPath:=OptDump;
+   Info('Analyse de la personne ...');
+   ParseWithNet(Scene,Net,Side,OptQuality>=2);
+    End;
+ Detail('analyse termin'#130'e en '+FStr((NowMsF-T0)/1000.0,1)+' s');
+ For I:=0 to NumCat-1 do Begin
+  N:=CatArea(Scene,LongWord(1)shl I);
+  If(N>0)and Verbose and(I<>cBg)Then Detail('  '+PadRight(CatNames[I],12)+FStr(100.0*N/(Int64(Scene.W)*Scene.H),1)+' %');
+ End;
+ If OptSaveParsing<>'' Then Begin
+  ParsingToImage(Scene,Img);
+  If not ImgSave(OptSaveParsing,Img,90)Then Warn('impossible d''enregistrer '+OptSaveParsing);
+  ImgFree(Img);
+ End;
+ NOk:=0;NFail:=0;
+ SetLength(GarmentEdits,Length(Edits));
+ For I:=0 to High(Edits)do Begin
+  GarmentEdits[I]:=0;
+  If Garment and(Edits[I].Action=eaTryOn)Then GarmentEdits[I]:=1;
+  { -type designe la cible quand la demande ne la precise pas }
+  If(not Garment)and(GKind<>gkNone)and(Edits[I].Target=0)and(not Edits[I].HasSrc)Then Begin
+   KindSets(GKind,KindMask,Dummy,Dummy);
+   Edits[I].Target:=KindMask;Edits[I].Kind:=GKind;
+  End;
+ End;
+ { essayage d'un vetement fourni }
+ If Garment Then Begin
+  Kind:=GKind;
+  If Kind=gkNone Then
+   For I:=0 to High(Edits)do
+    If(Kind=gkNone)and(Edits[I].Kind in[gkTop,gkBottom,gkSkirt,gkDress,gkShoes,gkHat,gkGlasses,gkBag,gkScarf,gkBelt])Then Kind:=Edits[I].Kind;
+  If Kind=gkNone Then Begin
+   Kind:=gkTop;
+   Info('type de v'#136'tement non pr'#130'cis'#130' : "haut" suppos'#130' (utilisez -type)');
+  End;
+  If not ImgLoad(GarmentFile,GImg,Err)Then Die(Err);
+  If not GarmentFromImage(GImg,G,Err)Then Die(Err);
+  ImgFree(GImg);
+  Detail('v'#136'tement '+IStr(G.W)+'x'+IStr(G.H)+' : '+G.Note);
+  { retouches de la demande qui concernent le vetement lui-meme }
+  KindSets(Kind,KindMask,Dummy,Dummy);
+  For I:=0 to High(Edits)do Begin
+   Ed:=@Edits[I];
+   ToG:=(Ed^.Action=eaRecolor)and((Ed^.Target=0)or((Ed^.Target and KindMask)<>0)or(Ed^.Kind=Kind));
+   If ToG Then Begin
+    GarmentEdits[I]:=1;
+    BuildRecolor(Ed^,P,0,0,G.W,G.H,Kind in[gkBottom,gkSkirt]);
+    Tmp:=AllocF(Int64(G.W)*G.H);
+    For N:=0 to Int64(G.W)*G.H-1 do Tmp[N]:=SmoothStep(0.25,0.75,G.Mask[N]);
+    If RecolorRegion(G.Rgb,G.W,G.H,Tmp,P)Then Info('  v'#136'tement recolor'#130+' ('+Ed^.DstName+')')
+    Else Warn('v'#136'tement trop petit pour '#136'tre recolor'#130);
+    FreeMem(Tmp);
+   End;
+  End;
+  Info('Pose du v'#136'tement ('+GarmentKindName(Kind)+') ...');
+  If TryOnGarment(Scene,G,Kind,OptQuality,Msg)Then Begin
+   Info('  '+Msg);
+   Inc(NOk);
+  End
+   Else Begin
+    Warn(Msg);
+    Inc(NFail);
+   End;
+  GarmentFree(G);
+ End;
+ { retouches sur la scene }
+ For I:=0 to High(Edits)do Begin
+  If GarmentEdits[I]<>0 Then Continue;
+  If Edits[I].Action=eaTryOn Then Begin
+   Warn('"essayer" demande une image de v'#136'tement (deuxi'#138'me argument)');
+   Inc(NFail);
+   Continue;
+  End;
+  Info('Retouche : '+DescribeEdit(Edits[I]));
+  If ApplyEdit(Scene,Edits[I],Msg)Then Inc(NOk)
+  Else Begin Warn(Msg);Inc(NFail);End;
+ End;
+ If NOk=0 Then Begin
+  Write(StdErr,'erreur : aucune retouche n''a pu '#136'tre appliqu'#130'e, aucun fichier '#130'crit',#10);
+  Halt(2);
+ End;
+ SceneToImage(Scene,Img);
+ If not ImgSave(OutName,Img,JpegQ)Then Die('impossible d''enregistrer '+OutName);
+ ImgFree(Img);
+ Info('R'#130'sultat : '+OutName+' ('+IStr(Scene.W)+'x'+IStr(Scene.H)+', '+FStr((NowMsF-StartMs)/1000.0,1)+' s)');
+ If Verbose and(GpuCalls>0)Then Detail('GPU : '+IStr(GpuCalls)+' produits matriciels, '+HumanBytes(GpuBytes)+' transf'#130'r'#130's');
+ If NFail>0 Then Halt(3);
+End.
