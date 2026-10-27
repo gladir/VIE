@@ -5437,7 +5437,7 @@ Begin
  AddLex('pantalon jean short bermuda legging pants trousers slacks chinos jogging',lkGarment,gkBottom,msPants);
  AddLex('jupe skirt',lkGarment,gkSkirt,msSkirt);
  AddLex('robe dress combinaison jumpsuit',lkGarment,gkDress,msDress);
- AddLex('chaussure soulier botte basket espadrille sandale escarpin sneaker shoe boot sandal tennis',lkGarment,gkShoes,msShoes);
+ AddLex('chaussure soulier botte basket espadrille sandale escarpin sneaker shoe boot sandal tennis pied pieds feet foot',lkGarment,gkShoes,msShoes);
  AddLex('chapeau casquette tuque bonnet beret hat cap beanie',lkGarment,gkHat,msHat);
  AddLex('lunette lunettes glasses sunglasses eyeglasses',lkGarment,gkGlasses,msGlasses);
  AddLex('sac sacoche bag handbag purse backpack',lkGarment,gkBag,msBag);
@@ -5523,7 +5523,7 @@ Begin
  AddLex('rends rendre mets met mettre passe passer make turn paint dye color colour',lkVResult,0,0);
  AddLex('enleve enlever enlevez retire retirer retirez supprime supprimer supprimez efface effacer effacez ote oter remove delete erase sans without',lkVRemove,0,0);
  AddLex('essaie essaye essayer essayez porte porter habille habiller try wear',lkVTryOn,0,0);
- AddLex('ajoute ajouter ajoutez rajoute rajouter add append equipe equiper give donne donner',lkVAdd,0,0);
+ AddLex('ajoute ajouter ajoutez rajoute rajouter add append equipe equiper give donne donner voir montre montrer montrez show see display',lkVAdd,0,0);
  { prepositions de destination }
  AddLex('en in into to par by as vers',lkPrepDst,0,0);
  AddLex('de from',lkSrcPrep,0,0);
@@ -6685,11 +6685,33 @@ Begin
  End;
 End;
 
+Var
+ GAnkleY:Single=-1;
+ GHemY:Single=-1;
+
+{ rangee la plus basse ou l'ensemble de categories apparait entre les colonnes X0 et X1 ; -1 si absent }
+Function CatBottomIn(Const S:TScene;Mask:LongWord;X0,X1:LongInt):LongInt;
+Var
+ X,Y,C,T:LongInt;
+ P:Int64;
+Begin
+ CatBottomIn:=-1;
+ If X0<0 Then X0:=0;
+ If X1>=S.W Then X1:=S.W-1;
+ For Y:=S.H-1 downto 0 do
+  For X:=X0 to X1 do Begin
+   P:=Int64(Y)*S.W+X;
+   T:=0;
+   For C:=0 to NumCat-1 do If(Mask and(LongWord(1)shl C))<>0 Then Inc(T,S.Cat[C][P]);
+   If T>=128 Then Begin CatBottomIn:=Y;Exit;End;
+  End;
+End;
+
 { boite cible deduite du visage lorsque la personne ne porte pas ce genre de vetement }
 Function LandmarkBox(Const S:TScene;Kind:LongInt;Var Bx0,By0,Bx1,By1:Single):Boolean;
 Var
- Fx0,Fy0,Fx1,Fy1,Lx0,Ly0,Lx1,Ly1,Tx0,Ty0,Tx1,Ty1:LongInt;
- Fw,Fh,Cx:Single;
+ Fx0,Fy0,Fx1,Fy1,Lx0,Ly0,Lx1,Ly1,Tx0,Ty0,Tx1,Ty1,Hx0,Hy0,Hx1,Hy1:LongInt;
+ Fw,Fh,Cx,U:Single;
 Begin
  LandmarkBox:=False;
  If not CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Exit;
@@ -6714,9 +6736,27 @@ Begin
     By1:=Ty1-0.02*(Ty1-Ty0);By0:=By1-0.07*(Ly1-Ty0);
     LandmarkBox:=True;
    End;
-  gkBottom,gkSkirt:
-   If CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)and CatBBox(S,msLegs or msShoes,Lx0,Ly0,Lx1,Ly1)Then Begin
-    Bx0:=IMin(Tx0,Lx0);Bx1:=IMax(Tx1,Lx1);By0:=Ty1-0.05*(Ty1-Ty0);By1:=Ly1;LandmarkBox:=True;
+  gkBottom,gkSkirt,gkShoes:Begin
+    If CatBBox(S,msFace or msHair or msHat,Hx0,Hy0,Hx1,Hy1)Then U:=Fy1+1-Hy0 Else U:=Fh*1.3;
+    If CatBBox(S,msLegs or msShoes,Lx0,Ly0,Lx1,Ly1)Then Begin
+     If Kind=gkShoes Then Begin
+      Bx0:=Lx0-0.12*U;Bx1:=Lx1+0.12*U;By1:=Ly1+0.1*U;By0:=By1-0.55*U;
+      LandmarkBox:=True;
+     End
+      Else If CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)Then Begin
+       Bx0:=Lx0-0.01*U;Bx1:=Lx1+0.01*U;
+       If GHemY>0 Then By0:=GHemY-0.12*U
+       Else Begin
+        Ly0:=CatBottomIn(S,msTop or msDress,Lx0,Lx1);
+        If Ly0>=0 Then By0:=Ly0-0.15*U Else By0:=Ty1-0.15*U;
+       End;
+       If Kind=gkBottom Then Begin
+        If GAnkleY>0 Then By1:=GAnkleY Else By1:=Ly1+1;
+       End
+        Else By1:=By0+2.0*U;
+       LandmarkBox:=True;
+      End;
+    End;
    End;
  End;
 End;
@@ -6842,7 +6882,7 @@ Begin
     Exit;
    End;
    UsedLandmarks:=True;
-   Detail('position estim'#130'e '#133' partir du visage');
+   Detail('position estim'#130'e '#133' partir du visage : '+IStr(Trunc(Tx0))+','+IStr(Trunc(Ty0))+' - '+IStr(Trunc(Tx1))+','+IStr(Trunc(Ty1)));
   End;
  If Tx0<0 Then Tx0:=0;If Ty0<0 Then Ty0:=0;
  If Tx1>W Then Tx1:=W;If Ty1>H Then Ty1:=H;
@@ -6854,6 +6894,7 @@ Begin
  UniformScale:=Kind in[gkShoes,gkHat,gkGlasses,gkBag,gkScarf,gkBelt];
  If UniformScale Then Sy:=Sx
  Else If(Kind=gkTop)and Have and not UsedLandmarks Then Sy:=Clamp(SyFit,0.6*Sx,3.0*Sx)
+ Else If UsedLandmarks and(Kind in[gkBottom,gkSkirt])Then Sy:=Clamp(SyFit,0.5*Sx,3.4*Sx)
  Else Sy:=Clamp(SyFit,0.8*Sx,1.25*Sx);
  AnchorBottom:=Kind in[gkShoes,gkHat];
  If AnchorBottom Then Ty0:=Ty1-Sy*G.H
@@ -7290,6 +7331,95 @@ Begin
   End;
 End;
 
+{ pantalon : deux jambes, ceinture, braguette, plis }
+Procedure MakePants(Var G:TGarment;Const E:TEdit);
+Var
+ X,Y:LongInt;
+ Xl,Xr,Dl,Dr,Cov,Xm,Hw,Cc,Ux,R,Gc,B,Sh,Gp,Wb:Single;
+ Side:LongInt;
+Begin
+ AccAlloc(G,480,720);
+ For Y:=0 to 719 do
+  For X:=0 to 479 do Begin
+   Cov:=0;Sh:=1;
+   Xm:=X;
+   Side:=0;
+   If X>240 Then Begin Xm:=479-X;Side:=1;End;
+   Xl:=0+16*(Y/720.0);
+   If Y<260 Then Gp:=0 Else Gp:=8+14*Sqrt((Y-260)/460.0);
+   Xr:=240-Gp;
+   Dl:=FMax(Xl-Xm,FMax(Xm-Xr,Y-717.5));
+   Cov:=CoverD(Dl);
+   If Y<38 Then Begin
+    Wb:=CoverD(FMax(0-X,FMax(X-479,Y-37.5)));
+    If Wb>Cov Then Cov:=Wb;
+   End;
+   If Cov>0 Then Begin
+    Cc:=(Xl+Xr)/2;Hw:=(Xr-Xl)/2;
+    If Hw<1 Then Hw:=1;
+    Ux:=Clamp((Xm-Cc)/Hw,-1,1);
+    Sh:=0.7+0.32*Sqrt(1-Ux*Ux)+0.04*Sin(Y*0.11+Xm*0.05)*Clamp((Y-300)/200.0,0,1);
+    If Y<38 Then Sh:=Sh*0.88;
+    If(Abs(X-240)<1.3)and(Y>38)and(Y<170)Then Sh:=Sh*0.7;
+    If(Y>690)and(Y<696)Then Sh:=Sh*0.78;
+    FabricColor(E,RgbOf(45,60,95),X,Y,480,720,R,Gc,B);
+    AccPut(G,X,Y,Cov,R,Gc,B,Sh);
+   End;
+  End;
+End;
+
+{ jupe evasee avec ceinture et plis }
+Procedure MakeSkirt(Var G:TGarment;const E:TEdit);
+Var
+ X,Y:LongInt;
+ Xl,Xr,Yb,Cov,R,Gc,B,Sh,T:Single;
+Begin
+ AccAlloc(G,480,360);
+ For Y:=0 to 359 do
+  For X:=0 to 479 do Begin
+   T:=Y/360.0;
+   Xl:=100-92*T;Xr:=380+92*T;
+   Yb:=355+4*Sin(X*0.05);
+   Cov:=CoverD(FMax(Xl-X,FMax(X-Xr,Y-Yb)));
+   If Cov>0 Then Begin
+    Sh:=0.8+0.2*Sin((X-240)*0.09*(1+T))+0.08*(1-T);
+    If Y<28 Then Sh:=0.82;
+    If(Y>=28)and(Y<32)Then Sh:=Sh*0.7;
+    Sh:=Sh*(1-0.18*Clamp((Abs(X-240)/(140+92*T)),0,1));
+    FabricColor(E,RgbOf(60,60,78),X,Y,480,360,R,Gc,B);
+    AccPut(G,X,Y,Cov,R,Gc,B,Sh);
+   End;
+  End;
+End;
+
+{ paire de souliers vue de face ; baskets = semelle blanche epaisse }
+Procedure MakeShoes(Var G:TGarment;Const E:TEdit;Sneaker:Boolean);
+Var
+ X,Y,I:LongInt;
+ Cx,Cov,Du,Ds,R,Gc,B,Sh:Single;
+Begin
+ AccAlloc(G,520,150);
+ For Y:=0 to 149 do
+  For X:=0 to 519 do
+   For I:=0 to 1 do Begin
+    If I=0 Then Cx:=135 Else Cx:=385;
+    Ds:=EllipseD(X,Y,Cx,95,102,50);
+    Cov:=CoverD(Ds);
+    If Cov>0 Then Begin
+     If Sneaker Then AccPut(G,X,Y,Cov,235,232,225,0.8+0.2*Clamp(1-(Y-60)/80.0,0,1))
+     Else AccPut(G,X,Y,Cov,28,22,20,1);
+    End;
+    Du:=EllipseD(X,Y,Cx,70,92,52);
+    Cov:=CoverD(Du);
+    If Cov>0 Then Begin
+     Sh:=0.62+0.5*Clamp(1-Abs(Y-45)/60.0,0,1)*(1-0.4*Abs(X-Cx)/92.0);
+     FabricColor(E,RgbOf(60,42,32),X,Y,520,150,R,Gc,B);
+     If(Y>28)and(Y<60)and(Abs(X-Cx)<30)and((Y-X)mod 14<3)Then Begin R:=235;Gc:=235;B:=235;End;
+     AccPut(G,X,Y,Cov,R,Gc,B,Sh);
+    End;
+   End;
+End;
+
 { ajoute un accessoire dessine par le programme }
 Function AddAccessory(Var S:TScene;Const E:TEdit;Quality:LongInt;Var Msg:AnsiString):Boolean;
 Var
@@ -7304,8 +7434,11 @@ Begin
  Else If(E.Target and msHat)<>0 Then Kind:=gkHat
  Else If(E.Target and msGlasses)<>0 Then Kind:=gkGlasses
  Else If(E.Target and msBelt)<>0 Then Kind:=gkBelt
+ Else If(E.Target and msPants)<>0 Then Kind:=gkBottom
+ Else If(E.Target and msSkirt)<>0 Then Kind:=gkSkirt
+ Else If(E.Target and msShoes)<>0 Then Kind:=gkShoes
  Else Begin
-  Msg:='je ne sais ajouter que foulard, chapeau, bonnet, casquette, lunettes et ceinture ; '+
+  Msg:='je ne sais ajouter que foulard, chapeau, bonnet, casquette, lunettes, ceinture, pantalon, jupe et souliers ; '+
        'pour un autre v'#136'tement, fournissez sa photo : VTON personne.jpg vetement.jpg -type TYPE';
   Exit;
  End;
@@ -7321,9 +7454,188 @@ Begin
    End;
   gkGlasses:MakeGlasses(G,E,(Pos('soleil',T)>0)or(Pos('sun',T)>0));
   gkBelt:MakeBelt(G,E);
+  gkBottom:MakePants(G,E);
+  gkSkirt:MakeSkirt(G,E);
+  gkShoes:MakeShoes(G,E,(Pos('basket',T)>0)or(Pos('sneaker',T)>0)or(Pos('tennis',T)>0));
  End;
  AddAccessory:=TryOnGarment(S,G,Kind,Quality,Msg);
  GarmentFree(G);
+End;
+
+{ ------------------------------------------------------------------ }
+{ Prolongement de l'image vers le bas (corps coupe par le cadre)      }
+{ Les proportions viennent de la hauteur de la tete (environ 7,5 tetes }
+{ de la tete aux pieds) ; le fond est prolonge, le torse et les bras    }
+{ continuent, des jambes et des pieds sont ajoutes.                    }
+{ ------------------------------------------------------------------ }
+
+Function ExtendBody(Var S:TScene;NeedFeet,NeedPants,NeedSkirt:Boolean;Var Msg:AnsiString):Boolean;
+Var
+ Fx0,Fy0,Fx1,Fy1,Hx0,Hy0,Hx1,Hy1,Tx0,Ty0,Tx1,Ty1:LongInt;
+ U,Ytop,Yneed,Cx,HipW,EW,YE,Ex0,Ex1:Single;
+ H1,H2,W,Band,X,Y,K0,C,Src,Dom,Best,Sd,M:LongInt;
+ N1,N2,K,Ks,Kr:Int64;
+ Pix2,Fill,Known:PSingle;
+ S2:TScene;
+ Drop:PByte;
+ SkR,SkG,SkB,T,Hw,Xc,D,Cov,Ux,Sh,Yleg0,Yank,Yfeet:Single;
+ Side:LongInt;
+ Dl,Df:Single;
+Begin
+ ExtendBody:=False;
+ Msg:='';
+ W:=S.W;H1:=S.H;
+ If not CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Begin
+  Msg:='aucun visage d'#130'tect'#130' : impossible d''estimer les proportions du corps pour prolonger l''image';
+  Exit;
+ End;
+ If not CatBBox(S,msFace or msHair or msHat,Hx0,Hy0,Hx1,Hy1)Then Begin Hy0:=Fy0;End;
+ Ytop:=Hy0;
+ U:=Fy1+1-Ytop;
+ If U<10 Then Begin Msg:='la t'#136'te est trop petite pour prolonger l''image';Exit;End;
+ If not CatBBox(S,msTop or msDress or msSkirt or msPants or msLegs,Tx0,Ty0,Tx1,Ty1)Then Begin
+  Msg:='aucun haut ni corps d'#130'tect'#130' sous le visage : impossible de prolonger l''image';
+  Exit;
+ End;
+ If NeedFeet Then Yneed:=Ytop+7.75*U
+ Else If NeedPants Then Yneed:=Ytop+7.45*U
+ Else If NeedSkirt Then Yneed:=Ytop+6.2*U
+ Else Begin ExtendBody:=True;Exit;End;
+ H2:=Trunc(Yneed)+1;
+ If H2<=H1+4 Then Begin ExtendBody:=True;Exit;End;
+ { le corps doit toucher le bas du cadre (sinon il est entier : rien a prolonger) }
+ EW:=0;
+ For Y:=IMax(0,H1-IMax(2,H1 div 50))to H1-1 do
+  For X:=0 to W-1 do If S.Cat[cBg][Int64(Y)*W+X]<128 Then EW:=EW+1;
+ If EW<W*0.02 Then Begin ExtendBody:=True;Exit;End;
+ If(H2>4*H1)or(H2>8000)or(Int64(W)*H2>20000000)Then Begin
+  Msg:='l''image est trop petite ou le corps trop cadr'#130' pour '#136'tre prolong'#130' ('+IStr(H2)+' pixels de haut n'#130'cessaires) ; essayez -maxsize';
+  Exit;
+ End;
+ { axe du corps et largeur des hanches }
+ If CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)Then Cx:=(Tx0+Tx1+1)/2 Else Cx:=(Fx0+Fx1+1)/2;
+ Ex0:=W;Ex1:=-1;
+ For Y:=IMax(0,H1-4)to H1-1 do
+  For X:=0 to W-1 do Begin
+   K:=Int64(Y)*W+X;
+   If(S.Cat[cTop][K]+S.Cat[cDress][K])>=128 Then Begin
+    If X<Ex0 Then Ex0:=X;
+    If X>Ex1 Then Ex1:=X;
+   End;
+  End;
+ If Ex1>=Ex0 Then EW:=Ex1-Ex0+1 Else EW:=2.0*U;
+ HipW:=Clamp(0.8*EW,1.2*U,1.75*U);
+ N1:=Int64(W)*H1;N2:=Int64(W)*H2;
+ Pix2:=AllocF(N2*3);
+ FillChar(S2,SizeOf(S2),0);
+ For C:=0 to NumCat-1 do S2.Cat[C]:=PByte(AllocBytes(N2));
+ Move(S.Pix^,Pix2^,N1*12);
+ For C:=0 to NumCat-1 do Move(S.Cat[C]^,S2.Cat[C]^,N1);
+ Drop:=PByte(AllocBytes(N2));
+ { nouvelles rangees : reflet de la bande du bas, coupe selon les proportions }
+ Band:=IMax(6,IMin(40,H1 div 12));
+ For Y:=H1 to H2-1 do Begin
+  M:=(Y-H1)mod(2*Band);
+  If M<Band Then Src:=H1-1-M Else Src:=H1-Band+(M-Band);
+  For X:=0 to W-1 do Begin
+   K:=Int64(Y)*W+X;
+   { dominante de la derniere rangee de la colonne }
+   Dom:=cBg;
+   If S.Cat[cBg][Int64(H1-1)*W+X]<252 Then Begin
+    { pixel de bord compris : la colonne est prolongee comme le corps voisin }
+    Best:=-1;
+    For C:=0 to NumCat-1 do If C<>cBg Then
+     If S.Cat[C][Int64(H1-1)*W+X]>Best Then Begin Best:=S.Cat[C][Int64(H1-1)*W+X];Dom:=C;End;
+   End;
+   If Dom=cBg Then Begin
+    { colonne de fond : remplie plus bas par propagation (evite les motifs en miroir) }
+    Drop[K]:=1;
+    Continue;
+   End;
+   { colonne de corps : la derniere rangee est prolongee vers le bas }
+   Ks:=Int64(H1-1)*W+X;
+   { texture : pixel reflete s'il est de la meme classe, sinon derniere rangee }
+   Kr:=Int64(Src)*W+X;
+   Best:=-1;Sd:=0;
+   For C:=0 to NumCat-1 do If C<>cBg Then If S.Cat[C][Kr]>Best Then Begin Best:=S.Cat[C][Kr];Sd:=C;End;
+   If(Sd=Dom)and(S.Cat[cBg][Kr]<252)Then Begin
+    Pix2[K*3]:=Pix2[Kr*3];Pix2[K*3+1]:=Pix2[Kr*3+1];Pix2[K*3+2]:=Pix2[Kr*3+2];
+   End
+    Else Begin
+     Pix2[K*3]:=Pix2[Ks*3]+RngGauss*1.4;Pix2[K*3+1]:=Pix2[Ks*3+1]+RngGauss*1.4;Pix2[K*3+2]:=Pix2[Ks*3+2]+RngGauss*1.4;
+    End;
+   For C:=0 to NumCat-1 do S2.Cat[C][K]:=S.Cat[C][Ks];
+   Case Dom of
+    cTop:If Abs(X-Cx)<=HipW/2+0.12*U Then YE:=Ytop+3.45*U Else YE:=Ytop+4.4*U;
+    cDress:If Abs(X-Cx)<=HipW/2+0.12*U Then YE:=Ytop+5.4*U Else YE:=Ytop+4.4*U;
+    cSkirt:YE:=Ytop+5.4*U;
+    cPants,cLegs:YE:=Ytop+7.2*U;
+    cShoes:YE:=Ytop+7.7*U;
+    cArms:YE:=Ytop+4.5*U;
+    cBelt:YE:=Ytop+3.5*U;
+    cBag,cScarf,cOther,cSkin:YE:=Ytop+4.0*U;
+    Else YE:=0;
+   End;
+   If Y>YE Then Drop[K]:=1;
+  End;
+ End;
+ { fond : prolonge par propagation depuis les pixels d'arriere-plan surs }
+ Known:=AllocF(N2);
+ Fill:=AllocF(N2*3);
+ Move(Pix2^,Fill^,N2*12);
+ For K:=0 to N2-1 do
+  If(Drop[K]=0)and(S2.Cat[cBg][K]>=252)Then Known[K]:=1;
+ PushPullFill(Fill,Known,W,H2);
+ For K:=Int64(H1)*W to N2-1 do If Drop[K]<>0 Then Begin
+  For C:=0 to 2 do Pix2[K*3+C]:=Fill[K*3+C]+RngGauss*1.6;
+  For C:=0 to NumCat-1 do S2.Cat[C][K]:=0;
+  S2.Cat[cBg][K]:=255;
+ End;
+ FreeMem(Known);FreeMem(Fill);FreeMem(Drop);
+ { jambes (peau) et pieds : reperes pour poser pantalon, jupe ou souliers }
+ S2.W:=W;S2.H:=H2;S2.Pix:=Pix2;
+ If not SkinColor(S2,False,SkR,SkG,SkB)Then Begin SkR:=224;SkG:=172;SkB:=140;End;
+ Yleg0:=Ytop+3.3*U;Yank:=Ytop+7.15*U;Yfeet:=Ytop+7.7*U;
+ For Y:=H1 to H2-1 do Begin
+  If Y<Yleg0 Then Continue;
+  T:=Clamp((Y-Yleg0)/(Yank-Yleg0),0,1);
+  If T>0 Then Hw:=HipW*0.235-(HipW*0.235-0.15*U)*Exp(0.8*Ln(T))Else Hw:=HipW*0.235;
+  For X:=0 to W-1 do Begin
+   K:=Int64(Y)*W+X;
+   If S2.Cat[cBg][K]<128 Then Continue;
+   Cov:=0;Ux:=0;
+   For Side:=-1 to 1 do Begin
+    If Side=0 Then Continue;
+    Xc:=Cx+Side*HipW*0.25;
+    If Y<=Yank+0.05*U Then Begin
+     D:=Abs(X-Xc)-Hw;
+     If CoverD(D)>Cov Then Begin Cov:=CoverD(D);Ux:=(X-Xc)/Hw;End;
+    End;
+    If NeedFeet and(Y>Yank-0.05*U)Then Begin
+     Df:=EllipseD(X,Y,Xc,Yank+0.1*U,0.2*U,0.2*U);
+     If CoverD(Df)>Cov Then Begin Cov:=CoverD(Df);Ux:=(X-Xc)/(0.2*U);End;
+    End;
+   End;
+   If Cov>0 Then Begin
+    Ux:=Clamp(Ux,-1,1);
+    Sh:=0.78+0.3*Sqrt(1-Ux*Ux);
+    Pix2[K*3]:=Pix2[K*3]*(1-Cov)+(SkR*Sh+RngGauss*1.5)*Cov;
+    Pix2[K*3+1]:=Pix2[K*3+1]*(1-Cov)+(SkG*Sh+RngGauss*1.5)*Cov;
+    Pix2[K*3+2]:=Pix2[K*3+2]*(1-Cov)+(SkB*Sh+RngGauss*1.5)*Cov;
+    M:=Trunc(Cov*255+0.5);
+    S2.Cat[cLegs][K]:=M;
+    S2.Cat[cBg][K]:=255-M;
+   End;
+  End;
+ End;
+ GAnkleY:=Yank;
+ GHemY:=Ytop+3.45*U;
+ { remplace la scene }
+ FreeMem(S.Pix);
+ For C:=0 to NumCat-1 do FreeMem(S.Cat[C]);
+ S:=S2;
+ Msg:='image prolong'#130'e de '+IStr(H1)+' '#133' '+IStr(H2)+' pixels de haut (proportions d'#130'duites de la t'#136'te)';
+ ExtendBody:=True;
 End;
 
 { ------------------------------------------------------------------ }
@@ -7738,7 +8050,9 @@ Begin
  WriteLn('  "Make the shirt striped blue and white" "Enl'#138've le chapeau et les lunettes"');
  WriteLn('  "Change le chandail rouge en bleu, ajouter un foulard"   "mettre un chapeau de paille"');
  WriteLn('  (plusieurs instructions possibles, s'#130'par'#130'es par des virgules ou "et" ;');
- WriteLn('   ajouts support'#130's sans photo : foulard, chapeau, bonnet, casquette, lunettes, ceinture)');
+ WriteLn('   ajouts support'#130's sans photo : foulard, chapeau, bonnet, casquette, lunettes, ceinture,');
+ WriteLn('   pantalon, jupe, souliers ; si le corps est coup'#130' par le cadre, l''image est prolong'#130'e vers le bas :');
+ WriteLn('   "rajoute un pantalon"  "rajoute des souliers"  "je veux voir des pieds")');
  WriteLn;
  WriteLn('Mod'#138'le : ');
  WriteLn('  '+DefaultModelUrl+'model.safetensors');
@@ -7916,6 +8230,7 @@ Var
  N:Int64;
  Used:Boolean;
  Dummy:LongWord;
+ NeedFeet,NeedPants,NeedSkirt:Boolean;
 
 Procedure Die(Const S:AnsiString);
 Begin
@@ -8028,6 +8343,37 @@ Begin
   If not ImgSave(OptSaveParsing,Img,90)Then Warn('impossible d''enregistrer '+OptSaveParsing);
   ImgFree(Img);
  End;
+ { bas du corps : prolongement de l'image si le corps est coupe par le cadre }
+ NeedFeet:=False;NeedPants:=False;NeedSkirt:=False;
+ For I:=0 to High(Edits)do Begin
+  If(Edits[I].Action=eaRecolor)and Edits[I].Put and((Edits[I].Target and(msPants or msSkirt or msShoes))<>0)and
+    (CatArea(Scene,Edits[I].Target)<Int64(Scene.W)*Scene.H div 2000)Then Edits[I].Action:=eaAdd;
+  If Edits[I].Action=eaAdd Then Begin
+   If(Edits[I].Target and msShoes)<>0 Then NeedFeet:=True;
+   If(Edits[I].Target and msPants)<>0 Then NeedPants:=True;
+   If(Edits[I].Target and msSkirt)<>0 Then NeedSkirt:=True;
+  End;
+ End;
+ If NeedFeet or NeedPants or NeedSkirt Then Begin
+  { des souliers sans pantalon ni jupe : un pantalon neutre est ajoute }
+  If NeedFeet and not NeedPants and not NeedSkirt and
+    (CatArea(Scene,msPants or msSkirt or msDress)<Int64(Scene.W)*Scene.H div 2000)Then Begin
+   SetLength(Edits,Length(Edits)+1);
+   For J:=High(Edits)downto 1 do Edits[J]:=Edits[J-1];
+   ClearEdit(Edits[0]);
+   Edits[0].Action:=eaAdd;Edits[0].Target:=msPants;Edits[0].Kind:=gkBottom;Edits[0].Noun:='pantalon';
+   NeedPants:=True;
+   Info('pantalon neutre ajout'#130' pour accompagner les chaussures');
+  End;
+  If ExtendBody(Scene,NeedFeet,NeedPants,NeedSkirt,Msg)Then Begin
+   If Msg<>'' Then Info(Msg);
+  End
+   Else Begin
+    Warn(Msg);
+    For I:=0 to High(Edits)do
+     If(Edits[I].Action=eaAdd)and((Edits[I].Target and(msPants or msSkirt or msShoes))<>0)Then Edits[I].Action:=eaNone;
+   End;
+ End;
  NOk:=0;NFail:=0;
  SetLength(GarmentEdits,Length(Edits));
  For I:=0 to High(Edits)do Begin
@@ -8082,6 +8428,7 @@ Begin
  { retouches sur la scene }
  For I:=0 to High(Edits)do Begin
   If GarmentEdits[I]<>0 Then Continue;
+  If Edits[I].Action=eaNone Then Begin Inc(NFail);Continue;End;
   If Edits[I].Action=eaTryOn Then Begin
    Warn('"essayer" demande une image de v'#136'tement (deuxi'#138'me argument)');
    Inc(NFail);
