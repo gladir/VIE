@@ -75,6 +75,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td><b>SSODOKU.PAS</b></td>
      <td>Cette commande permet de lancer le Solveur Sodoku.</td>
   </tr>
+	    <tr>
+			<td><b>TESSERACT.PAS</b></td>
+			<td>Cette commande permet de lancer la reconnaissance de caracteres d'une image.</td>
+		</tr>	
   <tr>
       <td><b>TRANSLAT.PAS</b></td>
       <td>Cette commande permet de traduire du texte anglais en français.</td>
