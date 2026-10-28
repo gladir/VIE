@@ -10,6 +10,11 @@ Voici la liste des différents fichiers proposés dans VIE :
     <th>Commande</th>
     <th>Description</th>
    </tr>
+</tr>
+		<tr>
+			<td><b>ARGOS-TRANSLATE.PAS</b></td>
+			<td>Cette commande permet de traduire une phrase entre l'anglais, le français, l'allemand, l'espagnol, l'albanais, le portugais, le suédois, le danois, l'italien, le latin, le gallois, l'afrikaans, le maltais, l'islandais, le néerlandais, le norvégien, le polonais, le roumain, le catalan et le japonais (romaji).</td>
+		</tr>  	
   <tr>
      <td><b>BENCHMARK_APP.PAS</b></td>
      <td>Cette commande permet de mesurer les performances d'inférence (latence et débit) d'un modèle OpenVINO IR (<code>.xml</code> + <code>.bin</code>, par exemple celui produit par <code>OPTIMUM-CLI.PAS</code>), à la manière de <code>benchmark_app -m modele.xml -d CPU -hint latency|throughput|none -niter -t -b -nthreads -nstreams -api -pc -report_folder</code>.</td>
