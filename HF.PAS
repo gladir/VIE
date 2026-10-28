@@ -5277,102 +5277,102 @@ End;
 
 Type
  TSub = Record
-  G,N,D:AnsiString;
+  G,N,D,F:AnsiString;  { D = anglais, F = francais }
  End;
 
 Const
  NSubs=66;
  Subs:Array[0..NSubs-1]of TSub=(
-  (G:'auth';N:'login';D:'Login using a token from huggingface.co/settings/tokens.'),
-  (G:'auth';N:'logout';D:'Logout from a specific token.'),
-  (G:'auth';N:'switch';D:'Switch between access tokens.'),
-  (G:'auth';N:'list';D:'List all stored access tokens.'),
-  (G:'auth';N:'whoami';D:'Find out which huggingface.co account you are logged in as.'),
-  (G:'cache';N:'ls';D:'List cached repositories or revisions.'),
-  (G:'cache';N:'rm';D:'Remove cached repositories or revisions.'),
-  (G:'cache';N:'prune';D:'Remove detached revisions from the cache.'),
-  (G:'cache';N:'verify';D:'Verify checksums for a single repo revision from cache or a local directory.'),
-  (G:'models';N:'ls';D:'List models on the Hub.'),
-  (G:'models';N:'info';D:'Get info about a model on the Hub.'),
-  (G:'datasets';N:'ls';D:'List datasets on the Hub.'),
-  (G:'datasets';N:'info';D:'Get info about a dataset on the Hub.'),
-  (G:'spaces';N:'ls';D:'List spaces on the Hub.'),
-  (G:'spaces';N:'info';D:'Get info about a space on the Hub.'),
-  (G:'repos';N:'create';D:'Create a new repo on the Hub.'),
-  (G:'repos';N:'delete';D:'Delete a repo from the Hub. This is an irreversible operation.'),
-  (G:'repos';N:'move';D:'Move a repository from a namespace to another namespace.'),
-  (G:'repos';N:'settings';D:'Update the settings of a repository.'),
-  (G:'repos';N:'branch';D:'Manage branches for a repo on the Hub.'),
-  (G:'repos';N:'tag';D:'Manage tags for a repo on the Hub.'),
-  (G:'repos';N:'delete-files';D:'Delete files from a repo on the Hub.'),
-  (G:'repos branch';N:'create';D:'Create a new branch for a repo on the Hub.'),
-  (G:'repos branch';N:'delete';D:'Delete a branch from a repo on the Hub.'),
-  (G:'repos tag';N:'create';D:'Create a tag for a repo.'),
-  (G:'repos tag';N:'delete';D:'Delete a tag from a repo.'),
-  (G:'repos tag';N:'list';D:'List tags for a repo.'),
-  (G:'collections';N:'ls';D:'List collections on the Hub.'),
-  (G:'collections';N:'info';D:'Get info about a collection on the Hub.'),
-  (G:'collections';N:'create';D:'Create a new collection on the Hub.'),
-  (G:'collections';N:'delete';D:'Delete a collection from the Hub.'),
-  (G:'collections';N:'add-item';D:'Add an item to a collection.'),
-  (G:'collections';N:'delete-item';D:'Delete an item from a collection.'),
-  (G:'papers';N:'ls';D:'List daily papers on the Hub.'),
-  (G:'papers';N:'search';D:'Search papers on the Hub.'),
-  (G:'papers';N:'info';D:'Get info about a paper on the Hub.'),
-  (G:'discussions';N:'ls';D:'List discussions and pull requests on a repo.'),
-  (G:'discussions';N:'info';D:'Get info about a discussion or pull request.'),
-  (G:'discussions';N:'create';D:'Create a new discussion or pull request on a repo.'),
-  (G:'discussions';N:'comment';D:'Comment on a discussion or pull request.'),
-  (G:'discussions';N:'close';D:'Close a discussion or pull request.'),
-  (G:'discussions';N:'reopen';D:'Reopen a closed discussion or pull request.'),
-  (G:'discussions';N:'merge';D:'Merge a pull request.'),
-  (G:'endpoints';N:'ls';D:'Lists all Inference Endpoints for the given namespace.'),
-  (G:'endpoints';N:'describe';D:'Get information about an existing endpoint.'),
-  (G:'endpoints';N:'pause';D:'Pause an Inference Endpoint.'),
-  (G:'endpoints';N:'resume';D:'Resume an Inference Endpoint.'),
-  (G:'endpoints';N:'scale-to-zero';D:'Scale an Inference Endpoint to zero.'),
-  (G:'endpoints';N:'delete';D:'Delete an Inference Endpoint permanently.'),
-  (G:'jobs';N:'run';D:'Run a Job.'),
-  (G:'jobs';N:'ps';D:'List Jobs.'),
-  (G:'jobs';N:'inspect';D:'Display detailed information on one or more Jobs.'),
-  (G:'jobs';N:'logs';D:'Fetch the logs of a Job.'),
-  (G:'jobs';N:'cancel';D:'Cancel a Job.'),
-  (G:'buckets';N:'create';D:'Create a bucket (not supported by this clone).'),
-  (G:'buckets';N:'list';D:'List buckets (not supported by this clone).'),
-  (G:'buckets';N:'info';D:'Get info about a bucket (not supported by this clone).'),
-  (G:'buckets';N:'delete';D:'Delete a bucket (not supported by this clone).'),
-  (G:'buckets';N:'cp';D:'Copy files to or from a bucket (not supported by this clone).'),
-  (G:'buckets';N:'sync';D:'Sync a directory with a bucket (not supported by this clone).'),
-  (G:'extensions';N:'list';D:'List installed extensions.'),
-  (G:'extensions';N:'install';D:'Install an extension.'),
-  (G:'extensions';N:'remove';D:'Remove an installed extension.'),
-  (G:'extensions';N:'exec';D:'Run an extension.'),
-  (G:'skills';N:'add';D:'Install the hf-cli skill for AI assistants.'),
-  (G:'skills';N:'preview';D:'Print the generated SKILL.md to stdout.'));
+  (G:'auth';N:'login';D:'Login using a token from huggingface.co/settings/tokens.';F:'Se connecte avec un jeton obtenu sur huggingface.co/settings/tokens.'),
+  (G:'auth';N:'logout';D:'Logout from a specific token.';F:'Se déconnecte d''un jeton précis.'),
+  (G:'auth';N:'switch';D:'Switch between access tokens.';F:'Bascule entre les jetons d''accès.'),
+  (G:'auth';N:'list';D:'List all stored access tokens.';F:'Liste tous les jetons d''accès enregistrés.'),
+  (G:'auth';N:'whoami';D:'Find out which huggingface.co account you are logged in as.';F:'Indique avec quel compte huggingface.co vous êtes connecté.'),
+  (G:'cache';N:'ls';D:'List cached repositories or revisions.';F:'Liste les dépôts ou les révisions présents dans le cache.'),
+  (G:'cache';N:'rm';D:'Remove cached repositories or revisions.';F:'Supprime des dépôts ou des révisions du cache.'),
+  (G:'cache';N:'prune';D:'Remove detached revisions from the cache.';F:'Supprime les révisions détachées (non référencées) du cache.'),
+  (G:'cache';N:'verify';D:'Verify checksums for a single repo revision from cache or a local directory.';F:'Vérifie les sommes de contrôle d''une révision de dépôt, depuis le cache ou un répertoire local.'),
+  (G:'models';N:'ls';D:'List models on the Hub.';F:'Liste les modèles du Hub.'),
+  (G:'models';N:'info';D:'Get info about a model on the Hub.';F:'Affiche les informations d''un modèle du Hub.'),
+  (G:'datasets';N:'ls';D:'List datasets on the Hub.';F:'Liste les jeux de données du Hub.'),
+  (G:'datasets';N:'info';D:'Get info about a dataset on the Hub.';F:'Affiche les informations d''un jeu de données du Hub.'),
+  (G:'spaces';N:'ls';D:'List spaces on the Hub.';F:'Liste les Spaces du Hub.'),
+  (G:'spaces';N:'info';D:'Get info about a space on the Hub.';F:'Affiche les informations d''un Space du Hub.'),
+  (G:'repos';N:'create';D:'Create a new repo on the Hub.';F:'Crée un nouveau dépôt sur le Hub.'),
+  (G:'repos';N:'delete';D:'Delete a repo from the Hub. This is an irreversible operation.';F:'Supprime un dépôt du Hub. Opération irréversible.'),
+  (G:'repos';N:'move';D:'Move a repository from a namespace to another namespace.';F:'Déplace un dépôt d''un espace de noms vers un autre.'),
+  (G:'repos';N:'settings';D:'Update the settings of a repository.';F:'Modifie les paramètres d''un dépôt.'),
+  (G:'repos';N:'branch';D:'Manage branches for a repo on the Hub.';F:'Gère les branches d''un dépôt du Hub.'),
+  (G:'repos';N:'tag';D:'Manage tags for a repo on the Hub.';F:'Gère les étiquettes (tags) d''un dépôt du Hub.'),
+  (G:'repos';N:'delete-files';D:'Delete files from a repo on the Hub.';F:'Supprime des fichiers d''un dépôt du Hub.'),
+  (G:'repos branch';N:'create';D:'Create a new branch for a repo on the Hub.';F:'Crée une nouvelle branche pour un dépôt du Hub.'),
+  (G:'repos branch';N:'delete';D:'Delete a branch from a repo on the Hub.';F:'Supprime une branche d''un dépôt du Hub.'),
+  (G:'repos tag';N:'create';D:'Create a tag for a repo.';F:'Crée une étiquette (tag) pour un dépôt.'),
+  (G:'repos tag';N:'delete';D:'Delete a tag from a repo.';F:'Supprime une étiquette (tag) d''un dépôt.'),
+  (G:'repos tag';N:'list';D:'List tags for a repo.';F:'Liste les étiquettes (tags) d''un dépôt.'),
+  (G:'collections';N:'ls';D:'List collections on the Hub.';F:'Liste les collections du Hub.'),
+  (G:'collections';N:'info';D:'Get info about a collection on the Hub.';F:'Affiche les informations d''une collection du Hub.'),
+  (G:'collections';N:'create';D:'Create a new collection on the Hub.';F:'Crée une nouvelle collection sur le Hub.'),
+  (G:'collections';N:'delete';D:'Delete a collection from the Hub.';F:'Supprime une collection du Hub.'),
+  (G:'collections';N:'add-item';D:'Add an item to a collection.';F:'Ajoute un élément à une collection.'),
+  (G:'collections';N:'delete-item';D:'Delete an item from a collection.';F:'Supprime un élément d''une collection.'),
+  (G:'papers';N:'ls';D:'List daily papers on the Hub.';F:'Liste les articles du jour (daily papers) du Hub.'),
+  (G:'papers';N:'search';D:'Search papers on the Hub.';F:'Recherche des articles scientifiques sur le Hub.'),
+  (G:'papers';N:'info';D:'Get info about a paper on the Hub.';F:'Affiche les informations d''un article du Hub.'),
+  (G:'discussions';N:'ls';D:'List discussions and pull requests on a repo.';F:'Liste les discussions et les pull requests d''un dépôt.'),
+  (G:'discussions';N:'info';D:'Get info about a discussion or pull request.';F:'Affiche les informations d''une discussion ou d''une pull request.'),
+  (G:'discussions';N:'create';D:'Create a new discussion or pull request on a repo.';F:'Crée une discussion ou une pull request sur un dépôt.'),
+  (G:'discussions';N:'comment';D:'Comment on a discussion or pull request.';F:'Commente une discussion ou une pull request.'),
+  (G:'discussions';N:'close';D:'Close a discussion or pull request.';F:'Ferme une discussion ou une pull request.'),
+  (G:'discussions';N:'reopen';D:'Reopen a closed discussion or pull request.';F:'Rouvre une discussion ou une pull request fermée.'),
+  (G:'discussions';N:'merge';D:'Merge a pull request.';F:'Fusionne une pull request.'),
+  (G:'endpoints';N:'ls';D:'Lists all Inference Endpoints for the given namespace.';F:'Liste les Inference Endpoints de l''espace de noms indiqué.'),
+  (G:'endpoints';N:'describe';D:'Get information about an existing endpoint.';F:'Affiche les informations d''un endpoint existant.'),
+  (G:'endpoints';N:'pause';D:'Pause an Inference Endpoint.';F:'Met en pause un Inference Endpoint.'),
+  (G:'endpoints';N:'resume';D:'Resume an Inference Endpoint.';F:'Reprend un Inference Endpoint.'),
+  (G:'endpoints';N:'scale-to-zero';D:'Scale an Inference Endpoint to zero.';F:'Ramène un Inference Endpoint à zéro réplique.'),
+  (G:'endpoints';N:'delete';D:'Delete an Inference Endpoint permanently.';F:'Supprime définitivement un Inference Endpoint.'),
+  (G:'jobs';N:'run';D:'Run a Job.';F:'Exécute un Job.'),
+  (G:'jobs';N:'ps';D:'List Jobs.';F:'Liste les Jobs.'),
+  (G:'jobs';N:'inspect';D:'Display detailed information on one or more Jobs.';F:'Affiche les informations détaillées d''un ou plusieurs Jobs.'),
+  (G:'jobs';N:'logs';D:'Fetch the logs of a Job.';F:'Récupère les journaux d''un Job.'),
+  (G:'jobs';N:'cancel';D:'Cancel a Job.';F:'Annule un Job.'),
+  (G:'buckets';N:'create';D:'Create a bucket (not supported by this clone).';F:'Crée un bucket (non pris en charge par ce clone).'),
+  (G:'buckets';N:'list';D:'List buckets (not supported by this clone).';F:'Liste les buckets (non pris en charge par ce clone).'),
+  (G:'buckets';N:'info';D:'Get info about a bucket (not supported by this clone).';F:'Affiche les informations d''un bucket (non pris en charge par ce clone).'),
+  (G:'buckets';N:'delete';D:'Delete a bucket (not supported by this clone).';F:'Supprime un bucket (non pris en charge par ce clone).'),
+  (G:'buckets';N:'cp';D:'Copy files to or from a bucket (not supported by this clone).';F:'Copie des fichiers vers ou depuis un bucket (non pris en charge par ce clone).'),
+  (G:'buckets';N:'sync';D:'Sync a directory with a bucket (not supported by this clone).';F:'Synchronise un répertoire avec un bucket (non pris en charge par ce clone).'),
+  (G:'extensions';N:'list';D:'List installed extensions.';F:'Liste les extensions installées.'),
+  (G:'extensions';N:'install';D:'Install an extension.';F:'Installe une extension.'),
+  (G:'extensions';N:'remove';D:'Remove an installed extension.';F:'Supprime une extension installée.'),
+  (G:'extensions';N:'exec';D:'Run an extension.';F:'Exécute une extension.'),
+  (G:'skills';N:'add';D:'Install the hf-cli skill for AI assistants.';F:'Installe la compétence (skill) hf-cli pour les assistants IA.'),
+  (G:'skills';N:'preview';D:'Print the generated SKILL.md to stdout.';F:'Affiche le fichier SKILL.md généré sur la sortie standard.'));
 
  NTop=21;
  Tops:Array[0..NTop-1]of TSub=(
-  (G:'main';N:'auth';D:'Manage authentication (login, logout, etc.).'),
-  (G:'main';N:'buckets';D:'Commands to interact with buckets.'),
-  (G:'main';N:'cache';D:'Manage local cache directory.'),
-  (G:'main';N:'collections';D:'Interact with collections on the Hub.'),
-  (G:'main';N:'cp';D:'Copy files between local paths and Hub repositories.'),
-  (G:'main';N:'datasets';D:'Interact with datasets on the Hub.'),
-  (G:'main';N:'discussions';D:'Manage discussions and pull requests on the Hub.'),
-  (G:'main';N:'download';D:'Download files from the Hub.'),
-  (G:'main';N:'endpoints';D:'Manage Hugging Face Inference Endpoints.'),
-  (G:'help';N:'env';D:'Print information about the environment.'),
-  (G:'main';N:'extensions';D:'Manage hf CLI extensions.'),
-  (G:'main';N:'jobs';D:'Run and manage Jobs on the Hub.'),
-  (G:'main';N:'models';D:'Interact with models on the Hub.'),
-  (G:'main';N:'papers';D:'Interact with papers on the Hub.'),
-  (G:'main';N:'repos';D:'Manage repos on the Hub.'),
-  (G:'main';N:'skills';D:'Manage skills for AI assistants.'),
-  (G:'main';N:'spaces';D:'Interact with spaces on the Hub.'),
-  (G:'main';N:'sync';D:'Sync files between two local directories.'),
-  (G:'help';N:'update';D:'Check for a newer version of the hf CLI.'),
-  (G:'main';N:'upload';D:'Upload a file or a folder to the Hub.'),
-  (G:'help';N:'version';D:'Print information about the hf version.'));
+  (G:'main';N:'auth';D:'Manage authentication (login, logout, etc.).';F:'Gère l''authentification (connexion, déconnexion, etc.).'),
+  (G:'main';N:'buckets';D:'Commands to interact with buckets.';F:'Commandes pour interagir avec les buckets.'),
+  (G:'main';N:'cache';D:'Manage local cache directory.';F:'Gère le répertoire de cache local.'),
+  (G:'main';N:'collections';D:'Interact with collections on the Hub.';F:'Interagit avec les collections du Hub.'),
+  (G:'main';N:'cp';D:'Copy files between local paths and Hub repositories.';F:'Copie des fichiers entre des chemins locaux et des dépôts du Hub.'),
+  (G:'main';N:'datasets';D:'Interact with datasets on the Hub.';F:'Interagit avec les jeux de données du Hub.'),
+  (G:'main';N:'discussions';D:'Manage discussions and pull requests on the Hub.';F:'Gère les discussions et les pull requests du Hub.'),
+  (G:'main';N:'download';D:'Download files from the Hub.';F:'Télécharge des fichiers depuis le Hub.'),
+  (G:'main';N:'endpoints';D:'Manage Hugging Face Inference Endpoints.';F:'Gère les Inference Endpoints de Hugging Face.'),
+  (G:'help';N:'env';D:'Print information about the environment.';F:'Affiche des informations sur l''environnement.'),
+  (G:'main';N:'extensions';D:'Manage hf CLI extensions.';F:'Gère les extensions de la CLI hf.'),
+  (G:'main';N:'jobs';D:'Run and manage Jobs on the Hub.';F:'Exécute et gère des Jobs sur le Hub.'),
+  (G:'main';N:'models';D:'Interact with models on the Hub.';F:'Interagit avec les modèles du Hub.'),
+  (G:'main';N:'papers';D:'Interact with papers on the Hub.';F:'Interagit avec les articles scientifiques du Hub.'),
+  (G:'main';N:'repos';D:'Manage repos on the Hub.';F:'Gère les dépôts du Hub.'),
+  (G:'main';N:'skills';D:'Manage skills for AI assistants.';F:'Gère les compétences (skills) des assistants IA.'),
+  (G:'main';N:'spaces';D:'Interact with spaces on the Hub.';F:'Interagit avec les Spaces du Hub.'),
+  (G:'main';N:'sync';D:'Sync files between two local directories.';F:'Synchronise les fichiers entre deux répertoires locaux.'),
+  (G:'help';N:'update';D:'Check for a newer version of the hf CLI.';F:'Vérifie l''existence d''une version plus récente de la CLI hf.'),
+  (G:'main';N:'upload';D:'Upload a file or a folder to the Hub.';F:'Envoie un fichier ou un dossier vers le Hub.'),
+  (G:'help';N:'version';D:'Print information about the hf version.';F:'Affiche des informations sur la version de hf.'));
 
 Procedure PrintMainHelp;
 Var
@@ -5387,11 +5387,11 @@ Begin
  WriteLn;
  WriteLn(L('Main commands:','Commandes principales :'));
  For I:=0 to NTop-1 do If Tops[I].G='main' Then
-   WriteLn('  ',PadR(Tops[I].N,12),'  ',Tr(Tops[I].D));
+   WriteLn('  ',PadR(Tops[I].N,12),'  ',L(Tops[I].D,Tops[I].F));
  WriteLn;
  WriteLn(L('Help commands:','Commandes d''aide :'));
  For I:=0 to NTop-1 do If Tops[I].G='help' Then
-   WriteLn('  ',PadR(Tops[I].N,12),'  ',Tr(Tops[I].D));
+   WriteLn('  ',PadR(Tops[I].N,12),'  ',L(Tops[I].D,Tops[I].F));
  WriteLn;
  WriteLn(L('Learn more:','Pour en savoir plus :'));
  WriteLn(L('  Use `hf <command> --help` for more information about a command.',
@@ -5407,7 +5407,7 @@ Var
  I:LongInt;
 Begin
  TopDesc:='';
- For I:=0 to NTop-1 do If Tops[I].N=Name Then TopDesc:=Tops[I].D;
+ For I:=0 to NTop-1 do If Tops[I].N=Name Then TopDesc:=L(Tops[I].D,Tops[I].F);
 End;
 
 Procedure PrintGroupHelp(Const Path,Desc:AnsiString);
@@ -5426,7 +5426,7 @@ Begin
  WriteLn(L('Commands:','Commandes :'));
  W:=0;
  For I:=0 to NSubs-1 do If(Subs[I].G=G)and(Length(Subs[I].N)>W)Then W:=Length(Subs[I].N);
- For I:=0 to NSubs-1 do If Subs[I].G=G Then WriteLn('  ',PadR(Subs[I].N,W),'  ',Tr(Subs[I].D));
+ For I:=0 to NSubs-1 do If Subs[I].G=G Then WriteLn('  ',PadR(Subs[I].N,W),'  ',L(Subs[I].D,Subs[I].F));
 End;
 
 Procedure NoSuchCommand(Const Path,Name:AnsiString);
