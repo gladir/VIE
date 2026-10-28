@@ -5388,6 +5388,7 @@ Const
  { image entiere et arriere-plan }
  ioSmooth=1;ioBlur=2;ioSharp=3;
  boSolid=1;boTransparent=2;boStars=3;boSunny=4;boSunset=5;boBlur=6;
+ boTropical=7;boAmazon=8;boQuebec=9;boCanada=10;boConifer=11;boForest=12;
  { matieres et scenes }
  mtNone=0;mtMetal=1;mtRobot=2;mtStatue=3;mtChain=4;
  scNone=0;scCarousel=1;
@@ -5548,6 +5549,13 @@ Begin
  AddLex('etoile etoilee etoilees etoiles star stars starry',lkBgKind,boStars,0);
  AddLex('ensoleille ensoleillee ensoleilles soleil sunny sun sunshine',lkBgKind,boSunny,0);
  AddLex('sunset crepuscule',lkBgKind,boSunset,0);
+ AddLex('foret forets forest forests jungle',lkBgW,0,0);
+ AddLex('foret forets forest forests',lkBgKind,boForest,0);
+ AddLex('tropicale tropicales tropical jungle',lkBgKind,boTropical,0);
+ AddLex('amazonienne amazoniennes amazonien amazoniens amazonie amazonian amazon amazone',lkBgKind,boAmazon,0);
+ AddLex('quebecoise quebecoises quebecois quebec erable erables maple',lkBgKind,boQuebec,0);
+ AddLex('canadienne canadiennes canadien canadiens canada canadian boreale boreal',lkBgKind,boCanada,0);
+ AddLex('conifere coniferes conifer conifers sapin sapins epinette epinettes pin pins pine pines spruce fir taiga',lkBgKind,boConifer,0);
  { cheveux et coiffures }
  AddLex('cheveu cheveux chevelure coiffure hair hairstyle',lkGarment,gkHair,msHair);
  AddLex('allonge allonger allongez rallonge rallonger long longs longue longues lengthen longer',lkHairStyle,hsLonger,0);
@@ -5953,7 +5961,11 @@ Begin
   { image entiere et arriere-plan }
   If BgW Then Begin
    K:=LexFind(T[I],lkBgKind);
-   If K>=0 Then Begin BOp:=Lex[K].V1;Continue;End;
+   If K>=0 Then Begin
+    { ? foret ? seul ne remplace pas un type de foret deja precise }
+    If Lex[K].V1=boForest Then Begin If BOp=0 Then BOp:=boForest;End Else BOp:=Lex[K].V1;
+    Continue;
+   End;
    K:=LexFind(T[I],lkImgOp);
    If(K>=0)and(Lex[K].V1=ioBlur)Then Begin BOp:=boBlur;Continue;End;
   End
@@ -12228,6 +12240,423 @@ Begin
  End;
 End;
 { ------------------------------------------------------------------ }
+{ Forets dessinees par le programme : tropicale, amazonienne,        }
+{ quebecoise (automne), canadienne, de coniferes                       }
+{ ------------------------------------------------------------------ }
+
+Type
+ TRgb=Array[0..2]of Single;
+ TFPal=Record
+  SkyT,SkyB,Fog,Trunk,Ground,Ground2,Light:TRgb;
+  Leaf:Array[0..2]of TRgb;
+  Conif:Array[0..1]of TRgb;
+  Lit:Array[0..1]of TRgb;
+  Mist,Shafts,Fr,Fb,Fp:Single;
+  Giant,Lianas,Flowers,Mount:Boolean;
+ End;
+
+Var
+ FogC:TRgb;
+ FogAmt:Single=0;
+
+Procedure C3(Var C:TRgb;R,G,B:Single);
+Begin
+ C[0]:=R;C[1]:=G;C[2]:=B;
+End;
+
+{ pose un pixel avec la brume de la profondeur courante }
+Procedure PutF(Bg:PSingle;W,H,X,Y:LongInt;Cov,R,G,B:Single);
+Begin
+ If FogAmt>0 Then Begin
+  R:=R*(1-FogAmt)+FogC[0]*FogAmt;
+  G:=G*(1-FogAmt)+FogC[1]*FogAmt;
+  B:=B*(1-FogAmt)+FogC[2]*FogAmt;
+ End;
+ PutBg(Bg,W,H,X,Y,Cov,R,G,B);
+End;
+
+{ masse de feuillage : disque ebouriffe, eclaire en haut a gauche, texture de feuilles }
+Procedure Blob(Bg:PSingle;W,H:LongInt;Cx,Cy,R:Single;Const C:TRgb;Leaf:Single);
+Var
+ X,Y:LongInt;
+ D,Cov,Nx,Ny,Lt,Tx,V,Rr:Single;
+Begin
+ For Y:=Trunc(Cy-R*1.2)to Trunc(Cy+R*1.2)do
+  For X:=Trunc(Cx-R*1.2)to Trunc(Cx+R*1.2)do Begin
+   If(X<0)or(Y<0)or(X>=W)or(Y>=H)Then Continue;
+   Rr:=R*(1+0.20*(VNoise(X*Leaf*0.7,Y*Leaf*0.7)-0.5));
+   D:=Sqrt(Sqr(X+0.5-Cx)+Sqr(Y+0.5-Cy))-Rr;
+   Cov:=CoverD(D);
+   If Cov<=0 Then Continue;
+   Nx:=(X+0.5-Cx)/R;Ny:=(Y+0.5-Cy)/R;
+   Lt:=Clamp(0.78+0.50*(-0.45*Nx-0.70*Ny),0.35,1.3);
+   Tx:=FBm(X*Leaf,Y*Leaf);
+   V:=Lt*(0.66+0.70*Tx);
+   PutF(Bg,W,H,X,Y,Cov,C[0]*V,C[1]*V,C[2]*V);
+  End;
+End;
+
+Procedure Crown(Bg:PSingle;W,H:LongInt;X,Y,R:Single;Const P:TFPal;Autumn:Boolean);
+Var
+ I,K:LongInt;
+ A,Rr,Lf:Single;
+Begin
+ Lf:=0.55/FMax(1,R/22);
+ For I:=0 to 8 do Begin
+  A:=RngF*2*Pi;Rr:=R*0.55*RngF;
+  K:=Trunc(RngF*2.99);
+  Blob(Bg,W,H,X+Cos(A)*Rr*1.15,Y+Sin(A)*Rr*0.8,R*(0.42+0.26*RngF),P.Leaf[K],Lf);
+ End;
+ For I:=0 to 24 do Begin
+  A:=RngF*2*Pi;Rr:=R*(0.55+0.35*RngF);
+  K:=Trunc(RngF*2.99);
+  Blob(Bg,W,H,X+Cos(A)*Rr*1.1,Y+Sin(A)*Rr*0.78,R*0.14,P.Leaf[K],Lf*1.8);
+ End;
+End;
+
+{ tronc effile, eclaire a gauche, ecorce en stries verticales ; Birch : tronc blanc marque de noir }
+Procedure Trunk(Bg:PSingle;W,H:LongInt;X,YTop,YBot,W0,W1,Lean:Single;Const C:TRgb;Seed:LongInt;Birch:Boolean);
+Var
+ Y,Xi:LongInt;
+ T,Wd,Xc,U,Sh,Bk,Cov,V:Single;
+ Mark:Boolean;
+Begin
+ For Y:=Trunc(YTop)to Trunc(YBot)do Begin
+  If(Y<0)or(Y>=H)Then Continue;
+  T:=(Y+0.5-YTop)/FMax(1,YBot-YTop);
+  Wd:=W0+(W1-W0)*T;
+  If T>0.93 Then Wd:=Wd*(1+0.9*(T-0.93)/0.07);
+  Xc:=X+Lean*(1-T);
+  Mark:=Birch and(Hash2(Trunc((Y+0.5)/FMax(2,H*0.005)),Seed)>0.88);
+  For Xi:=Trunc(Xc-Wd)-1 to Trunc(Xc+Wd)+1 do Begin
+   If(Xi<0)or(Xi>=W)Then Continue;
+   U:=(Xi+0.5-Xc)/Wd;
+   Cov:=CoverD(Abs(Xi+0.5-Xc)-Wd);
+   If Cov<=0 Then Continue;
+   If U>1 Then U:=1 Else If U<-1 Then U:=-1;
+   Sh:=0.42+0.62*(Sqrt(1-U*U)*0.7+0.3*(-U)*0.6+0.25);
+   Bk:=0.72+0.55*VNoise(Xi*0.9+Seed*3.1,Y*0.045);
+   V:=Sh*Bk;
+   If Mark and(Abs(U)<0.80)Then V:=V*0.40;
+   PutF(Bg,W,H,Xi,Y,Cov,C[0]*V,C[1]*V,C[2]*V);
+  End;
+ End;
+End;
+
+{ conifere : etages de branches en dents de scie, plus sombres dessous }
+Procedure Conifer(Bg:PSingle;W,H:LongInt;X,YBase,Ht,Wd:Single;Const P:TFPal;Seed:LongInt);
+Var
+ I,N,Y,Xi,K:LongInt;
+ Y0,Th,Hw,T,Hy,Cov,V,U,Sh:Single;
+Begin
+ Trunk(Bg,W,H,X,YBase-Ht*0.25,YBase,Wd*0.045,Wd*0.06,0,P.Conif[1],Seed,False);
+ N:=8+Trunc(Ht/H*6);
+ For I:=0 to N-1 do Begin
+  Y0:=YBase-Ht+I*(Ht*0.80/N);
+  Th:=Ht*0.30;
+  Hw:=Wd/2*(0.22+0.78*I/(N-1));
+  K:=I and 1;
+  For Y:=Trunc(Y0)to Trunc(Y0+Th)do Begin
+   If(Y<0)or(Y>=H)Then Continue;
+   T:=(Y+0.5-Y0)/Th;
+   Hy:=Hw*Exp(0.85*Ln(FMax(T,0.001)))*(1+0.16*Sin(Y*1.1+I*2.3)+0.14*(VNoise(Y*0.9+Seed,I*5.0)-0.5));
+   For Xi:=Trunc(X-Hy)-1 to Trunc(X+Hy)+1 do Begin
+    If(Xi<0)or(Xi>=W)Then Continue;
+    Cov:=CoverD(Abs(Xi+0.5-X)-Hy);
+    If Cov<=0 Then Continue;
+    U:=(Xi+0.5-X)/FMax(Hy,1);
+    Sh:=0.50+0.62*(1-T*0.65)+0.22*(-U);
+    V:=Sh*(0.70+0.62*FBm(Xi*0.45+Seed,Y*0.60));
+    PutF(Bg,W,H,Xi,Y,Cov,P.Conif[K][0]*V,P.Conif[K][1]*V,P.Conif[K][2]*V);
+   End;
+  End;
+ End;
+End;
+
+{ palme : fronde arquee aux folioles dentelees }
+Procedure Frond(Bg:PSingle;W,H:LongInt;X0,Y0,Ang,Len,Droop,Wd:Single;Const C:TRgb);
+Var
+ I,Steps,X,Y,Rr:LongInt;
+ T,Px,Py,R,Cov,V,D:Single;
+Begin
+ Steps:=Trunc(Len/1.1)+4;
+ For I:=0 to Steps do Begin
+  T:=I/Steps;
+  Px:=X0+Cos(Ang)*Len*T;
+  Py:=Y0+Sin(Ang)*Len*T+Droop*Len*T*T;
+  R:=Wd*(0.30+0.70*Sin(Pi*FMin(1,T*1.05+0.02)))*(0.70+0.30*Sin(T*Len*0.42));
+  If R<0.6 Then R:=0.6;
+  V:=0.55+0.55*(1-T)*0.6+0.28*Sin(T*Len*0.42+1)*0.5+0.25;
+  Rr:=Trunc(R)+1;
+  For Y:=Trunc(Py)-Rr to Trunc(Py)+Rr do
+   For X:=Trunc(Px)-Rr to Trunc(Px)+Rr do Begin
+    If(X<0)or(Y<0)or(X>=W)or(Y>=H)Then Continue;
+    D:=Sqrt(Sqr(X+0.5-Px)+Sqr(Y+0.5-Py));
+    Cov:=CoverD(D-R);
+    If Cov<=0 Then Continue;
+    PutF(Bg,W,H,X,Y,Cov,C[0]*V,C[1]*V,C[2]*V);
+   End;
+ End;
+End;
+
+Procedure Palm(Bg:PSingle;W,H:LongInt;X,YBase,Ht:Single;Const P:TFPal;Seed:LongInt);
+Var
+ I:LongInt;
+ Lean,A,Xt,Yt:Single;
+Begin
+ Lean:=(RngF-0.5)*Ht*0.35;
+ Xt:=X+Lean;Yt:=YBase-Ht*0.88;
+ Trunk(Bg,W,H,X,Yt,YBase,Ht*0.020,Ht*0.032,Lean,P.Trunk,Seed,False);
+ For I:=0 to 10 do Begin
+  A:=-Pi*(0.08+0.84*I/10)+(RngF-0.5)*0.15;
+  Frond(Bg,W,H,Xt,Yt,A,Ht*(0.30+0.12*RngF),0.55,Ht*0.030,P.Leaf[I mod 3]);
+ End;
+End;
+
+{ grande feuille (monstera, bananier) : ellipse inclinee, nervure claire }
+Procedure BigLeaf(Bg:PSingle;W,H:LongInt;Cx,Cy,Rx,Ry,Ang:Single;Const C:TRgb);
+Var
+ X,Y:LongInt;
+ Dx,Dy,Uu,Vv,L,Cov,V,Vein:Single;
+ R:Single;
+Begin
+ R:=FMax(Rx,Ry);
+ For Y:=Trunc(Cy-R)-1 to Trunc(Cy+R)+1 do
+  For X:=Trunc(Cx-R)-1 to Trunc(Cx+R)+1 do Begin
+   If(X<0)or(Y<0)or(X>=W)or(Y>=H)Then Continue;
+   Dx:=X+0.5-Cx;Dy:=Y+0.5-Cy;
+   Uu:=Dx*Cos(Ang)+Dy*Sin(Ang);Vv:=-Dx*Sin(Ang)+Dy*Cos(Ang);
+   { forme de feuille : pointue aux deux bouts }
+   L:=Sqrt(Sqr(Uu/Rx)+Sqr(Vv/(Ry*FMax(0.15,1-0.55*Sqr(Uu/Rx)))));
+   Cov:=CoverD((L-1)*FMin(Rx,Ry));
+   If Cov<=0 Then Continue;
+   Vein:=Exp(-Sqr(Vv/(0.04*Ry+0.5)))*0.55+0.14*Exp(-Sqr(Frac(Uu/(0.22*Rx)+Abs(Vv)/(0.5*Ry)*0.6)-0.5)*40);
+   V:=(0.62+0.42*(1-L)+0.20*FBm(X*0.04,Y*0.04))*(0.9+0.2*(-Vv/Ry));
+   PutF(Bg,W,H,X,Y,Cov,C[0]*V+Vein*70,C[1]*V+Vein*80,C[2]*V+Vein*40);
+  End;
+End;
+
+{ lianes pendantes }
+Procedure Lianas(Bg:PSingle;W,H:LongInt;X0,Y1,Len:Single;Const C:TRgb;Seed:LongInt);
+Var
+ Y,Xi:LongInt;
+ Px,T,Cov,V:Single;
+Begin
+ For Y:=0 to Trunc(Y1+Len)do Begin
+  If Y>=H Then Break;
+  T:=Y/FMax(1,Y1+Len);
+  Px:=X0+Sin(Y*0.012+Seed)*H*0.006+Sin(Y*0.05+Seed*2)*H*0.0015;
+  For Xi:=Trunc(Px)-2 to Trunc(Px)+2 do Begin
+   If(Xi<0)or(Xi>=W)Then Continue;
+   Cov:=CoverD(Abs(Xi+0.5-Px)-FMax(0.8,H*0.0025));
+   V:=0.7+0.5*VNoise(Y*0.3,Seed*1.7);
+   PutF(Bg,W,H,Xi,Y,Cov,C[0]*V,C[1]*V,C[2]*V);
+  End;
+ End;
+End;
+
+{ fougere au sol }
+Procedure Fern(Bg:PSingle;W,H:LongInt;X,Y,Sz:Single;Const C:TRgb);
+Var
+ I:LongInt;
+Begin
+ For I:=0 to 7 do
+  Frond(Bg,W,H,X,Y,-Pi*(0.10+0.80*I/7),Sz*(0.7+0.4*RngF),0.55,Sz*0.07,C);
+End;
+
+Procedure ForestPalette(Kind:LongInt;Var P:TFPal);
+Begin
+ P.Giant:=False;P.Lianas:=False;P.Flowers:=False;P.Mount:=False;
+ P.Fr:=0;P.Fb:=0;P.Fp:=0;P.Mist:=0.3;P.Shafts:=0.7;
+ C3(P.Lit[0],150,92,48);C3(P.Lit[1],110,70,38);
+ C3(P.Conif[0],26,72,54);C3(P.Conif[1],18,56,46);
+ Case Kind of
+  boTropical:Begin
+   C3(P.SkyT,120,190,232);C3(P.SkyB,214,238,228);C3(P.Fog,190,226,206);
+   C3(P.Trunk,128,100,76);C3(P.Ground,50,92,36);C3(P.Ground2,20,46,24);C3(P.Light,255,246,196);
+   C3(P.Leaf[0],36,138,44);C3(P.Leaf[1],84,184,60);C3(P.Leaf[2],22,104,52);
+   P.Fp:=0.40;P.Lianas:=True;P.Flowers:=True;P.Mist:=0.35;P.Shafts:=0.85;
+  End;
+  boAmazon:Begin
+   C3(P.SkyT,150,184,186);C3(P.SkyB,186,212,202);C3(P.Fog,150,186,170);
+   C3(P.Trunk,108,86,68);C3(P.Ground,36,60,30);C3(P.Ground2,12,28,18);C3(P.Light,236,240,190);
+   C3(P.Leaf[0],22,92,46);C3(P.Leaf[1],36,120,60);C3(P.Leaf[2],12,66,42);
+   P.Fp:=0.25;P.Giant:=True;P.Lianas:=True;P.Mist:=0.65;P.Shafts:=0.75;
+  End;
+  boConifer:Begin
+   C3(P.SkyT,126,158,186);C3(P.SkyB,198,216,224);C3(P.Fog,176,198,208);
+   C3(P.Trunk,92,70,56);C3(P.Ground,92,64,38);C3(P.Ground2,42,34,26);C3(P.Light,242,242,222);
+   C3(P.Leaf[0],34,86,56);C3(P.Leaf[1],26,70,50);C3(P.Leaf[2],40,100,64);
+   C3(P.Conif[0],24,76,60);C3(P.Conif[1],14,54,46);
+   P.Fr:=1.0;P.Mist:=0.5;P.Shafts:=0.6;
+  End;
+  boCanada:Begin
+   C3(P.SkyT,92,148,216);C3(P.SkyB,204,226,242);C3(P.Fog,192,212,228);
+   C3(P.Trunk,100,78,62);C3(P.Ground,66,96,44);C3(P.Ground2,32,54,30);C3(P.Light,255,244,208);
+   C3(P.Leaf[0],56,128,42);C3(P.Leaf[1],92,160,54);C3(P.Leaf[2],36,98,42);
+   P.Fr:=0.5;P.Fb:=0.15;P.Mount:=True;P.Mist:=0.3;P.Shafts:=0.55;
+   C3(P.Lit[0],130,150,70);C3(P.Lit[1],100,80,44);
+  End;
+  Else Begin
+   { foret quebecoise : erables d'automne, bouleaux, quelques sapins }
+   C3(P.SkyT,150,184,218);C3(P.SkyB,238,226,204);C3(P.Fog,230,212,190);
+   C3(P.Trunk,104,82,64);C3(P.Ground,128,78,34);C3(P.Ground2,72,46,26);C3(P.Light,255,228,162);
+   C3(P.Leaf[0],200,58,28);C3(P.Leaf[1],236,136,32);C3(P.Leaf[2],240,194,50);
+   P.Fr:=0.20;P.Fb:=0.25;P.Mist:=0.25;P.Shafts:=0.7;
+   C3(P.Lit[0],216,100,30);C3(P.Lit[1],238,178,52);
+  End;
+ End;
+End;
+
+Procedure SkyForest(Bg:PSingle;W,H:LongInt;Kind:LongInt;Hor:Single);
+Const
+ Scl:Array[0..4]of Single=(0.30,0.45,0.65,0.90,1.25);
+ OffY:Array[0..4]of Single=(0.0,0.012,0.035,0.075,0.13);
+ FogK:Array[0..4]of Single=(0.72,0.52,0.33,0.15,0.0);
+ NTree:Array[0..4]of LongInt=(10,8,6,4,2);
+Var
+ P:TFPal;
+ X,Y,D,I,N,Seed:LongInt;
+ T,Sc,Yb,Ht,Xt,R,Tw,V,Gx,Gt,Nz,Dist,Fade,Al,S0,Px,Ang,Ln:Single;
+ K:LongInt;
+ KK:Int64;
+ BirchC:TRgb;
+ Autumn:Boolean;
+Begin
+ C3(BirchC,228,226,216);
+ If Kind=boForest Then Kind:=boQuebec;
+ ForestPalette(Kind,P);
+ Autumn:=Kind=boQuebec;
+ FogAmt:=0;
+ { ciel }
+ VGradient(Bg,W,H,0,H-1,P.SkyT[0],P.SkyT[1],P.SkyT[2],P.SkyB[0],P.SkyB[1],P.SkyB[2]);
+ Clouds(Bg,W,H,0,Trunc(Hor),0.8/FMax(40,0.16*W),0.55);
+ { montagnes lointaines (Canada) }
+ If P.Mount Then
+  For X:=0 to W-1 do Begin
+   Yb:=Hor-H*(0.10+0.16*FBm(X*2.2/W,5.0)+0.08*Sin(X*3.0/W));
+   For Y:=Trunc(Yb)to Trunc(Hor)do Begin
+    V:=1-0.35*(Y-Yb)/FMax(1,Hor-Yb);
+    PutBg(Bg,W,H,X,Y,1,(112+30*(Y-Yb)/H*3)*V,(134+20*(Y-Yb)/H*3)*V,(168+10*(Y-Yb)/H*3)*V);
+    If Y-Yb<H*0.02 Then PutBg(Bg,W,H,X,Y,0.7*(1-(Y-Yb)/(H*0.02)),238,242,248);
+   End;
+  End;
+ { sol : degrade, feuilles mortes ou sous-bois }
+ For Y:=Trunc(Hor)to H-1 do Begin
+  T:=(Y-Hor)/FMax(1,H-Hor);
+  For X:=0 to W-1 do Begin
+   Nz:=FBm(X*7.0/W,Y*7.0/W*1.8);
+   V:=0.55+0.55*Nz;
+   Bg[(Int64(Y)*W+X)*3]:=(P.Ground2[0]*(1-T)+P.Ground[0]*T)*V;
+   Bg[(Int64(Y)*W+X)*3+1]:=(P.Ground2[1]*(1-T)+P.Ground[1]*T)*V;
+   Bg[(Int64(Y)*W+X)*3+2]:=(P.Ground2[2]*(1-T)+P.Ground[2]*T)*V;
+   { feuilles mortes, aiguilles }
+   If(Hash2(X div 3,Y div 2)>0.90-0.04*T)and(Kind<>boTropical)and(Kind<>boAmazon)Then Begin
+    K:=Trunc(Hash2(X div 3+9,Y div 2+4)*1.99);
+    PutBg(Bg,W,H,X,Y,0.65,P.Lit[K][0]*(0.7+0.5*Nz),P.Lit[K][1]*(0.7+0.5*Nz),P.Lit[K][2]*(0.7+0.5*Nz));
+   End;
+  End;
+ End;
+ { couches d'arbres, du lointain au premier plan }
+ For D:=0 to 4 do Begin
+  FogAmt:=Clamp(FogK[D]*(0.55+P.Mist*1.2),0,0.92);
+  FogC:=P.Fog;
+  Sc:=Scl[D];
+  Yb:=Hor+OffY[D]*H;
+  N:=NTree[D];
+  If P.Giant and(D>=2)Then N:=N+1;
+  For I:=0 to N-1 do Begin
+   Seed:=D*37+I*11+Kind;
+   If D=4 Then Begin
+    If I=0 Then Xt:=W*(0.03+0.07*RngF) Else Xt:=W*(0.90+0.07*RngF);
+   End
+   Else Xt:=W*(-0.04+1.08*(I+RngF)/N);
+   Ht:=H*(0.50+0.12*RngF)*Sc*(1.0+0.1*Kind*0);
+   Tw:=W*0.012*Sc*(0.8+0.5*RngF);
+   T:=RngF;
+   If P.Giant and(D>=2)Then Begin
+    { fut immense dont la couronne depasse du cadre, lianes }
+    Trunk(Bg,W,H,Xt,-0.2*H,Yb,W*0.012*Sc*(1.0+0.6*RngF),W*0.022*Sc*(1.0+0.6*RngF),(RngF-0.5)*W*0.03,P.Trunk,Seed,False);
+    If P.Lianas Then Lianas(Bg,W,H,Xt+(RngF-0.5)*W*0.05*Sc,0,H*(0.35+0.4*RngF)*Sc,P.Leaf[1],Seed);
+   End
+   Else If T<P.Fr Then Conifer(Bg,W,H,Xt,Yb,Ht*1.05*(1+0.2*Ord(P.Fr>=1)),Ht*0.45,P,Seed)
+   Else If T<P.Fr+P.Fb Then Begin
+    Trunk(Bg,W,H,Xt,Yb-Ht*0.80,Yb,Tw*0.8,Tw*1.05,(RngF-0.5)*Ht*0.06,BirchC,Seed,True);
+    Crown(Bg,W,H,Xt,Yb-Ht*0.86,Ht*0.15,P,Autumn);
+   End
+   Else If T<P.Fr+P.Fb+P.Fp Then Palm(Bg,W,H,Xt,Yb,Ht,P,Seed)
+   Else Begin
+    Trunk(Bg,W,H,Xt,Yb-Ht*0.62,Yb,Tw,Tw*1.35,(RngF-0.5)*Ht*0.08,P.Trunk,Seed,False);
+    Crown(Bg,W,H,Xt+(RngF-0.5)*Ht*0.06,Yb-Ht*0.72,Ht*0.30,P,Autumn);
+    If P.Lianas and(D>=3)Then Lianas(Bg,W,H,Xt+Tw*3,Yb-Ht*0.6,Ht*0.4,P.Leaf[2],Seed);
+   End;
+  End;
+ End;
+ FogAmt:=0;
+ { premier plan : grandes feuilles, fougeres, fleurs, branches de coniferes }
+ If(Kind=boTropical)or(Kind=boAmazon)Then Begin
+  For I:=0 to 5 do Begin
+   If I<3 Then Px:=W*(0.01+0.12*RngF) Else Px:=W*(0.87+0.12*RngF);
+   R:=H*(0.10+0.07*RngF);
+   BigLeaf(Bg,W,H,Px,H*(0.80+0.18*RngF),R*1.5,R*0.62,-Pi*(0.15+0.7*RngF),P.Leaf[I mod 3]);
+  End;
+  For I:=0 to 9 do Fern(Bg,W,H,W*RngF,H*(0.80+0.18*RngF),H*0.11,P.Leaf[I mod 3]);
+  If P.Flowers Then
+   For I:=0 to 16 do Begin
+    Px:=W*RngF;Gx:=H*(0.68+0.30*RngF);R:=H*(0.006+0.006*RngF);
+    For Y:=Trunc(Gx-R*2)to Trunc(Gx+R*2)do
+     For X:=Trunc(Px-R*2)to Trunc(Px+R*2)do Begin
+      Dist:=Sqrt(Sqr(X+0.5-Px)+Sqr(Y+0.5-Gx));
+      If Dist<R*2 Then Begin
+       Ang:=ATan2F(Y+0.5-Gx,X+0.5-Px);
+       Al:=CoverD(Dist-R*(1.0+0.5*Cos(Ang*5)));
+       PutBg(Bg,W,H,X,Y,Al,236,(50+60*Hash2(I,3)),(40+40*Hash2(I,7)));
+       PutBg(Bg,W,H,X,Y,CoverD(Dist-R*0.35),255,214,70);
+      End;
+     End;
+   End;
+ End
+ Else If Kind=boConifer Then Begin
+  For I:=0 to 6 do Begin
+   If I<3 Then Px:=W*(0.0+0.15*RngF) Else Px:=W*(0.85+0.15*RngF);
+   Ang:=Pi*(0.20+0.35*RngF);
+   If Px>W*0.5 Then Ang:=Pi-Ang;
+   Frond(Bg,W,H,Px,-H*0.02,Ang,H*(0.28+0.14*RngF),0.0,H*0.030,P.Conif[I and 1]);
+  End;
+ End
+ Else Begin
+  { feuillage flou en haut des coins }
+  For I:=0 to 7 do Begin
+   Px:=W*(0.05+0.9*RngF);
+   If(Px>W*0.25)and(Px<W*0.75)Then Px:=Px+W*0.4*(1-2*Ord(Px<W*0.5));
+   Blob(Bg,W,H,Px,-H*0.01+H*0.05*RngF,H*(0.06+0.05*RngF),P.Leaf[I mod 3],0.2);
+  End;
+ End;
+ { rayons de lumiere dans la brume }
+ For K:=0 to 5 do Begin
+  S0:=W*(0.05+0.9*(K+RngF*0.6)/6);
+  Ang:=0.30+0.1*RngF;
+  Gt:=0.025*W*(0.7+0.8*RngF);
+  For Y:=0 to H-1 do Begin
+   Fade:=(1-0.8*Y/H);
+   For X:=0 to W-1 do Begin
+    Dist:=(X+0.5-S0-Y*Ang)*Cos(Ang*0.9);
+    Al:=Exp(-Sqr(Dist/Gt))*Fade*P.Shafts*0.22*(0.55+0.45*FBm(X*0.004,Y*0.012+K*3));
+    If Al>0.004 Then PutBg(Bg,W,H,X,Y,Al,P.Light[0],P.Light[1],P.Light[2]);
+   End;
+  End;
+ End;
+ { brume au sol, vignettage }
+ For Y:=0 to H-1 do
+  For X:=0 to W-1 do Begin
+   Al:=P.Mist*0.55*Exp(-Sqr((Y-Hor)/(0.09*H)));
+   If Al>0.004 Then PutBg(Bg,W,H,X,Y,Al,P.Fog[0],P.Fog[1],P.Fog[2]);
+   V:=1-0.30*Sqr(Sqrt(Sqr(X/W-0.5)+Sqr(Y/H-0.5))*1.35);
+   KK:=(Int64(Y)*W+X)*3;
+   Bg[KK]:=Bg[KK]*V;Bg[KK+1]:=Bg[KK+1]*V;Bg[KK+2]:=Bg[KK+2]*V;
+  End;
+End;
+{ ------------------------------------------------------------------ }
 { Image entiere (lisse, floue, nette) et arriere-plan (uni, ciel       }
 { etoile, ciel ensoleille, coucher de soleil, flou, transparent)        }
 { ------------------------------------------------------------------ }
@@ -12435,6 +12864,8 @@ Var
  C,Cnt:LongInt;
  R,G,B:Single;
  Rgb:LongWord;
+ X0,Y0,X1,Y1:LongInt;
+ Hor:Single;
 Begin
  ApplyBackground:=False;
  Msg:='';
@@ -12472,6 +12903,19 @@ Begin
    SkySunset(Bg,S.W,S.H);
    For K:=0 to N-1 do If A[K]>0 Then Begin S.Pix[K*3]:=S.Pix[K*3]*1.04;S.Pix[K*3+2]:=S.Pix[K*3+2]*0.92;End;
    Info('  arri'#138're-plan : coucher de soleil');
+  End;
+  boTropical,boAmazon,boQuebec,boCanada,boConifer,boForest:Begin
+   If PersonBounds(S,X0,Y0,X1,Y1)and(Y1<0.95*S.H)Then Hor:=Clamp(Y1+1-0.07*(Y1-Y0+1),0.5*S.H,0.8*S.H)
+   Else Hor:=0.62*S.H;
+   SkyForest(Bg,S.W,S.H,E.BgOp,Hor);
+   For K:=0 to N-1 do If A[K]>0 Then Begin S.Pix[K*3]:=S.Pix[K*3]*1.02;S.Pix[K*3+2]:=S.Pix[K*3+2]*0.96;End;
+   Case E.BgOp of
+    boTropical:Info('  arri'#138're-plan : for'#136't tropicale');
+    boAmazon:Info('  arri'#138're-plan : for'#136't amazonienne');
+    boCanada:Info('  arri'#138're-plan : for'#136't canadienne');
+    boConifer:Info('  arri'#138're-plan : for'#136't de conif'#138'res');
+    Else Info('  arri'#138're-plan : for'#136't qu'#130'b'#130'coise (automne)');
+   End;
   End;
   boBlur:Begin
    { le fond est reconstitue sous la personne, puis floute }
@@ -12925,6 +13369,7 @@ Begin
  WriteLn('  "teinte ses cheveux en noir" (brun, blond, roux, blanc, rose, bleu, vert, poivre et sel)');
  WriteLn('  "rend l''image plus lisse" (floue, nette, plus r'#130'elle)  "rend le fond noir" (blanc, bleu...)  "rend le fond transparent" (PNG)');
  WriteLn('  "rend le fond de l''image dans un ciel '#130'toil'#130'" (ciel ensoleill'#130', coucher de soleil, fond flou)');
+ WriteLn('  "change le fond pour une for'#136't tropicale" (amazonienne, qu'#130'b'#130'coise, canadienne, de conif'#138'res)');
  WriteLn('  "bras crois'#130's"  "montre une main peace & love"  "pointe du doigt"  "t'#136'te droite"  "aur'#130'ole"');
  WriteLn('  "s'#130'rieuse"  "triste"  "regarde perdu"  "somnambule"  "saute"  "flotte"  "assis"  "appuy'#130' sur un meuble"');
  WriteLn('  "couch'#130'"  "couch'#130' dans un lit"  "monte les escaliers"  "sur le toit de la niche '#133' chien"');
