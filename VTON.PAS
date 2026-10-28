@@ -5357,18 +5357,21 @@ Const
  lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
  lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;lkVAdd=14;
  lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;lkExpr=19;lkMaterial=20;lkScene=21;lkPose2=22;
+ lkSkin=23;lkYears=24;lkNumber=25;lkSpecial=26;lkSkinW=27;
  { modificateurs }
  mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
  { motifs }
  pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
  { actions }
- eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;eaMaterial=9;eaScene=10;eaPose2=11;
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;eaMaterial=9;eaScene=10;eaPose2=11;eaSkin=12;
  { poses et situations }
  pcCross=1;pcPeace=2;pcPoint=3;pcFloat=4;pcJump=5;pcArmsOut=6;pcLie=7;pcHeadStraight=8;pcLost=9;
  pcSerious=10;pcSad=11;pcHalo=12;pcSleep=13;pcSit=14;pcKneel=15;pcBike=16;pcLean=17;pcStairs=18;
  pcDoghouse=19;pcTightrope=20;pcBed=21;
  { poses qui montrent la personne en pied }
  FeetPoses=(1 shl pcFloat)or(1 shl pcJump)or(1 shl pcLie)or(1 shl pcBed)or(1 shl pcTightrope)or(1 shl pcDoghouse)or(1 shl pcStairs)or(1 shl pcSleep);
+ { peau, age, teintes speciales }
+ soSmooth=1;soGrain=2;soBaby=3;soSoft=4;soAge=5;soSalt=6;
  { matieres et scenes }
  mtNone=0;mtMetal=1;mtRobot=2;mtStatue=3;mtChain=4;
  scNone=0;scCarousel=1;
@@ -5407,6 +5410,7 @@ Type
   Pose:Boolean;
   Material,Scene:LongInt;
   Poses:LongWord;
+  SkinOp,Years:LongInt;     { peau / age (annees, negatif = rajeunir) / teinte speciale }
   Diamond,Apple:Boolean;
   Put:Boolean;              { ? mets un chapeau ? : ajout si l'objet est absent }
   Text:AnsiString;
@@ -5503,6 +5507,20 @@ Begin
  AddLex('oeil yeux eye eyes iris',lkGarment,gkEyes,msEyes);
  AddLex('bras arm arms',lkGarment,gkArms,msArms);
  AddLex('sourit sourire sourires souriant souriante souriants souriantes smile smiling smiley',lkExpr,1,0);
+ { peau, age, teintes speciales }
+ AddLex('peau peaux skin complexion teint',lkSkinW,0,0);
+ AddLex('lisse lisses lisser smooth smoother smoothing',lkSkin,soSmooth,0);
+ AddLex('granuleux granuleuse granuleuses grain grains grainy rugueux rugueuse rough texturee textured',lkSkin,soGrain,0);
+ AddLex('bebe baby',lkSkin,soBaby,0);
+ AddLex('douce douces doux soft softer',lkSkin,soSoft,0);
+ AddLex('rajeunis rajeunir rajeunie rajeunissez rajeunit jeune jeunes younger rejuvenate',lkYears,-1,0);
+ AddLex('vieillis vieillir vieillie vieillissez vieillit vieux vieille vieilles older',lkYears,1,0);
+ AddLex('cinq five',lkNumber,5,0);
+ AddLex('dix ten',lkNumber,10,0);
+ AddLex('quinze fifteen',lkNumber,15,0);
+ AddLex('vingt twenty',lkNumber,20,0);
+ AddLex('trente thirty',lkNumber,30,0);
+ AddLex('poivresel',lkSpecial,1,0);
  { cheveux et coiffures }
  AddLex('cheveu cheveux chevelure coiffure hair hairstyle',lkGarment,gkHair,msHair);
  AddLex('allonge allonger allongez rallonge rallonger long longs longue longues lengthen longer',lkHairStyle,hsLonger,0);
@@ -5615,6 +5633,21 @@ End;
 
 { ---- normalisation du texte : UTF-8 -> minuscules ASCII ---- }
 
+{ remplace toutes les occurrences }
+Function StrReplace(Const S,A,B:AnsiString):AnsiString;
+Var
+ R:AnsiString;
+ P:LongInt;
+Begin
+ R:=S;
+ P:=Pos(A,R);
+ While P>0 do Begin
+  R:=Copy(R,1,P-1)+B+Copy(R,P+Length(A),Length(R));
+  P:=Pos(A,R);
+ End;
+ StrReplace:=R;
+End;
+
 Function FoldText(Const S:AnsiString):AnsiString;
 Var
  R:AnsiString;
@@ -5677,7 +5710,15 @@ Begin
  B:=Pos('teeshirt',R);
  While B>0 do Begin Delete(R,B,3);B:=Pos('teeshirt',R);End;
  For I:=1 to Length(R)do If R[I]='-' Then R[I]:=' ';
- FoldText:=R;
+ { poivre et sel : un seul mot (sinon ? et ? couperait la demande) }
+ R:=' '+R+' ';
+ R:=StrReplace(R,' poivre et sel ',' poivresel ');
+ R:=StrReplace(R,' poivre sel ',' poivresel ');
+ R:=StrReplace(R,' sel et poivre ',' poivresel ');
+ R:=StrReplace(R,' sel poivre ',' poivresel ');
+ R:=StrReplace(R,' salt and pepper ',' poivresel ');
+ R:=StrReplace(R,' salt pepper ',' poivresel ');
+ FoldText:=TrimS(R);
 End;
 
 { decoupe en mots ; ',', ';' et '.' deviennent des mots a part }
@@ -5825,6 +5866,8 @@ Var
  HStrong,HairNoun,Dia,App,PoseWord,ChainCtx,MetalCol:Boolean;
  Expr,Mat,Scn:LongInt;
  Pz:LongWord;
+ SkinW:Boolean;
+ SkOp,Yrs,Num,Spec,Nv:LongInt;
 Begin
  ParseClause:=False;
  ClearEdit(E);
@@ -5836,6 +5879,8 @@ Begin
  HasPat:=False;
  HStyle:=0;Jw:=0;Sty:=0;HStrong:=False;Dia:=False;App:=False;
  HairNoun:=False;PoseWord:=False;Expr:=0;Mat:=0;Scn:=0;ChainCtx:=False;MetalCol:=False;Pz:=0;
+ SkinW:=False;SkOp:=0;Yrs:=0;Num:=0;Spec:=0;
+ For I:=A to B do If LexFind(T[I],lkSkinW)>=0 Then SkinW:=True;
  { ? vetement de chaine d'or ? : chaine + vetement = cotte de mailles, pas un collier }
  For I:=A to B do If LexFind(T[I],lkGarment)>=0 Then
   If Lex[LexFind(T[I],lkGarment)].V1 in[gkTop,gkBottom,gkDress,gkSkirt,gkAll,gkFull]Then ChainCtx:=True;
@@ -5866,6 +5911,23 @@ Begin
    End;
    For K:=1 to Used-1 do Consumed[I+K]:=True;
    Continue;
+  End;
+  { nombres (annees), peau, age, teintes speciales }
+  If(T[I]<>'')and(T[I][1]in['0'..'9'])Then Begin
+   Nv:=0;
+   For K:=1 to Length(T[I])do If T[I][K]in['0'..'9']Then Nv:=Nv*10+Ord(T[I][K])-48;
+   If Nv>0 Then Num:=Nv;
+   Continue;
+  End;
+  K:=LexFind(T[I],lkNumber);
+  If K>=0 Then Begin Num:=Lex[K].V1;Continue;End;
+  K:=LexFind(T[I],lkYears);
+  If K>=0 Then Begin Yrs:=Lex[K].V1;HasVerb:=True;Continue;End;
+  K:=LexFind(T[I],lkSpecial);
+  If K>=0 Then Begin Spec:=Lex[K].V1;Continue;End;
+  If SkinW Then Begin
+   K:=LexFind(T[I],lkSkin);
+   If K>=0 Then Begin SkOp:=Lex[K].V1;Continue;End;
   End;
   { bijoux, styles d'image, coiffures }
   K:=LexFind(T[I],lkPose2);
@@ -5993,6 +6055,13 @@ Begin
  End;
  If Sty<>0 Then E.Style:=Sty;
  E.Material:=Mat;E.Scene:=Scn;E.Poses:=Pz;
+ If Yrs<>0 Then Begin
+  If Num<=0 Then Num:=10;
+  If Num>40 Then Num:=40;
+  E.SkinOp:=soAge;E.Years:=Yrs*Num;
+ End
+ Else If SkOp<>0 Then E.SkinOp:=SkOp
+ Else If(Spec<>0)and(HairNoun or(NG=0))Then Begin E.SkinOp:=soSalt;E.Target:=E.Target or msHair;E.Kind:=gkHair;End;
  E.Expr:=Expr;
  If((E.Target and msArms)<>0)and PoseWord and not E.HasDst Then E.Pose:=True;
  If Dia and(Jw=0)and(NG=0)Then Jw:=jwNecklace+jwEarrings+jwBracelet;
@@ -6000,6 +6069,7 @@ Begin
  If App and(Jw=0)Then E.Jewel:=jwWatch;
  If Remove Then E.Action:=eaRemove
  Else If E.Poses<>0 Then E.Action:=eaPose2
+ Else If E.SkinOp<>0 Then E.Action:=eaSkin
  Else If(E.Jewel<>0)and(AddV or Result_ or TryOn)Then E.Action:=eaAdd
  Else If E.Pose Then E.Action:=eaPose
  Else If E.Scene<>0 Then E.Action:=eaScene
@@ -6018,7 +6088,7 @@ Begin
    E.Material:=mtMetal;E.Action:=eaMaterial;
   End;
  End;
- HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose,eaMaterial,eaScene,eaPose2];
+ HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose,eaMaterial,eaScene,eaPose2,eaSkin];
  ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0)or(E.Jewel<>0);
 End;
 
@@ -6055,7 +6125,7 @@ Begin
    For J:=I+1 to High(T)do Begin
     If(T[J]=',')or(T[J]=';')or(T[J]='.')or(LexFind(T[J],lkSplit)>=0)Then Break;
     If(LexFind(T[J],lkGarment)>=0)or(LexFind(T[J],lkVRemove)>=0)or(LexFind(T[J],lkVRecolor)>=0)or
-      (LexFind(T[J],lkVResult)>=0)or(LexFind(T[J],lkExpr)>=0)or(LexFind(T[J],lkStyle)>=0)or(LexFind(T[J],lkPose2)>=0)Then HasG:=True;
+      (LexFind(T[J],lkVResult)>=0)or(LexFind(T[J],lkExpr)>=0)or(LexFind(T[J],lkStyle)>=0)or(LexFind(T[J],lkPose2)>=0)or(LexFind(T[J],lkYears)>=0)or(LexFind(T[J],lkSkinW)>=0)Then HasG:=True;
    End;
    Cut:=HasG;
   End;
@@ -6185,13 +6255,14 @@ Begin
   eaMaterial:R:='mati'#138're '+IStr(E.Material);
   eaScene:R:='sc'#138'ne';
   eaPose2:R:='pose : '+PoseNames(E.Poses);
+  eaSkin:R:='peau/'#131'ge/teinte sp'#130'ciale '+IStr(E.SkinOp)+' ('+IStr(E.Years)+' ans)';
   eaPose:R:='bras le long du corps';
   eaStyle:R:='style de l''image';
   eaTryOn:R:='essayer';
   Else R:='?';
  End;
  If(E.Target<>0)and(E.Action<>eaPose2)Then R:=R+' '+MaskName(E.Target)
- Else If(E.Jewel=0)and(E.Style=0)and(E.Action<>eaPose2)Then R:=R+' (cible '#133' d'#130'terminer)';
+ Else If(E.Jewel=0)and(E.Style=0)and(E.Action<>eaPose2)and(E.Action<>eaSkin)Then R:=R+' (cible '#133' d'#130'terminer)';
  If E.HasSrc Then R:=R+', de '+E.SrcName;
  If E.HasDst Then R:=R+', vers '+E.DstName+' '+ColorHex(E.DstRGB);
  Case E.Pattern of
@@ -11639,6 +11710,406 @@ Begin
   Inc(NFail);
  End;
 End;
+{ ------------------------------------------------------------------ }
+{ Peau, age et teintes speciales : lissage, grain, peau de bebe,      }
+{ rajeunir / vieillir (rides, cernes, taches, cheveux gris),          }
+{ cheveux poivre et sel                                              }
+{ ------------------------------------------------------------------ }
+
+Type
+ TBilCtx=Record
+  W,H,R:LongInt;
+  Src,Dst,M:PSingle;
+  Sw:Array[0..224]of Single;      { poids spatial (fenetre 15 x 15 au plus) }
+  Rw:Array[0..255]of Single;      { poids de la difference de couleur }
+ End;
+ PBilCtx=^TBilCtx;
+
+{ filtre bilateral limite aux pixels de peau (le contraste fort est conserve) }
+Procedure BilProc(Ctx:Pointer;Lo,Hi,Tid:LongInt);
+Var
+ C:PBilCtx;
+ X,Y,Dx,Dy,Nx,Ny,Ch,Wd:LongInt;
+ K,Kn:Int64;
+ Acc:Array[0..2]of Single;
+ Sum,Wt,D:Single;
+Begin
+ C:=PBilCtx(Ctx);
+ Wd:=2*C^.R+1;
+ For Y:=Lo to Hi-1 do
+  For X:=0 to C^.W-1 do Begin
+   K:=Int64(Y)*C^.W+X;
+   If C^.M[K]<0.02 Then Begin
+    For Ch:=0 to 2 do C^.Dst[K*3+Ch]:=C^.Src[K*3+Ch];
+    Continue;
+   End;
+   Acc[0]:=0;Acc[1]:=0;Acc[2]:=0;Sum:=0;
+   For Dy:=-C^.R to C^.R do Begin
+    Ny:=Y+Dy;
+    If(Ny<0)or(Ny>=C^.H)Then Continue;
+    For Dx:=-C^.R to C^.R do Begin
+     Nx:=X+Dx;
+     If(Nx<0)or(Nx>=C^.W)Then Continue;
+     Kn:=Int64(Ny)*C^.W+Nx;
+     If C^.M[Kn]<0.5 Then Continue;
+     D:=(Abs(C^.Src[Kn*3]-C^.Src[K*3])+Abs(C^.Src[Kn*3+1]-C^.Src[K*3+1])+Abs(C^.Src[Kn*3+2]-C^.Src[K*3+2]))*0.3333;
+     If D>255 Then D:=255;
+     Wt:=C^.Sw[(Dy+C^.R)*Wd+Dx+C^.R]*C^.Rw[Trunc(D)];
+     Acc[0]:=Acc[0]+Wt*C^.Src[Kn*3];Acc[1]:=Acc[1]+Wt*C^.Src[Kn*3+1];Acc[2]:=Acc[2]+Wt*C^.Src[Kn*3+2];
+     Sum:=Sum+Wt;
+    End;
+   End;
+   If Sum<=0 Then Sum:=1;
+   For Ch:=0 to 2 do C^.Dst[K*3+Ch]:=Acc[Ch]/Sum;
+  End;
+End;
+
+{ version lissee de la peau : fond (Base) pour la separation frequentielle }
+Procedure SkinBase(Const S:TScene;M:PSingle;R:LongInt;Sigma:Single;Base:PSingle);
+Var
+ C:TBilCtx;
+ Dx,Dy,I:LongInt;
+Begin
+ If R<1 Then R:=1;
+ If R>7 Then R:=7;
+ C.W:=S.W;C.H:=S.H;C.R:=R;C.Src:=S.Pix;C.Dst:=Base;C.M:=M;
+ For Dy:=-R to R do
+  For Dx:=-R to R do C.Sw[(Dy+R)*(2*R+1)+Dx+R]:=Exp(-(Dx*Dx+Dy*Dy)/(2.0*Sqr(R*0.55+0.5)));
+ For I:=0 to 255 do C.Rw[I]:=Exp(-I*I/(2.0*Sigma*Sigma));
+ ParFor(S.H,8,@BilProc,@C);
+End;
+
+{ masque de la peau (visage, bras, jambes) ; faux si trop petit }
+Function SkinMaskOf(Const S:TScene;Var M:PSingle):Boolean;
+Var
+ N,K:Int64;
+Begin
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ CatMask(S,msSkin,M);
+ For K:=0 to N-1 do M[K]:=SmoothStep(0.25,0.8,M[K]);
+ SkinMaskOf:=CatArea(S,msSkin)>=N div 4000;
+End;
+
+{ rayon du filtre : proportionnel au visage (ou a l'image si aucun visage) }
+Function SkinRadius(Const S:TScene):LongInt;
+Var
+ H:THeadInfo;
+Begin
+ If HeadInfo(S,H)Then SkinRadius:=ClampI(Round(0.014*H.Fw),2,7)
+ Else SkinRadius:=ClampI(Round(0.004*S.W),2,7);
+End;
+
+{ lissage de la peau : K = part de detail conservee (1 = aucun lissage) ;
+  Bright = eclaircissement, Blush = rose (bebe) }
+Function SkinSmooth(Var S:TScene;K:Single;Sigma,Bright,Blush:Single;Const What:AnsiString;Var Msg:AnsiString):Boolean;
+Var
+ M,Base:PSingle;
+ N,I:Int64;
+ C:LongInt;
+ Dl,Keep,V,Mw,Dt:Single;
+ H:THeadInfo;
+ X,Y:LongInt;
+ Ch:Array[0..2]of Single;
+ Cheek:Single;
+Begin
+ SkinSmooth:=False;
+ Msg:='';
+ ColorInit;
+ If not SkinMaskOf(S,M)Then Begin FreeMem(M);Msg:='aucune peau d'#130'tect'#130'e';Exit;End;
+ N:=Int64(S.W)*S.H;
+ Base:=AllocF(N*3);
+ SkinBase(S,M,SkinRadius(S),Sigma,Base);
+ For I:=0 to N-1 do Begin
+  Mw:=M[I];
+  If Mw<0.02 Then Continue;
+  Dl:=(Abs(S.Pix[I*3]-Base[I*3])+Abs(S.Pix[I*3+1]-Base[I*3+1])+Abs(S.Pix[I*3+2]-Base[I*3+2]))*0.3333;
+  { les traits marques (yeux, sourcils, levres) gardent leur detail }
+  Keep:=K+(1-K)*SmoothStep(9,26,Dl);
+  For C:=0 to 2 do Begin
+   V:=Base[I*3+C]+(S.Pix[I*3+C]-Base[I*3+C])*Keep;
+   V:=V*(1+Bright);
+   S.Pix[I*3+C]:=S.Pix[I*3+C]*(1-Mw)+V*Mw;
+  End;
+ End;
+ { peau de bebe : joues roses }
+ If Blush>0 Then Begin
+  If HeadInfo(S,H)Then Begin
+   For Y:=Trunc(H.Fy0)to Trunc(H.Fy1)do
+    For X:=Trunc(H.Fx0)to Trunc(H.Fx1)do Begin
+     I:=Int64(Y)*S.W+X;
+     If M[I]<0.02 Then Continue;
+     Cheek:=Exp(-Sqr((Abs(X+0.5-H.Cx)-0.24*H.Fw)/(0.10*H.Fw))-Sqr((Y+0.5-(H.Fy0+0.62*H.Fh))/(0.10*H.Fh)));
+     Dt:=(0.05+0.16*Cheek)*Blush*M[I];
+     S.Pix[I*3]:=S.Pix[I*3]+(255-S.Pix[I*3])*Dt*0.55;
+     S.Pix[I*3+1]:=S.Pix[I*3+1]+(150-S.Pix[I*3+1])*Dt*0.40;
+     S.Pix[I*3+2]:=S.Pix[I*3+2]+(160-S.Pix[I*3+2])*Dt*0.40;
+    End;
+  End
+   Else For I:=0 to N-1 do If M[I]>=0.02 Then Begin
+    Dt:=0.05*Blush*M[I];
+    S.Pix[I*3]:=S.Pix[I*3]+(255-S.Pix[I*3])*Dt*0.55;
+    S.Pix[I*3+1]:=S.Pix[I*3+1]+(150-S.Pix[I*3+1])*Dt*0.40;
+    S.Pix[I*3+2]:=S.Pix[I*3+2]+(160-S.Pix[I*3+2])*Dt*0.40;
+   End;
+ End;
+ FreeMem(M);FreeMem(Base);
+ SkinSmooth:=True;
+ Info('  '+What);
+End;
+
+{ grain de peau : contraste des pores accentue et bruit fin }
+Procedure SkinGrainPass(Var S:TScene;M:PSingle;Amount:Single;Boost:Single);
+Var
+ Base:PSingle;
+ N,I:Int64;
+ X,Y,C:LongInt;
+ Nz,Mw,Pore:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ Base:=AllocF(N*3);
+ SkinBase(S,M,2,30,Base);
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   I:=Int64(Y)*S.W+X;
+   Mw:=M[I];
+   If Mw<0.02 Then Continue;
+   Nz:=(RngGauss*0.55+(VNoise(X*0.8,Y*0.8)-0.5)*1.7)*Amount*6.5;
+   Pore:=0;
+   If Hash2(X,Y)>0.94 Then Pore:=-Amount*9*(0.5+0.5*Hash2(Y,X));
+   For C:=0 to 2 do
+    S.Pix[I*3+C]:=S.Pix[I*3+C]+Mw*((S.Pix[I*3+C]-Base[I*3+C])*Boost+Nz*(0.8+0.2*C*0.5)+Pore);
+  End;
+ FreeMem(Base);
+End;
+
+Function SkinGrain(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ M:PSingle;
+Begin
+ SkinGrain:=False;
+ Msg:='';
+ ColorInit;
+ If not SkinMaskOf(S,M)Then Begin FreeMem(M);Msg:='aucune peau d'#130'tect'#130'e';Exit;End;
+ SkinGrainPass(S,M,0.8,0.9);
+ FreeMem(M);
+ SkinGrain:=True;
+ Info('  peau granuleuse (pores accentu'#130's, grain ajout'#130')');
+End;
+
+{ ---- cheveux : poivre et sel, ou gris partiel ---- }
+
+Function HairSalt(Var S:TScene;Fraction:Single;SaltPepper:Boolean;Var Msg:AnsiString):Boolean;
+Var
+ M:PSingle;
+ N,I:Int64;
+ X,Y:LongInt;
+ Lm,Sum,Rel,Nn,G,Salt,Pep,L:Single;
+ Cnt:Int64;
+ R,Gc,B,Mw:Single;
+Begin
+ HairSalt:=False;
+ Msg:='';
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ CatMask(S,msHair,M);
+ SharpenAlpha(M,N);
+ Sum:=0;Cnt:=0;
+ For I:=0 to N-1 do If M[I]>=0.8 Then Begin Sum:=Sum+Luma(S.Pix[I*3],S.Pix[I*3+1],S.Pix[I*3+2]);Inc(Cnt);End;
+ If Cnt<N div 4000 Then Begin FreeMem(M);Msg:='aucun cheveu d'#130'tect'#130' : impossible de les teindre';Exit;End;
+ Lm:=Sum/Cnt;
+ If Lm<1 Then Lm:=1;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   I:=Int64(Y)*S.W+X;
+   Mw:=M[I];
+   If Mw<0.02 Then Continue;
+   L:=Luma(S.Pix[I*3],S.Pix[I*3+1],S.Pix[I*3+2]);
+   Rel:=Clamp(L/Lm,0.35,1.6);
+   Nn:=0.50*VNoise(X*0.70,Y*0.16)+0.30*VNoise(X*1.5+11,Y*0.35+5)+0.20*VNoise(X*0.25,Y*0.08+9);
+   Nn:=Clamp((Nn-0.5)*2.4+0.5+0.30*(Rel-1),0,1);
+   G:=SmoothStep(1-Fraction-0.16,1-Fraction+0.16,Nn);
+   Salt:=Clamp(Rel*150+30,100,225);
+   If SaltPepper Then Begin
+    Pep:=22+48*Clamp(Rel,0,1.3);
+    L:=Pep*(1-G)+Salt*G;
+    R:=L*0.99;Gc:=L;B:=L*1.03;
+   End
+    Else Begin
+     { gris partiel : les meches grises remplacent la couleur d'origine, le reste est a peine eteint }
+     R:=S.Pix[I*3];Gc:=S.Pix[I*3+1];B:=S.Pix[I*3+2];
+     L:=Luma(R,Gc,B);
+     R:=L+(R-L)*0.88;Gc:=L+(Gc-L)*0.88;B:=L+(B-L)*0.88;
+     G:=G*0.8;
+     Salt:=L+(Salt-L)*0.75;
+     R:=R*(1-G)+Salt*0.99*G;Gc:=Gc*(1-G)+Salt*G;B:=B*(1-G)+Salt*1.03*G;
+    End;
+   S.Pix[I*3]:=S.Pix[I*3]*(1-Mw)+R*Mw;
+   S.Pix[I*3+1]:=S.Pix[I*3+1]*(1-Mw)+Gc*Mw;
+   S.Pix[I*3+2]:=S.Pix[I*3+2]*(1-Mw)+B*Mw;
+  End;
+ FreeMem(M);
+ HairSalt:=True;
+ If SaltPepper Then Info('  cheveux poivre et sel')
+ Else Info('  cheveux grisonnants ('+IStr(Round(Fraction*100))+' % de m'#138'ches grises)');
+End;
+
+{ ---- vieillissement : rides, cernes, taches, cheveux gris ---- }
+
+{ ride : courbe douce de (X0,Y0) a (X1,Y1), Bend = fleche perpendiculaire }
+Procedure Crease(Wr:PSingle;W,H:LongInt;X0,Y0,X1,Y1,Bend,Wd,Amp:Single;Seed:LongInt);
+Var
+ Len,Nx,Ny,T,Px,Py,A,D2,R:Single;
+ I,Steps,X,Y,Rr:LongInt;
+ K:Int64;
+Begin
+ Len:=Sqrt(Sqr(X1-X0)+Sqr(Y1-Y0));
+ If Len<2 Then Exit;
+ Nx:=-(Y1-Y0)/Len;Ny:=(X1-X0)/Len;
+ Steps:=Trunc(Len*1.5)+2;
+ Rr:=Trunc(2.6*Wd)+1;
+ For I:=0 to Steps do Begin
+  T:=I/Steps;
+  Px:=X0+(X1-X0)*T+Nx*Bend*4*T*(1-T);
+  Py:=Y0+(Y1-Y0)*T+Ny*Bend*4*T*(1-T);
+  A:=Amp*Exp(0.6*Ln(FMax(Sin(Pi*T),0.001)))*(0.55+0.45*VNoise(T*Len*0.08+Seed*3.7,Seed*1.3));
+  For Y:=Trunc(Py)-Rr to Trunc(Py)+Rr do
+   For X:=Trunc(Px)-Rr to Trunc(Px)+Rr do Begin
+    If(X<0)or(Y<0)or(X>=W)or(Y>=H)Then Continue;
+    D2:=Sqr(X+0.5-Px)+Sqr(Y+0.5-Py);
+    R:=A*Exp(-D2/(2*Wd*Wd));
+    K:=Int64(Y)*W+X;
+    If R>Wr[K]Then Wr[K]:=R;
+   End;
+ End;
+End;
+
+Function SkinAge(Var S:TScene;Years:LongInt;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ M,Wr,Bag,Fm,Yl:PSingle;
+ Ir:Array[0..1]of TIris;
+ N,K:Int64;
+ I,Side,Found,X,Y,Sp:LongInt;
+ Sc,Fw,Fh,Cx,Fy0,Wd,Amp,Ex,Ey,Ox,Mw,Lskin,V,Sx,Sy,Rs,D,Dk:Single;
+ Done:Boolean;
+ Sg:LongInt;
+Begin
+ SkinAge:=False;
+ Msg:='';
+ ColorInit;
+ Sc:=Years/10.0;
+ If not SkinMaskOf(S,M)Then Begin FreeMem(M);Msg:='aucune peau d'#130'tect'#130'e';Exit;End;
+ N:=Int64(S.W)*S.H;
+ Done:=False;
+ { peau plus terne et plus granuleuse }
+ SkinGrainPass(S,M,0.30*Sc,0.30*Sc);
+ For K:=0 to N-1 do If M[K]>=0.02 Then Begin
+  Mw:=M[K]*0.07*Sc;
+  V:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+  For I:=0 to 2 do S.Pix[K*3+I]:=(S.Pix[K*3+I]+(V-S.Pix[K*3+I])*Mw)*(1-0.02*Sc*M[K]);
+ End;
+ If HeadInfo(S,H)and(H.Fw>=60)Then Begin
+  Fw:=H.Fw;Fh:=H.Fh;Cx:=H.Cx;Fy0:=H.Fy0;
+  Fm:=AllocF(N);
+  CatMask(S,msFace,Fm);
+  Yl:=LumaPlane(S);
+  Found:=FindIrises(S,H,Yl,Ir,Lskin);
+  FreeMem(Yl);
+  Wr:=AllocF(N);Bag:=AllocF(N);
+  Wd:=FMax(1.0,0.0065*Fh);
+  Amp:=Clamp(0.75*Sc,0.30,1.0);
+  { front : lignes horizontales }
+  For I:=0 to 3 do
+   Crease(Wr,S.W,S.H,Cx-0.30*Fw,Fy0+(0.08+0.050*I)*Fh,Cx+0.30*Fw,Fy0+(0.08+0.050*I)*Fh,(RngF-0.5)*0.03*Fh,Wd,Amp*(1-0.12*I),I+1);
+  { entre les sourcils }
+  If Sc>=0.9 Then Begin
+   Crease(Wr,S.W,S.H,Cx-0.035*Fw,Fy0+0.29*Fh,Cx-0.030*Fw,Fy0+0.38*Fh,0.004*Fh,Wd,Amp*0.8,7);
+   Crease(Wr,S.W,S.H,Cx+0.035*Fw,Fy0+0.29*Fh,Cx+0.030*Fw,Fy0+0.38*Fh,-0.004*Fh,Wd,Amp*0.8,8);
+  End;
+  For Side:=0 to 1 do Begin
+   Sg:=Side*2-1;
+   If Ir[Side].Ok Then Begin Ex:=Ir[Side].Cx;Ey:=Ir[Side].Cy;End
+   Else Begin Ex:=Cx+Sg*0.225*Fw;Ey:=Fy0+0.42*Fh;End;
+   Ox:=Ex+Sg*0.13*Fw;
+   { pattes d'oie }
+   Crease(Wr,S.W,S.H,Ox,Ey-0.01*Fh,Ox+Sg*0.095*Fw,Ey-0.055*Fh,Sg*0.006*Fh,Wd*0.9,Amp*0.9,10+Side);
+   Crease(Wr,S.W,S.H,Ox,Ey+0.01*Fh,Ox+Sg*0.105*Fw,Ey+0.005*Fh,Sg*0.004*Fh,Wd*0.9,Amp,12+Side);
+   Crease(Wr,S.W,S.H,Ox,Ey+0.03*Fh,Ox+Sg*0.095*Fw,Ey+0.060*Fh,-Sg*0.006*Fh,Wd*0.9,Amp*0.9,14+Side);
+   { sillon nasogenien }
+   Crease(Wr,S.W,S.H,Cx+Sg*0.15*Fw,Fy0+0.57*Fh,Cx+Sg*0.235*Fw,Fy0+0.81*Fh,Sg*0.025*Fw,Wd*1.3,Amp*0.55,20+Side);
+   { cerne sous l'oeil : croissant sombre et flou }
+   For Y:=Trunc(Ey+0.01*Fh)to Trunc(Ey+0.13*Fh)do
+    For X:=Trunc(Ex-0.14*Fw)to Trunc(Ex+0.14*Fw)do Begin
+     If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+     D:=Sqr((X+0.5-Ex)/(0.10*Fw))+Sqr((Y+0.5-(Ey+0.075*Fh))/(0.032*Fh));
+     K:=Int64(Y)*S.W+X;
+     Dk:=Exp(-D)*0.34*Clamp(Sc,0.4,1.1);
+     If Dk>Bag[K]Then Bag[K]:=Dk;
+    End;
+  End;
+  BoxBlur(Wr,Wr,S.W,S.H,1);
+  For K:=0 to N-1 do Begin
+   Mw:=Fm[K];
+   If Mw<0.1 Then Continue;
+   V:=Wr[K];If V>1 Then V:=1;
+   S.Pix[K*3]:=S.Pix[K*3]*(1-0.48*V*Mw);
+   S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-0.60*V*Mw);
+   S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-0.60*V*Mw);
+   V:=Bag[K];
+   S.Pix[K*3]:=S.Pix[K*3]*(1-0.55*V*Mw);
+   S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-0.80*V*Mw);
+   S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-0.70*V*Mw);
+  End;
+  { taches de vieillesse sur le front et les joues }
+  For Sp:=1 to Trunc(7*Sc)+1 do Begin
+   Sx:=Cx+(RngF-0.5)*0.62*Fw;Sy:=Fy0+(0.10+RngF*0.62)*Fh;
+   Rs:=(0.010+0.012*RngF)*Fw;
+   For Y:=Trunc(Sy-2*Rs)to Trunc(Sy+2*Rs)do
+    For X:=Trunc(Sx-2*Rs)to Trunc(Sx+2*Rs)do Begin
+     If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+     K:=Int64(Y)*S.W+X;
+     If Fm[K]<0.9 Then Continue;
+     V:=0.32*Clamp(Sc,0.3,1.3)*Exp(-(Sqr(X+0.5-Sx)+Sqr(Y+0.5-Sy))/(2*Rs*Rs));
+     S.Pix[K*3]:=S.Pix[K*3]*(1-0.22*V);
+     S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-0.42*V);
+     S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-0.62*V);
+    End;
+  End;
+  FreeMem(Wr);FreeMem(Bag);FreeMem(Fm);
+  Done:=True;
+  Info('  rides, cernes et taches dessin'#130's (+'+IStr(Years)+' ans)');
+ End
+  Else Warn('visage non d'#130'tect'#130' ou trop petit : rides non dessin'#130'es (texture seulement)');
+ FreeMem(M);
+ { cheveux : meches grises }
+ If HairSalt(S,Clamp(0.22*Sc,0.05,0.6),False,Msg)Then Done:=True;
+ Msg:='';
+ SkinAge:=True;
+End;
+
+{ ---- repartiteur ---- }
+
+Function ApplySkin(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Var
+ N:LongInt;
+Begin
+ Msg:='';
+ ApplySkin:=False;
+ Case E.SkinOp of
+  soSmooth:ApplySkin:=SkinSmooth(S,0.28,18,0.0,0.0,'peau liss'#130'e',Msg);
+  soSoft:ApplySkin:=SkinSmooth(S,0.45,22,0.02,0.2,'peau plus douce',Msg);
+  soBaby:ApplySkin:=SkinSmooth(S,0.08,26,0.05,1.0,'peau de b'#130'b'#130' (liss'#130'e, claire, joues ros'#130'es)',Msg);
+  soGrain:ApplySkin:=SkinGrain(S,Msg);
+  soAge:Begin
+   N:=Abs(E.Years);
+   If E.Years<0 Then
+    ApplySkin:=SkinSmooth(S,Clamp(1-0.065*N,0.15,0.95),20,0.004*N,0.1*N/10.0,'rajeunissement de '+IStr(N)+' ans (peau liss'#130'e et plus claire)',Msg)
+   Else ApplySkin:=SkinAge(S,N,Msg);
+  End;
+  soSalt:ApplySkin:=HairSalt(S,0.5,True,Msg);
+ End;
+End;
 
 { ------------------------------------------------------------------ }
 { Couche systeme : console, repertoires, telechargement (Windows)      }
@@ -12057,6 +12528,8 @@ Begin
  WriteLn('  "bras bien aligner de chaque c'#147't'#130' du corps"');
  WriteLn('  "corps d''or"  "corps m'#130'tallique"  "corps robot"  "style statue"  "v'#136'tement de cha'#140'ne d''or"');
  WriteLn('  "debout sur un carrousel"');
+ WriteLn('  "rend la peau plus lisse" (granuleuse, douce, comme une peau de b'#130'b'#130')  "rajeunis-la de 10 ans"  "vieillis-la de 5 ans"');
+ WriteLn('  "teinte ses cheveux en noir" (brun, blond, roux, blanc, rose, bleu, vert, poivre et sel)');
  WriteLn('  "bras crois'#130's"  "montre une main peace & love"  "pointe du doigt"  "t'#136'te droite"  "aur'#130'ole"');
  WriteLn('  "s'#130'rieuse"  "triste"  "regarde perdu"  "somnambule"  "saute"  "flotte"  "assis"  "appuy'#130' sur un meuble"');
  WriteLn('  "couch'#130'"  "couch'#130' dans un lit"  "monte les escaliers"  "sur le toit de la niche '#133' chien"');
@@ -12486,6 +12959,11 @@ Begin
   If Edits[I].Action=eaMaterial Then Begin
    Info('Mati'#138're : '+DescribeEdit(Edits[I]));
    If ApplyMaterial(Scene,Edits[I],Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+   Continue;
+  End;
+  If Edits[I].Action=eaSkin Then Begin
+   Info('Peau : '+DescribeEdit(Edits[I]));
+   If ApplySkin(Scene,Edits[I],Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
    Continue;
   End;
   { sourire demande (seul ou avec d'autres retouches dans la meme clause) }
