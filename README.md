@@ -87,6 +87,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td><b>VTON.PAS</b></td>
      <td>Cette commande permet de changer ou d'essayer des vêtements sur une photo à l'aide d'un réseau de neurones SegFormer (fichier .safetensors), avec une demande en langage naturel, à instructions multiples.</td>
   </tr>
+  <tr>
+    <td><b>WHISPER-CLI.PAS</b></td>
+      <td>Cette commande permet de lancer le moteur Whisper natif en Pascal.</td>
+  </tr>	
 </table>
 
 <h2>Remarque</h2>
