@@ -7243,14 +7243,14 @@ Begin
  FreeMem(M);
 End;
 
-{ lignes a ajouter sous l'image pour voir le mannequin en entier (jusqu'aux pieds) ; 0 si inutile }
-Function MannequinNeedRows(Const S:TScene;Const G:TGarment;Kind:LongInt):LongInt;
+{ marges a ajouter (gauche, droite, bas) pour voir la tenue sur mannequin en entier, jusqu'aux pieds ; 0 si inutile }
+Procedure MannequinNeed(Const S:TScene;Const G:TGarment;Kind:LongInt;Var NL,NR,NB:LongInt);
 Var
  GL,GRr:PSingle;
  Fx0,Fy0,Fx1,Fy1,Y,Ysh:LongInt;
- Wg,Sc,Ty0,Bottom:Single;
+ Wg,Sc,Ty0,Bottom,Cx,Gcx,Le,Re:Single;
 Begin
- MannequinNeedRows:=0;
+ NL:=0;NR:=0;NB:=0;
  If(G.Skin=Nil)or not(Kind in[gkDress,gkFull])Then Exit;
  If not CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Exit;
  GL:=AllocF(G.H);GRr:=AllocF(G.H);
@@ -7260,12 +7260,18 @@ Begin
  For Y:=(G.H*5)div 100 to(G.H*13)div 100 do If GRr[Y]-GL[Y]>Wg Then Wg:=GRr[Y]-GL[Y];
  Ysh:=0;
  For Y:=0 to G.H-1 do If GRr[Y]-GL[Y]>=0.75*Wg Then Begin Ysh:=Y;Break;End;
+ Gcx:=(GL[Ysh]+GRr[Ysh])/2;
  FreeMem(GL);FreeMem(GRr);
  If Wg<8 Then Exit;
  Sc:=2.55*(Fx1-Fx0+1)/Wg;
+ Cx:=(Fx0+Fx1+1)/2;
  Ty0:=Fy1+1+0.25*(Fy1-Fy0+1)-Sc*Ysh;
  Bottom:=Ty0+Sc*G.H;
- If Bottom>S.H Then MannequinNeedRows:=Trunc(Bottom-S.H)+2;
+ If Bottom>S.H Then NB:=Trunc(Bottom-S.H)+2;
+ Le:=Cx+(0-Gcx)*Sc;
+ Re:=Cx+(G.W-Gcx)*Sc;
+ If Le<0 Then NL:=Trunc(-Le)+Trunc(0.02*G.W*Sc)+2;
+ If Re>S.W Then NR:=Trunc(Re-S.W)+Trunc(0.02*G.W*Sc)+2;
 End;
 
 { pose le vetement sur la personne }
@@ -13857,7 +13863,7 @@ Var
  Used:Boolean;
  Dummy:LongWord;
  NeedFeet,NeedPants,NeedSkirt:Boolean;
- Cnt0:LongInt;
+ Cnt0,NeedL,NeedR,NeedB:LongInt;
 
 Procedure Die(Const S:AnsiString);
 Begin
@@ -14061,12 +14067,14 @@ Begin
     FreeMem(Tmp);
    End;
   End;
-  { mannequin : l'image est prolongee vers le bas pour montrer le corps jusqu'aux pieds }
-  I:=MannequinNeedRows(Scene,G,Kind);
-  If I>0 Then Begin
-   If I>3*Scene.H Then I:=3*Scene.H;
-   GrowEdges(Scene,0,0,0,I);
-   Info('image prolong'#130'e de '+IStr(I)+' pixels vers le bas pour voir le mannequin en entier');
+  { mannequin : l'image est agrandie (cotes et bas) pour montrer toute la tenue, jusqu'aux pieds }
+  MannequinNeed(Scene,G,Kind,NeedL,NeedR,NeedB);
+  If NeedL>3*Scene.W Then NeedL:=3*Scene.W;
+  If NeedR>3*Scene.W Then NeedR:=3*Scene.W;
+  If NeedB>3*Scene.H Then NeedB:=3*Scene.H;
+  If(NeedL>0)or(NeedR>0)or(NeedB>0)Then Begin
+   GrowEdges(Scene,NeedL,0,NeedR,NeedB);
+   Info('image agrandie ('+IStr(NeedL)+' px '#133' gauche, '+IStr(NeedR)+' '#133' droite, '+IStr(NeedB)+' en bas) pour voir la tenue en entier');
   End;
   Info('Pose du v'#136'tement ('+GarmentKindName(Kind)+') ...');
   If TryOnGarment(Scene,G,Kind,OptQuality,Msg)Then Begin
