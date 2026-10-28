@@ -6789,7 +6789,7 @@ Begin
  For K:=0 to N-1 do Begin
   If G.Mask[K]<0.5 Then Continue;
   X:=K mod W;
-  If Abs(X+0.5-Cx)>0.27*Wd Then Continue;
+  If Abs(X+0.5-Cx)>0.33*Wd Then Continue;
   RgbToLab(G.Rgb[K*3],G.Rgb[K*3+1],G.Rgb[K*3+2],L,A,B);
   C:=Sqrt(A*A+B*B);
   If(L>70)and(C<10.5)Then Seed[K]:=255;
@@ -6810,10 +6810,10 @@ Begin
  For K:=0 to N-1 do Begin
   If G.Mask[K]<0.5 Then Continue;
   RgbToLab(G.Rgb[K*3],G.Rgb[K*3+1],G.Rgb[K*3+2],L,A,B);
-  If(L>50)and(Sqrt(A*A+B*B)<18)Then Cand[K]:=255;
+  If(L>46)and(Sqrt(A*A+B*B)<20)and(Abs((K mod W)+0.5-Cx)<=0.36*Wd)Then Cand[K]:=255;
  End;
  Tmp:=PByte(AllocBytes(N));
- For J:=1 to 4 do Begin
+ For J:=1 to 10 do Begin
   Move(M^,Tmp^,N);
   MorphMask(Tmp,W,H,1,False);
   For K:=0 to N-1 do If(Tmp[K]<>0)and(Cand[K]<>0)Then M[K]:=255;
