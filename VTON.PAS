@@ -5356,13 +5356,19 @@ Const
  { natures de mots du lexique }
  lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
  lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;lkVAdd=14;
- lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;lkExpr=19;lkMaterial=20;lkScene=21;
+ lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;lkExpr=19;lkMaterial=20;lkScene=21;lkPose2=22;
  { modificateurs }
  mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
  { motifs }
  pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
  { actions }
- eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;eaMaterial=9;eaScene=10;
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;eaMaterial=9;eaScene=10;eaPose2=11;
+ { poses et situations }
+ pcCross=1;pcPeace=2;pcPoint=3;pcFloat=4;pcJump=5;pcArmsOut=6;pcLie=7;pcHeadStraight=8;pcLost=9;
+ pcSerious=10;pcSad=11;pcHalo=12;pcSleep=13;pcSit=14;pcKneel=15;pcBike=16;pcLean=17;pcStairs=18;
+ pcDoghouse=19;pcTightrope=20;pcBed=21;
+ { poses qui montrent la personne en pied }
+ FeetPoses=(1 shl pcFloat)or(1 shl pcJump)or(1 shl pcLie)or(1 shl pcBed)or(1 shl pcTightrope)or(1 shl pcDoghouse)or(1 shl pcStairs)or(1 shl pcSleep);
  { matieres et scenes }
  mtNone=0;mtMetal=1;mtRobot=2;mtStatue=3;mtChain=4;
  scNone=0;scCarousel=1;
@@ -5400,6 +5406,7 @@ Type
   HairStyle,Jewel,Style,Expr:LongInt;
   Pose:Boolean;
   Material,Scene:LongInt;
+  Poses:LongWord;
   Diamond,Apple:Boolean;
   Put:Boolean;              { ? mets un chapeau ? : ajout si l'objet est absent }
   Text:AnsiString;
@@ -5462,6 +5469,27 @@ Begin
  AddLex('ceinture belt',lkGarment,gkBelt,msBelt);
  AddLex('vetement habit tenue outfit clothes clothing ensemble costume',lkGarment,gkAll,msClothes);
  AddLex('tout tous toute toutes everything all',lkAll,0,0);
+ { poses et situations }
+ AddLex('croise croises croisee croisees',lkPose2,pcCross,0);
+ AddLex('peace paix victoire',lkPose2,pcPeace,0);
+ AddLex('pointe pointer pointant doigt',lkPose2,pcPoint,0);
+ AddLex('flotte flotter flottant flottante levite levitation float floating',lkPose2,pcFloat,0);
+ AddLex('saute sauter saut jump jumping',lkPose2,pcJump,0);
+ AddLex('couche coucher couchee couches',lkPose2,pcLie,0);
+ AddLex('tete head',lkPose2,pcHeadStraight,0);
+ AddLex('perdu perdue lost',lkPose2,pcLost,0);
+ AddLex('serieux serieuse serious',lkPose2,pcSerious,0);
+ AddLex('triste tristes sad',lkPose2,pcSad,0);
+ AddLex('aureole halo',lkPose2,pcHalo,0);
+ AddLex('somnambule somnambules sleepwalker sleepwalking',lkPose2,pcSleep,0);
+ AddLex('assis assise assises assoit asseoir seated sitting sit',lkPose2,pcSit,0);
+ AddLex('genou genoux kneeling kneel',lkPose2,pcKneel,0);
+ AddLex('bicyclette velo bike bicycle cycling',lkPose2,pcBike,0);
+ AddLex('appuie appuye appuyer appuyee appuyant meuble meubles lean leaning',lkPose2,pcLean,0);
+ AddLex('escalier escaliers stairs staircase monte monter',lkPose2,pcStairs,0);
+ AddLex('niche doghouse',lkPose2,pcDoghouse,0);
+ AddLex('fer funambule tightrope',lkPose2,pcTightrope,0);
+ AddLex('lit bed',lkPose2,pcBed,0);
  { corps, matieres, scenes }
  AddLex('corps body',lkGarment,gkBody,msSkin);
  AddLex('metallique metallic metal chrome chromee chromes',lkMaterial,mtMetal,0);
@@ -5796,6 +5824,7 @@ Var
  HStyle,Jw,Sty:LongInt;
  HStrong,HairNoun,Dia,App,PoseWord,ChainCtx,MetalCol:Boolean;
  Expr,Mat,Scn:LongInt;
+ Pz:LongWord;
 Begin
  ParseClause:=False;
  ClearEdit(E);
@@ -5806,7 +5835,7 @@ Begin
  FirstPrep:=-1;
  HasPat:=False;
  HStyle:=0;Jw:=0;Sty:=0;HStrong:=False;Dia:=False;App:=False;
- HairNoun:=False;PoseWord:=False;Expr:=0;Mat:=0;Scn:=0;ChainCtx:=False;MetalCol:=False;
+ HairNoun:=False;PoseWord:=False;Expr:=0;Mat:=0;Scn:=0;ChainCtx:=False;MetalCol:=False;Pz:=0;
  { ? vetement de chaine d'or ? : chaine + vetement = cotte de mailles, pas un collier }
  For I:=A to B do If LexFind(T[I],lkGarment)>=0 Then
   If Lex[LexFind(T[I],lkGarment)].V1 in[gkTop,gkBottom,gkDress,gkSkirt,gkAll,gkFull]Then ChainCtx:=True;
@@ -5839,6 +5868,12 @@ Begin
    Continue;
   End;
   { bijoux, styles d'image, coiffures }
+  K:=LexFind(T[I],lkPose2);
+  If K>=0 Then Begin
+   { ? tete ? compte seulement dans ? tete droite ? }
+   If(Lex[K].V1<>pcHeadStraight)or PoseWord Then Pz:=Pz or(LongWord(1)shl Lex[K].V1);
+   Continue;
+  End;
   K:=LexFind(T[I],lkMaterial);
   If K>=0 Then Begin Mat:=Lex[K].V1;Continue;End;
   K:=LexFind(T[I],lkScene);
@@ -5957,13 +5992,14 @@ Begin
   E.HairStyle:=HStyle;E.Target:=E.Target or msHair;E.Kind:=gkHair;
  End;
  If Sty<>0 Then E.Style:=Sty;
- E.Material:=Mat;E.Scene:=Scn;
+ E.Material:=Mat;E.Scene:=Scn;E.Poses:=Pz;
  E.Expr:=Expr;
  If((E.Target and msArms)<>0)and PoseWord and not E.HasDst Then E.Pose:=True;
  If Dia and(Jw=0)and(NG=0)Then Jw:=jwNecklace+jwEarrings+jwBracelet;
  E.Jewel:=Jw;E.Diamond:=Dia;E.Apple:=App;
  If App and(Jw=0)Then E.Jewel:=jwWatch;
  If Remove Then E.Action:=eaRemove
+ Else If E.Poses<>0 Then E.Action:=eaPose2
  Else If(E.Jewel<>0)and(AddV or Result_ or TryOn)Then E.Action:=eaAdd
  Else If E.Pose Then E.Action:=eaPose
  Else If E.Scene<>0 Then E.Action:=eaScene
@@ -5982,7 +6018,7 @@ Begin
    E.Material:=mtMetal;E.Action:=eaMaterial;
   End;
  End;
- HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose,eaMaterial,eaScene];
+ HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose,eaMaterial,eaScene,eaPose2];
  ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0)or(E.Jewel<>0);
 End;
 
@@ -6019,7 +6055,7 @@ Begin
    For J:=I+1 to High(T)do Begin
     If(T[J]=',')or(T[J]=';')or(T[J]='.')or(LexFind(T[J],lkSplit)>=0)Then Break;
     If(LexFind(T[J],lkGarment)>=0)or(LexFind(T[J],lkVRemove)>=0)or(LexFind(T[J],lkVRecolor)>=0)or
-      (LexFind(T[J],lkVResult)>=0)or(LexFind(T[J],lkExpr)>=0)or(LexFind(T[J],lkStyle)>=0)Then HasG:=True;
+      (LexFind(T[J],lkVResult)>=0)or(LexFind(T[J],lkExpr)>=0)or(LexFind(T[J],lkStyle)>=0)or(LexFind(T[J],lkPose2)>=0)Then HasG:=True;
    End;
    Cut:=HasG;
   End;
@@ -6116,6 +6152,25 @@ Begin
  End;
 End;
 
+{ noms des poses d'un ensemble (pour -verbose) }
+Function PoseNames(P:LongWord):AnsiString;
+Const
+ Names:Array[1..21]of AnsiString=('bras crois'#130's','main V (peace & love)','doigt point'#130,'flotte','saute',
+  'bras '#130'cart'#130's','couch'#130,'t'#136'te droite','regard perdu','s'#130'rieux','triste','aur'#130'ole','somnambule','assis',
+  #133' genoux','v'#130'lo','appuy'#130' sur un meuble','escalier','toit de niche','fil de fer','dans un lit');
+Var
+ I:LongInt;
+ R:AnsiString;
+Begin
+ R:='';
+ For I:=1 to 21 do
+  If(P and(LongWord(1)shl I))<>0 Then Begin
+   If R<>'' Then R:=R+' + ';
+   R:=R+Names[I];
+  End;
+ PoseNames:=R;
+End;
+
 { decrit une retouche pour -verbose }
 Function DescribeEdit(Const E:TEdit):AnsiString;
 Var
@@ -6129,13 +6184,14 @@ Begin
   eaFace:R:='expression du visage';
   eaMaterial:R:='mati'#138're '+IStr(E.Material);
   eaScene:R:='sc'#138'ne';
+  eaPose2:R:='pose : '+PoseNames(E.Poses);
   eaPose:R:='bras le long du corps';
   eaStyle:R:='style de l''image';
   eaTryOn:R:='essayer';
   Else R:='?';
  End;
- If E.Target<>0 Then R:=R+' '+MaskName(E.Target)
- Else If(E.Jewel=0)and(E.Style=0)Then R:=R+' (cible '#133' d'#130'terminer)';
+ If(E.Target<>0)and(E.Action<>eaPose2)Then R:=R+' '+MaskName(E.Target)
+ Else If(E.Jewel=0)and(E.Style=0)and(E.Action<>eaPose2)Then R:=R+' (cible '#133' d'#130'terminer)';
  If E.HasSrc Then R:=R+', de '+E.SrcName;
  If E.HasDst Then R:=R+', vers '+E.DstName+' '+ColorHex(E.DstRGB);
  Case E.Pattern of
@@ -8887,7 +8943,7 @@ End;
 
 { ---- sourire : les coins de la bouche remontent ---- }
 
-Function ApplySmile(Var S:TScene;Var Msg:AnsiString):Boolean;
+Function MouthWarp(Var S:TScene;AmpF:Single;Close:Boolean;Const What:AnsiString;Var Msg:AnsiString):Boolean;
 Var
  H:THeadInfo;
  N,K:Int64;
@@ -8896,14 +8952,15 @@ Var
  L,A,B,SumA,SumA2,Mean,Sd,Thr,Mx,My,Sx,Sy,Cn,Hw,Hy,U,V,D,Sy2,Amp:Single;
  Reds:Array of Single;
  Ex0,Ex1:Single;
+ Lr,Lg,Lb,Lw,Cr,Wt:Single;
  Fm:PSingle;
  C:LongInt;
  Px:Array[0..2]of Single;
 Begin
- ApplySmile:=False;
+ MouthWarp:=False;
  Msg:='';
- If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de faire sourire';Exit;End;
- If H.Fw<40 Then Begin Msg:='le visage est trop petit pour modifier le sourire (40 pixels de large minimum)';Exit;End;
+ If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de modifier l''expression';Exit;End;
+ If H.Fw<40 Then Begin Msg:='le visage est trop petit pour modifier l''expression (40 pixels de large minimum)';Exit;End;
  ColorInit;
  N:=Int64(S.W)*S.H;
  Fm:=AllocF(N);
@@ -8923,7 +8980,7 @@ Begin
  If Cnt<30 Then Begin Msg:='bouche non d'#130'tect'#130'e';FreeMem(Fm);Exit;End;
  Mean:=SumA/Cnt;Sd:=Sqrt(FMax(0,SumA2/Cnt-Mean*Mean));
  Thr:=Mean+1.1*Sd;
- Sx:=0;Sy:=0;Cn:=0;Rx0:=S.W;Rx1:=-1;
+ Sx:=0;Sy:=0;Cn:=0;Rx0:=S.W;Rx1:=-1;Lr:=0;Lg:=0;Lb:=0;
  For Y:=Y0 to Y1 do
   For X:=X0 to X1 do Begin
    If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
@@ -8932,6 +8989,7 @@ Begin
    RgbToLab(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2],L,A,B);
    If A>=Thr Then Begin
     Sx:=Sx+X;Sy:=Sy+Y;Cn:=Cn+1;
+    Lr:=Lr+S.Pix[K*3];Lg:=Lg+S.Pix[K*3+1];Lb:=Lb+S.Pix[K*3+2];
     If X<Rx0 Then Rx0:=X;
     If X>Rx1 Then Rx1:=X;
    End;
@@ -8947,7 +9005,41 @@ Begin
  If Hw<0.12*H.Fw Then Hw:=0.12*H.Fw;
  If Hw>0.28*H.Fw Then Hw:=0.28*H.Fw;
  Hy:=0.11*H.Fh;
- Amp:=0.065*H.Fh;
+ Amp:=AmpF*H.Fh;
+ If Close Then Begin
+  { bouche fermee : dents (clair, peu colore) repeintes de la couleur des levres, trait de fermeture }
+  If Cn>=12 Then Begin Lr:=Lr/Cn;Lg:=Lg/Cn;Lb:=Lb/Cn;End
+  Else Begin Lr:=175;Lg:=95;Lb:=95;End;
+  Ex0:=0;Ex1:=0;
+  For Y:=Trunc(My-0.13*H.Fh)to Trunc(My+0.09*H.Fh)do
+   For X:=Trunc(Mx-1.25*Hw)to Trunc(Mx+1.25*Hw)do Begin
+    If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+    K:=Int64(Y)*S.W+X;
+    If Fm[K]<0.5 Then Continue;
+    RgbToLab(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2],L,A,B);
+    Cr:=Sqrt(A*A+B*B);
+    Wt:=SmoothStep(40,58,L)*(1-SmoothStep(7,15,Cr));
+    Wt:=FMax(Wt,1-SmoothStep(20,36,L));
+    Wt:=Wt*(1-SmoothStep(1.0,1.25,Abs(X+0.5-Mx)/Hw));
+    If Wt<=0.01 Then Continue;
+    Ex0:=Ex0+Wt*(Y+0.5);Ex1:=Ex1+Wt;
+    S.Pix[K*3]:=S.Pix[K*3]*(1-Wt)+Lr*0.96*Wt;
+    S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Wt)+Lg*0.96*Wt;
+    S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Wt)+Lb*0.96*Wt;
+   End;
+  If Ex1>=20 Then My:=Ex0/Ex1;
+  For Y:=Trunc(My-3)to Trunc(My+3)do
+   For X:=Trunc(Mx-1.1*Hw)to Trunc(Mx+1.1*Hw)do Begin
+    If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+    K:=Int64(Y)*S.W+X;
+    If Fm[K]<0.5 Then Continue;
+    Lw:=CoverD(Abs(Y+0.5-My)-FMax(0.6,0.012*H.Fh))*(1-SmoothStep(0.6,1.0,Abs(X+0.5-Mx)/(1.1*Hw)));
+    If Lw<=0.01 Then Continue;
+    S.Pix[K*3]:=S.Pix[K*3]*(1-Lw)+Lr*0.45*Lw;
+    S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Lw)+Lg*0.40*Lw;
+    S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Lw)+Lb*0.42*Lw;
+   End;
+ End;
  { deplacement : le contenu des coins monte, le centre reste en place }
  Orig:=AllocF(N*3);
  Move(S.Pix^,Orig^,N*12);
@@ -8958,13 +9050,18 @@ Begin
    If Fm[K]<0.5 Then Continue;
    U:=(X+0.5-Mx)/Hw;V:=(Y+0.5-My)/Hy;
    D:=Amp*U*U*Exp(-U*U/2.4)*Exp(-V*V/2.0);
-   If D<0.05 Then Continue;
+   If Abs(D)<0.05 Then Continue;
    SampleBilinear(Orig,S.W,S.H,3,X+0.5,Y+0.5+D,@Px[0]);
    For C:=0 to 2 do S.Pix[K*3+C]:=Px[C];
   End;
  FreeMem(Orig);FreeMem(Fm);
- ApplySmile:=True;
- Info('  sourire ajout'#130);
+ MouthWarp:=True;
+ Info('  '+What);
+End;
+
+Function ApplySmile(Var S:TScene;Var Msg:AnsiString):Boolean;
+Begin
+ ApplySmile:=MouthWarp(S,0.065,False,'sourire ajout'#130,Msg);
 End;
 
 { ---- bras le long du corps ---- }
@@ -9597,6 +9694,1951 @@ Begin
  ApplyCarousel:=True;
  Info('  sc'#138'ne de carrousel g'#130'n'#130'r'#130'e');
 End;
+{ ------------------------------------------------------------------ }
+{ Poses et expressions : humeur, regard, yeux fermes, tete droite,   }
+{ aureole (le tout dessine ou deforme par le programme)              }
+{ ------------------------------------------------------------------ }
+
+Type
+ TIris=Record
+  Ok:Boolean;
+  Cx,Cy,R:Single;
+ End;
+
+{ agrandit l'image sur les quatre cotes : le fond est prolonge par propagation }
+Procedure GrowEdges(Var S:TScene;L,T,R,B:LongInt);
+Var
+ W2,H2,X,Y,C,Sx,Sy:LongInt;
+ N2,K,K1:Int64;
+ P2,Kn,Tmp:PSingle;
+ Cat2:Array[0..NumCat-1]of PByte;
+ Inside:Boolean;
+Begin
+ If L<0 Then L:=0;If T<0 Then T:=0;If R<0 Then R:=0;If B<0 Then B:=0;
+ If(L=0)and(T=0)and(R=0)and(B=0)Then Exit;
+ W2:=S.W+L+R;H2:=S.H+T+B;
+ N2:=Int64(W2)*H2;
+ P2:=AllocF(N2*3);Kn:=AllocF(N2);
+ For C:=0 to NumCat-1 do Cat2[C]:=PByte(AllocBytes(N2));
+ For Y:=0 to H2-1 do
+  For X:=0 to W2-1 do Begin
+   Sx:=ClampI(X-L,0,S.W-1);Sy:=ClampI(Y-T,0,S.H-1);
+   K:=Int64(Y)*W2+X;K1:=Int64(Sy)*S.W+Sx;
+   Inside:=(X>=L)and(X<L+S.W)and(Y>=T)and(Y<T+S.H);
+   For C:=0 to 2 do P2[K*3+C]:=S.Pix[K1*3+C];
+   If Inside Then Begin
+    For C:=0 to NumCat-1 do Cat2[C][K]:=S.Cat[C][K1];
+    If S.Cat[cBg][K1]>=200 Then Kn[K]:=1;
+   End
+    Else Cat2[cBg][K]:=255;
+  End;
+ Tmp:=AllocF(N2*3);
+ Move(P2^,Tmp^,N2*12);
+ PushPullFill(Tmp,Kn,W2,H2);
+ For Y:=0 to H2-1 do
+  For X:=0 to W2-1 do
+   If(X<L)or(X>=L+S.W)or(Y<T)or(Y>=T+S.H)Then Begin
+    K:=Int64(Y)*W2+X;
+    For C:=0 to 2 do P2[K*3+C]:=Tmp[K*3+C];
+   End;
+ FreeMem(Tmp);FreeMem(Kn);
+ FreeMem(S.Pix);S.Pix:=P2;
+ For C:=0 to NumCat-1 do Begin
+  FreeMem(S.Cat[C]);
+  S.Cat[C]:=Cat2[C];
+ End;
+ S.W:=W2;S.H:=H2;
+End;
+
+{ plan de luminance }
+Function LumaPlane(Const S:TScene):PSingle;
+Var
+ N,K:Int64;
+ Yl:PSingle;
+Begin
+ N:=Int64(S.W)*S.H;
+ Yl:=AllocF(N);
+ For K:=0 to N-1 do Yl[K]:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+ LumaPlane:=Yl;
+End;
+
+{ couleur moyenne du visage (joues et nez) }
+Procedure FaceSkin(Const S:TScene;Const H:THeadInfo;Var R,G,B:Single);
+Var
+ X,Y,Cnt:LongInt;
+ K:Int64;
+ Sr,Sg,Sb:Double;
+Begin
+ Sr:=0;Sg:=0;Sb:=0;Cnt:=0;
+ For Y:=Trunc(H.Fy0+0.50*H.Fh)to Trunc(H.Fy0+0.64*H.Fh)do
+  For X:=Trunc(H.Cx-0.30*H.Fw)to Trunc(H.Cx+0.30*H.Fw)do Begin
+   If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   If S.Cat[cFace][K]<200 Then Continue;
+   Sr:=Sr+S.Pix[K*3];Sg:=Sg+S.Pix[K*3+1];Sb:=Sb+S.Pix[K*3+2];Inc(Cnt);
+  End;
+ If Cnt>0 Then Begin R:=Sr/Cnt;G:=Sg/Cnt;B:=Sb/Cnt;End
+ Else Begin R:=205;G:=160;B:=135;End;
+End;
+
+{ les deux iris (0 = a gauche de l'image, 1 = a droite) }
+Function FindIrises(Const S:TScene;Const H:THeadInfo;Yl:PSingle;Var Ir:Array of TIris;Var Lskin:Single):LongInt;
+Var
+ K,N:Int64;
+ Side,Cnt:LongInt;
+ Sd:Double;
+ R,Ex,Ey,Cx,Cy,Sc:Single;
+Begin
+ Sd:=0;Cnt:=0;
+ N:=Int64(S.W)*S.H;
+ For K:=0 to N-1 do If S.Cat[cFace][K]>=230 Then Begin Sd:=Sd+Yl[K];Inc(Cnt);End;
+ If Cnt>0 Then Lskin:=Sd/Cnt Else Lskin:=150;
+ R:=FMax(2.5,0.046*H.Fw);
+ FindIrises:=0;
+ Cnt:=0;
+ For Side:=0 to 1 do Begin
+  Ir[Side].Ok:=False;
+  Ex:=H.Cx+(Side*2-1)*0.225*H.Fw;
+  Ey:=H.Fy0+0.42*H.Fh;
+  If FindIris(S,Yl,Ex,Ey,0.12*H.Fw,0.17*H.Fh,R,Cx,Cy,Sc)and(Sc>=9)Then Begin
+   Ir[Side].Ok:=True;Ir[Side].Cx:=Cx;Ir[Side].Cy:=Cy;Ir[Side].R:=R;
+   Inc(Cnt);
+  End;
+ End;
+ FindIrises:=Cnt;
+End;
+
+{ expression : serieuse ou triste (les coins de la bouche descendent) }
+Function ApplyMood(Var S:TScene;Sad:Boolean;Var Msg:AnsiString):Boolean;
+Begin
+ If Sad Then ApplyMood:=MouthWarp(S,-0.115,True,'expression triste (coins de la bouche abaiss'#130's)',Msg)
+ Else ApplyMood:=MouthWarp(S,-0.06,True,'expression s'#130'rieuse (bouche neutre)',Msg);
+End;
+
+{ poids de l'iris (pixels sombres du disque) }
+Function IrisW(L,Lskin,D,R:Single):Single;
+Begin
+ IrisW:=(1-SmoothStep(0.62*Lskin,0.86*Lskin,L))*(1-SmoothStep(1.0*R,1.18*R,D));
+End;
+
+{ regard : les iris glissent vers (Dx,Dy) dans l'ouverture de l'oeil }
+Function ApplyGaze(Var S:TScene;Dx,Dy:Single;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ N,K:Int64;
+ Yl,Orig:PSingle;
+ Ir:Array[0..1]of TIris;
+ Side,X,Y,C,Cnt,Found:LongInt;
+ Lskin,Cx,Cy,R,Sx,Sy,Sr,Sg,Sb,Mean,Open,Wi,D,Lm:Single;
+ Sam:Array of Single;
+ SamC:Array of Single;
+ Ns:LongInt;
+ Px:Array[0..2]of Single;
+ Sc:Array[0..2]of Single;
+Begin
+ ApplyGaze:=False;
+ Msg:='';
+ If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de d'#130'placer le regard';Exit;End;
+ If H.Fw<60 Then Begin Msg:='le visage est trop petit pour modifier le regard (60 pixels de large minimum)';Exit;End;
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ Yl:=LumaPlane(S);
+ Found:=FindIrises(S,H,Yl,Ir,Lskin);
+ If Found=0 Then Begin
+  Msg:='yeux non d'#130'tect'#130's (photo trop petite, trop sombre ou yeux ferm'#130's)';
+  FreeMem(Yl);Exit;
+ End;
+ Orig:=AllocF(N*3);
+ Move(S.Pix^,Orig^,N*12);
+ For Side:=0 to 1 do Begin
+  If not Ir[Side].Ok Then Continue;
+  Cx:=Ir[Side].Cx;Cy:=Ir[Side].Cy;R:=Ir[Side].R;
+  { couleur de la sclerotique : pixels clairs de part et d'autre de l'iris }
+  SetLength(Sam,0);
+  For Y:=Trunc(Cy-0.5*R)to Trunc(Cy+0.5*R)do
+   For X:=Trunc(Cx-2.1*R)to Trunc(Cx+2.1*R)do Begin
+    If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+    If Abs(X+0.5-Cx)<1.3*R Then Continue;
+    Ns:=Length(Sam);SetLength(Sam,Ns+1);
+    Sam[Ns]:=Int64(Y)*S.W+X;
+   End;
+  Mean:=0;
+  For Ns:=0 to High(Sam)do Mean:=Mean+Yl[Trunc(Sam[Ns])];
+  If Length(Sam)>0 Then Mean:=Mean/Length(Sam);
+  Sr:=0;Sg:=0;Sb:=0;Cnt:=0;
+  For Ns:=0 to High(Sam)do Begin
+   K:=Trunc(Sam[Ns]);
+   If Yl[K]>=Mean Then Begin Sr:=Sr+S.Pix[K*3];Sg:=Sg+S.Pix[K*3+1];Sb:=Sb+S.Pix[K*3+2];Inc(Cnt);End;
+  End;
+  If Cnt>0 Then Begin Sc[0]:=Sr/Cnt;Sc[1]:=Sg/Cnt;Sc[2]:=Sb/Cnt;End
+  Else Begin Sc[0]:=225;Sc[1]:=222;Sc[2]:=218;End;
+  Sx:=Dx*0.72*R;Sy:=Dy*0.30*R;
+  { l'ancien iris est efface }
+  For Y:=Trunc(Cy-1.3*R)to Trunc(Cy+1.3*R)do
+   For X:=Trunc(Cx-1.3*R)to Trunc(Cx+1.3*R)do Begin
+    If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+    K:=Int64(Y)*S.W+X;
+    D:=Sqrt(Sqr(X+0.5-Cx)+Sqr(Y+0.5-Cy));
+    Open:=CoverD(EllipseD(X+0.5,Y+0.5,Cx,Cy,1.95*R,1.0*R));
+    Wi:=IrisW(Yl[K],Lskin,D,R)*Open;
+    If Wi<=0.003 Then Continue;
+    For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Wi)+Sc[C]*Wi;
+   End;
+  { et repeint plus loin, rogne par les paupieres }
+  For Y:=Trunc(Cy+Sy-1.3*R)to Trunc(Cy+Sy+1.3*R)do
+   For X:=Trunc(Cx+Sx-1.3*R)to Trunc(Cx+Sx+1.3*R)do Begin
+    If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+    K:=Int64(Y)*S.W+X;
+    Open:=CoverD(EllipseD(X+0.5,Y+0.5,Cx,Cy,1.95*R,1.0*R));
+    If Open<=0 Then Continue;
+    SampleBilinear(Orig,S.W,S.H,3,X+0.5-Sx,Y+0.5-Sy,@Px[0]);
+    Lm:=Luma(Px[0],Px[1],Px[2]);
+    D:=Sqrt(Sqr(X+0.5-Sx-Cx)+Sqr(Y+0.5-Sy-Cy));
+    Wi:=IrisW(Lm,Lskin,D,R)*Open;
+    If Wi<=0.003 Then Continue;
+    For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Wi)+Px[C]*Wi;
+   End;
+ End;
+ FreeMem(Yl);FreeMem(Orig);
+ ApplyGaze:=True;
+ Info('  regard d'#130'plac'#130' ('+IStr(Found)+' oeil(s))');
+End;
+
+{ yeux fermes : paupiere de la couleur de la peau et ligne des cils }
+Function CloseEyes(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ Yl:PSingle;
+ Ir:Array[0..1]of TIris;
+ Side,X,Y,C,Found:LongInt;
+ K:Int64;
+ Lskin,Cx,Cy,R,Sr,Sg,Sb,Nd,Wf,Dxn,Yl2,Cov,Shade,Th:Single;
+Begin
+ CloseEyes:=False;
+ Msg:='';
+ If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de fermer les yeux';Exit;End;
+ If H.Fw<60 Then Begin Msg:='le visage est trop petit pour fermer les yeux (60 pixels de large minimum)';Exit;End;
+ ColorInit;
+ Yl:=LumaPlane(S);
+ Found:=FindIrises(S,H,Yl,Ir,Lskin);
+ FreeMem(Yl);
+ If Found=0 Then Begin Msg:='yeux non d'#130'tect'#130's (d'#130'j'#133' ferm'#130's ou photo trop sombre)';Exit;End;
+ FaceSkin(S,H,Sr,Sg,Sb);
+ For Side:=0 to 1 do Begin
+  If not Ir[Side].Ok Then Continue;
+  Cx:=Ir[Side].Cx;Cy:=Ir[Side].Cy;R:=Ir[Side].R;
+  For Y:=Trunc(Cy-1.8*R)to Trunc(Cy+1.8*R)do
+   For X:=Trunc(Cx-2.6*R)to Trunc(Cx+2.6*R)do Begin
+    If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+    K:=Int64(Y)*S.W+X;
+    Nd:=Sqrt(Sqr((X+0.5-Cx)/(2.25*R))+Sqr((Y+0.5-Cy+0.05*R)/(1.35*R)));
+    Wf:=1-SmoothStep(0.72,1.05,Nd);
+    If Wf>0.003 Then Begin
+     Shade:=1-0.05*(Y+0.5-Cy)/(1.35*R);
+     S.Pix[K*3]:=S.Pix[K*3]*(1-Wf)+Sr*Shade*Wf;
+     S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Wf)+Sg*Shade*Wf;
+     S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Wf)+Sb*Shade*Wf;
+    End;
+    { ligne des cils : arc qui descend au centre }
+    Dxn:=(X+0.5-Cx)/(2.05*R);
+    If Abs(Dxn)<1 Then Begin
+     Yl2:=Cy+0.12*R+0.42*R*(1-Dxn*Dxn);
+     Th:=FMax(0.10*R,0.8);
+     Cov:=CoverD(Abs(Y+0.5-Yl2)-Th)*(1-SmoothStep(0.80,1.0,Abs(Dxn)));
+     If Cov>0.003 Then Begin
+      S.Pix[K*3]:=S.Pix[K*3]*(1-Cov)+(0.30*Sr)*Cov;
+      S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Cov)+(0.22*Sg)*Cov;
+      S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Cov)+(0.20*Sb)*Cov;
+     End;
+     { ombre de la paupiere au-dessus de la ligne }
+     Cov:=0.30*Exp(-Sqr((Y+0.5-(Yl2-0.55*R))/(0.55*R)))*(1-SmoothStep(0.55,1.0,Abs(Dxn)));
+     If(Cov>0.003)and(Y+0.5<Yl2)Then Begin
+      S.Pix[K*3]:=S.Pix[K*3]*(1-Cov)+(0.74*Sr)*Cov;
+      S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Cov)+(0.70*Sg)*Cov;
+      S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Cov)+(0.70*Sb)*Cov;
+     End;
+    End;
+   End;
+ End;
+ CloseEyes:=True;
+ Info('  yeux ferm'#130's ('+IStr(Found)+' sur 2 d'#130'tect'#130's)');
+End;
+
+{ tete droite : la ligne des yeux est remise a l'horizontale (rotation autour du cou) }
+Function HeadStraight(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ N,K:Int64;
+ Yl,Wm,Known,Orig:PSingle;
+ Ir:Array[0..1]of TIris;
+ Mk:PByte;
+ CatO:Array[0..NumCat-1]of PByte;
+ X,Y,C,Ix,Iy,Mv:LongInt;
+ Th,Cd,Sd,Pvx,Pvy,Rx,Ry,Sx,Sy,Wc,Wv:Double;
+ Lskin:Single;
+ Px:Array[0..2]of Single;
+ HeadSet:LongWord;
+Begin
+ HeadStraight:=False;
+ Msg:='';
+ If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de redresser la t'#136'te';Exit;End;
+ If H.Fw<60 Then Begin Msg:='le visage est trop petit pour redresser la t'#136'te (60 pixels de large minimum)';Exit;End;
+ ColorInit;
+ Yl:=LumaPlane(S);
+ FindIrises(S,H,Yl,Ir,Lskin);
+ FreeMem(Yl);
+ If not(Ir[0].Ok and Ir[1].Ok)Then Begin Msg:='les deux yeux sont n'#130'cessaires pour mesurer l''inclinaison de la t'#136'te';Exit;End;
+ Th:=ATan2F(Ir[1].Cy-Ir[0].Cy,Ir[1].Cx-Ir[0].Cx);
+ If Abs(Th)*180/Pi<1.5 Then Begin Msg:='la t'#136'te est d'#130'j'#133' droite (inclinaison de moins de 1,5 degr'#130's)';Exit;End;
+ If Abs(Th)*180/Pi>35 Then Begin Msg:='inclinaison de la t'#136'te trop forte pour '#136'tre corrig'#130'e';Exit;End;
+ N:=Int64(S.W)*S.H;
+ HeadSet:=msFace or msHair or msHat or msGlasses;
+ Pvx:=H.Cx;Pvy:=H.Fy1+0.05*H.Fh;
+ Wm:=AllocF(N);
+ CatMask(S,HeadSet,Wm);
+ For Y:=0 to S.H-1 do Begin
+  Wv:=1-SmoothStep(Pvy-0.18*H.Fh,Pvy+0.05*H.Fh,Y+0.5);
+  For X:=0 to S.W-1 do Wm[Int64(Y)*S.W+X]:=Wm[Int64(Y)*S.W+X]*Wv;
+ End;
+ Orig:=AllocF(N*3);
+ Move(S.Pix^,Orig^,N*12);
+ For C:=0 to NumCat-1 do Begin
+  CatO[C]:=PByte(AllocBytes(N));
+  Move(S.Cat[C]^,CatO[C]^,N);
+ End;
+ { la tete est retiree, la zone liberee est comblee par propagation }
+ Mk:=PByte(AllocBytes(N));Known:=AllocF(N);
+ For K:=0 to N-1 do If Wm[K]>0.3 Then Mk[K]:=255;
+ MorphMask(Mk,S.W,S.H,2,False);
+ For K:=0 to N-1 do If Mk[K]=0 Then Known[K]:=1;
+ PushPullFill(S.Pix,Known,S.W,S.H);
+ For K:=0 to N-1 do If Mk[K]<>0 Then Begin
+  For C:=0 to NumCat-1 do S.Cat[C][K]:=0;
+  S.Cat[cBg][K]:=255;
+ End;
+ FreeMem(Known);FreeMem(Mk);
+ { la tete tourne autour du cou }
+ Cd:=Cos(Th);Sd:=Sin(Th);
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   Rx:=X+0.5-Pvx;Ry:=Y+0.5-Pvy;
+   Sx:=Pvx+Rx*Cd-Ry*Sd;Sy:=Pvy+Rx*Sd+Ry*Cd;
+   If(Sx<0)or(Sy<0)or(Sx>=S.W)or(Sy>=S.H)Then Continue;
+   Ix:=Trunc(Sx);Iy:=Trunc(Sy);
+   Wc:=Wm[Int64(Iy)*S.W+Ix];
+   If Wc<=0.02 Then Continue;
+   K:=Int64(Y)*S.W+X;
+   SampleBilinear(Orig,S.W,S.H,3,Sx,Sy,@Px[0]);
+   For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Wc)+Px[C]*Wc;
+   For C:=0 to NumCat-1 do Begin
+    Mv:=Trunc(S.Cat[C][K]*(1-Wc)+0.5);
+    If(HeadSet and(LongWord(1)shl C))<>0 Then
+     Mv:=Mv+Trunc(CatO[C][Int64(Iy)*S.W+Ix]*(1-SmoothStep(Pvy-0.18*H.Fh,Pvy+0.05*H.Fh,Sy))+0.5);
+    If Mv>255 Then Mv:=255;
+    S.Cat[C][K]:=Mv;
+   End;
+  End;
+ FreeMem(Orig);FreeMem(Wm);
+ For C:=0 to NumCat-1 do FreeMem(CatO[C]);
+ HeadStraight:=True;
+ Info('  t'#136'te redress'#130'e ('+FStr(Th*180/Pi,1)+' degr'#130's)');
+End;
+
+{ aureole : anneau dore lumineux au-dessus de la tete }
+Function ApplyHalo(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ X,Y,C,Ytop,Need,X0,X1,Y0,Y1:LongInt;
+ K:Int64;
+ Cx,Cy,Rx,Ry,Th,E,Ed,V,Cov,Glow,R,G,B,Al:Single;
+Begin
+ ApplyHalo:=False;
+ Msg:='';
+ If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de placer une aur'#130'ole';Exit;End;
+ If not CatBBox(S,msFace or msHair or msHat,X0,Y0,X1,Y1)Then Begin Msg:='t'#136'te non d'#130'tect'#130'e';Exit;End;
+ ColorInit;
+ Ytop:=Y0;
+ Rx:=0.60*FMax(H.Fw,0.6*(X1-X0+1));
+ Ry:=0.22*Rx;
+ Th:=FMax(0.060*Rx,1.8);
+ Cx:=H.Cx;
+ Cy:=Ytop-0.30*Ry-0.02*H.Fh;
+ Need:=Trunc(Ry+Th*2+0.45*Rx+4-Cy);
+ If Need>0 Then Begin
+  GrowEdges(S,0,Need,0,0);
+  Cy:=Cy+Need;
+ End;
+ ColorInit;
+ Ed:=0;
+ For Y:=Trunc(Cy-Ry-0.75*Rx)to Trunc(Cy+Ry+0.75*Rx)do
+  For X:=Trunc(Cx-Rx-0.75*Rx)to Trunc(Cx+Rx+0.75*Rx)do Begin
+   If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   { distance au contour de l'ellipse (approx.) }
+   E:=Sqrt(Sqr((X+0.5-Cx)/Rx)+Sqr((Y+0.5-Cy)/Ry));
+   Ed:=Abs(E-1)*Ry;
+   { lueur autour de l'anneau }
+   Glow:=0.85*Exp(-Sqr(Ed/(0.17*Rx)));
+   If Glow>0.01 Then Begin
+    S.Pix[K*3]:=S.Pix[K*3]+(255-S.Pix[K*3])*Glow*0.75;
+    S.Pix[K*3+1]:=S.Pix[K*3+1]+(236-S.Pix[K*3+1])*Glow*0.75;
+    S.Pix[K*3+2]:=S.Pix[K*3+2]+(150-S.Pix[K*3+2])*Glow*0.55;
+   End;
+   { anneau : le dessus est cache par la tete, le devant ne l'est pas }
+   Cov:=CoverD(Ed-Th);
+   If Cov>0.003 Then Begin
+    V:=MetalV(Clamp(0.5+(Y+0.5-Cy)/(2*Ry)*0.8+(X+0.5-Cx)/Rx*0.12,0,1));
+    MetalRamp(RgbOf(255,214,96),Clamp(V*0.95+0.12,0,1),R,G,B);
+    Al:=1-S.Cat[cBg][K]/255.0;
+    If Y+0.5<Cy Then Cov:=Cov*(1-SmoothStep(0.15,0.85,Al));
+    S.Pix[K*3]:=S.Pix[K*3]*(1-Cov)+R*Cov;
+    S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Cov)+G*Cov;
+    S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Cov)+B*Cov;
+    For C:=0 to NumCat-1 do S.Cat[C][K]:=Trunc(S.Cat[C][K]*(1-Cov)+0.5);
+    S.Cat[cOther][K]:=ClampI(S.Cat[cOther][K]+Trunc(Cov*255+0.5),0,255);
+   End;
+  End;
+ ApplyHalo:=True;
+ Info('  aur'#130'ole ajout'#130'e');
+End;
+{ ------------------------------------------------------------------ }
+{ Bras et mains dessines par le programme : croises, main en V,       }
+{ doigt pointe, bras ecartes ou leves, bras tendus                    }
+{ ------------------------------------------------------------------ }
+
+Const
+ hkFist=0;hkPeace=1;hkPoint=2;hkOpen=3;hkFlat=4;
+ apCross=1;apPeace=2;apPoint=3;apOut=4;apUp=5;apForward=6;apLean=7;
+
+Type
+ TBody=Record
+  Cx,Half,Sy,Hem,U,Sho:Single;
+  Ty0,Ty1:LongInt;
+  HasFace:Boolean;
+  Hd:THeadInfo;
+  Sk,Sl:Array[0..2]of Single;
+  SleeveEnd:Single;
+ End;
+ TPaint=Record
+  Sk,Sl:Array[0..2]of Single;
+  SEnd,T0,T1:Single;
+ End;
+ TArm=Record
+  Used,Keep:Boolean;               { Keep : le haut du bras d'origine est conserve }
+  Sg:LongInt;
+  Sx,Sy,Ex,Ey,Wx,Wy:Single;
+  Hand:LongInt;
+  Hdx,Hdy,Hsz:Single;
+  R0,R1,R2:Single;                 { rayons : epaule, coude, poignet }
+  PadX:Single;                     { place supplementaire a prevoir du cote Sg }
+ End;
+ TArmSet=Array[0..1]of TArm;
+
+{ situe le corps : axe, epaules, unite de longueur (hauteur du visage), couleurs }
+Function GetBody(Var S:TScene;Var B:TBody;Var Msg:AnsiString):Boolean;
+Var
+ Tx0,Ty0,Tx1,Ty1,X,Y,Tl,Tr,Cn:LongInt;
+ N,K,Na,Ns:Int64;
+ Sr,Sg,Sb:Double;
+ Fr,Fg,Fb:Single;
+ Ys:LongInt;
+ Hy:Array of LongInt;
+Begin
+ GetBody:=False;
+ Msg:='';
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ B.HasFace:=HeadInfo(S,B.Hd)and(B.Hd.Fw>=24);
+ If CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)Then Begin
+  B.Cx:=(Tx0+Tx1+1)/2;B.Half:=(Tx1-Tx0+1)/2;
+  Y:=Ty0+((Ty1-Ty0)*80)div 100;
+  Tl:=S.W;Tr:=-1;
+  For X:=0 to S.W-1 do If(S.Cat[cTop][Int64(Y)*S.W+X]+S.Cat[cDress][Int64(Y)*S.W+X])>=128 Then Begin
+   If X<Tl Then Tl:=X;
+   If X>Tr Then Tr:=X;
+  End;
+  If Tr>Tl Then Begin B.Cx:=(Tl+Tr+1)/2;B.Half:=(Tr-Tl+1)/2;End;
+ End
+  Else If B.HasFace Then Begin
+   B.Cx:=B.Hd.Cx;B.Half:=1.15*B.Hd.Fh;
+   Ty0:=Trunc(B.Hd.Fy1+0.40*B.Hd.Fh);Ty1:=Ty0+Trunc(3.0*B.Hd.Fh);
+  End
+   Else Begin Msg:='aucun haut ni visage d'#130'tect'#130' : impossible de situer le corps';Exit;End;
+ If B.HasFace Then Begin
+  B.U:=B.Hd.Fh;
+  If(B.Half<0.7*B.U)or(B.Half>2.2*B.U)Then B.U:=B.Half/1.15;
+ End
+  Else B.U:=B.Half/1.15;
+ { l'axe du visage est plus fiable que celui du bas du haut (objets devant le torse) }
+ If B.HasFace and((Abs(B.Hd.Cx-B.Cx)>0.45*B.U)or(B.Half<0.7*B.U))Then Begin
+  If(B.Hd.Cx>Tx0)and(B.Hd.Cx<Tx1)Then Begin
+   B.Cx:=B.Hd.Cx;
+   B.Half:=0.80*FMin(B.Cx-Tx0,Tx1-B.Cx);
+   If B.Half<0.9*B.U Then B.Half:=0.9*B.U;
+   If B.Half>1.5*B.U Then B.Half:=1.5*B.U;
+  End;
+ End;
+ If B.U<12 Then Begin Msg:='personne trop petite pour dessiner les bras (visage de moins de 12 pixels)';Exit;End;
+ B.Ty0:=Ty0;B.Ty1:=Ty1;
+ B.Sy:=Ty0+0.45*B.U;
+ If B.HasFace Then B.Sy:=FMax(B.Sy,B.Hd.Fy1+0.65*B.U);
+ B.Hem:=Ty1;
+ B.Sho:=Clamp(B.Half*0.88,0.85*B.U,1.25*B.U);
+ { couleurs : peau (bras, sinon visage) et manche (haut hors du torse) }
+ If SkinColor(S,True,Fr,Fg,Fb)Then Begin B.Sk[0]:=Fr;B.Sk[1]:=Fg;B.Sk[2]:=Fb;End
+ Else If B.HasFace Then FaceSkin(S,B.Hd,B.Sk[0],B.Sk[1],B.Sk[2])
+ Else Begin B.Sk[0]:=205;B.Sk[1]:=160;B.Sk[2]:=135;End;
+ Sr:=0;Sg:=0;Sb:=0;Cn:=0;Ns:=0;
+ For Y:=Ty0 to Ty1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cTop][K]+S.Cat[cDress][K])<200 Then Continue;
+   If Abs(X+0.5-B.Cx)>0.8*B.Half Then Begin Sr:=Sr+S.Pix[K*3];Sg:=Sg+S.Pix[K*3+1];Sb:=Sb+S.Pix[K*3+2];Inc(Cn);End;
+  End;
+ If Cn<30 Then Begin
+  Cn:=0;Sr:=0;Sg:=0;Sb:=0;
+  For K:=0 to N-1 do If(S.Cat[cTop][K]+S.Cat[cDress][K])>=200 Then Begin Sr:=Sr+S.Pix[K*3];Sg:=Sg+S.Pix[K*3+1];Sb:=Sb+S.Pix[K*3+2];Inc(Cn);End;
+ End;
+ If Cn>=30 Then Begin B.Sl[0]:=Sr/Cn;B.Sl[1]:=Sg/Cn;B.Sl[2]:=Sb/Cn;End
+ Else Begin B.Sl[0]:=B.Sk[0];B.Sl[1]:=B.Sk[1];B.Sl[2]:=B.Sk[2];End;
+ { longueur des manches : la peau des bras commence plus ou moins bas (hors cou et torse) }
+ Na:=0;Ns:=0;
+ SetLength(Hy,S.H);
+ For Y:=0 to S.H-1 do Hy[Y]:=0;
+ For Y:=Trunc(B.Sy+0.3*B.U)to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cArms][K]>=128)and(Abs(X+0.5-B.Cx)>0.55*B.Half)Then Begin Inc(Hy[Y]);Inc(Na);End
+   Else If(S.Cat[cTop][K]>=128)and(Abs(X+0.5-B.Cx)>B.Half*1.0)Then Inc(Ns);
+  End;
+ If Na<Trunc(B.U*B.U*0.15)Then Begin
+  { aucune peau de bras visible : manches longues, ou bras hors cadre }
+  B.SleeveEnd:=0.92;
+ End
+  Else Begin
+   Ns:=0;Ys:=0;
+   For Y:=0 to S.H-1 do Begin
+    Ns:=Ns+Hy[Y];
+    If Ns>=Na*4 div 100 Then Begin Ys:=Y;Break;End;
+   End;
+   B.SleeveEnd:=Clamp((Ys-B.Sy)/(3.1*B.U),0,0.95);
+  End;
+ Detail('  corps : axe '+FStr(B.Cx,0)+', demi-largeur '+FStr(B.Half,0)+', unit'#130' '+FStr(B.U,0)+', '#130'paules y='+FStr(B.Sy,0)+', manches '+FStr(B.SleeveEnd,2));
+ GetBody:=True;
+End;
+
+{ ---- dessin ---- }
+
+Procedure PaintPix(Var S:TScene;X,Y:LongInt;Cov,R,G,B:Single;CatIdx:LongInt);
+Var
+ K:Int64;
+ C,Mv:LongInt;
+Begin
+ If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Exit;
+ If Cov<=0.003 Then Exit;
+ If Cov>1 Then Cov:=1;
+ K:=Int64(Y)*S.W+X;
+ If R>255 Then R:=255;If G>255 Then G:=255;If B>255 Then B:=255;
+ S.Pix[K*3]:=S.Pix[K*3]*(1-Cov)+R*Cov;
+ S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Cov)+G*Cov;
+ S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Cov)+B*Cov;
+ If CatIdx>=0 Then Begin
+  For C:=0 to NumCat-1 do S.Cat[C][K]:=Trunc(S.Cat[C][K]*(1-Cov)+0.5);
+  Mv:=S.Cat[CatIdx][K]+Trunc(Cov*255+0.5);
+  If Mv>255 Then Mv:=255;
+  S.Cat[CatIdx][K]:=Mv;
+ End;
+End;
+
+{ membre en forme de capsule, eclaire en haut a gauche ; manche puis peau selon le parametre T }
+Procedure DrawCapsule(Var S:TScene;X0,Y0,X1,Y1,R0,R1:Single;Const P:TPaint);
+Var
+ X,Y,Xa,Xb,Ya,Yb,CatIdx:LongInt;
+ Dx,Dy,L,Nx,Ny,Vx,Vy,T,Qx,Qy,D,Rr,Cov,U,Nz,Dt,Sh,Tt,Mixs,R,G,B,Cuff:Single;
+Begin
+ Dx:=X1-X0;Dy:=Y1-Y0;
+ L:=Sqrt(Dx*Dx+Dy*Dy);
+ If L<0.001 Then Begin Dx:=0;Dy:=1;L:=0.001;End Else Begin Dx:=Dx/L;Dy:=Dy/L;End;
+ Nx:=-Dy;Ny:=Dx;
+ Rr:=FMax(R0,R1);
+ Xa:=Trunc(FMin(X0,X1)-Rr-2);Xb:=Trunc(FMax(X0,X1)+Rr+2);
+ Ya:=Trunc(FMin(Y0,Y1)-Rr-2);Yb:=Trunc(FMax(Y0,Y1)+Rr+2);
+ For Y:=Ya to Yb do
+  For X:=Xa to Xb do Begin
+   Vx:=X+0.5-X0;Vy:=Y+0.5-Y0;
+   T:=Vx*Dx+Vy*Dy;
+   If L>0.002 Then T:=T/L Else T:=0;
+   If T<0 Then T:=0 Else If T>1 Then T:=1;
+   Qx:=X0+Dx*L*T;Qy:=Y0+Dy*L*T;
+   Rr:=R0+(R1-R0)*T;
+   D:=Sqrt(Sqr(X+0.5-Qx)+Sqr(Y+0.5-Qy));
+   Cov:=CoverD(D-Rr);
+   If Cov<=0.003 Then Continue;
+   U:=((X+0.5-Qx)*Nx+(Y+0.5-Qy)*Ny)/Rr;
+   If U>1 Then U:=1 Else If U<-1 Then U:=-1;
+   Nz:=Sqrt(1-U*U);
+   { normale (U*N, Nz) ; lumiere (-0,5 ; -0,6 ; 0,62) }
+   Dt:=-0.5*U*Nx-0.6*U*Ny+0.62*Nz;
+   If Dt<0 Then Dt:=0;
+   Sh:=(0.50+0.62*Dt)/0.90;
+   Tt:=P.T0+(P.T1-P.T0)*T;
+   Mixs:=SmoothStep(P.SEnd-0.015,P.SEnd+0.015,Tt);
+   Sh:=Sh*(1+0.045*(VNoise(X*0.45,Y*0.45)-0.5)*(1-Mixs)+0.02*(VNoise(X*0.9+9,Y*0.9)-0.5));
+   R:=(P.Sl[0]*(1-Mixs)+P.Sk[0]*Mixs)*Sh;
+   G:=(P.Sl[1]*(1-Mixs)+P.Sk[1]*Mixs)*Sh;
+   B:=(P.Sl[2]*(1-Mixs)+P.Sk[2]*Mixs)*Sh;
+   { poignet de manche : leger trait sombre }
+   If(P.SEnd>0.02)and(P.SEnd<0.99)Then Begin
+    Cuff:=0.22*Exp(-Sqr((Tt-P.SEnd)/0.018));
+    R:=R*(1-Cuff);G:=G*(1-Cuff);B:=B*(1-Cuff);
+   End;
+   If Mixs<0.5 Then CatIdx:=cTop Else CatIdx:=cArms;
+   PaintPix(S,X,Y,Cov,R,G,B,CatIdx);
+  End;
+End;
+
+{ main : le poignet est en (Hx,Hy), les doigts vont dans la direction (Dx,Dy), Sz = longueur de la main }
+Procedure DrawHand(Var S:TScene;Kind:LongInt;Hx,Hy,Dx,Dy,Sz:Single;Const Base:TPaint);
+Var
+ P:TPaint;
+ Px,Py:Single;
+ Procedure Seg(A0,B0,A1,B1,R0,R1:Single);
+ Var
+  X0,Y0,X1,Y1:Single;
+ Begin
+  X0:=Hx+A0*Sz*Dx-B0*Sz*Dy;Y0:=Hy+A0*Sz*Dy+B0*Sz*Dx;
+  X1:=Hx+A1*Sz*Dx-B1*Sz*Dy;Y1:=Hy+A1*Sz*Dy+B1*Sz*Dx;
+  DrawCapsule(S,X0,Y0,X1,Y1,R0*Sz,R1*Sz,P);
+ End;
+Begin
+ P:=Base;P.SEnd:=0;P.T0:=0;P.T1:=1;
+ Px:=0;Py:=0;
+ Case Kind of
+  hkFist:Begin
+   Seg(0.04,0,0.38,0,0.20,0.23);
+   Seg(0.40,-0.15,0.50,-0.15,0.075,0.075);
+   Seg(0.42,-0.05,0.53,-0.05,0.075,0.075);
+   Seg(0.42,0.05,0.53,0.05,0.075,0.075);
+   Seg(0.40,0.15,0.49,0.15,0.07,0.07);
+   Seg(0.20,-0.20,0.46,-0.12,0.07,0.07);
+  End;
+  hkPeace:Begin
+   Seg(0.04,0,0.36,0,0.21,0.23);
+   Seg(0.38,0.15,0.46,0.15,0.07,0.07);
+   Seg(0.37,0.23,0.43,0.23,0.06,0.06);
+   Seg(0.36,-0.07,0.70,-0.19,0.066,0.060);
+   Seg(0.36,0.07,0.70,0.19,0.066,0.060);
+   Seg(0.14,-0.22,0.38,0.10,0.07,0.065);
+  End;
+  hkPoint:Begin
+   Seg(0.04,0,0.36,0,0.20,0.22);
+   Seg(0.38,0.00,0.52,0.00,0.07,0.07);
+   Seg(0.38,0.10,0.48,0.10,0.07,0.07);
+   Seg(0.37,0.19,0.46,0.19,0.06,0.06);
+   Seg(0.36,-0.09,0.96,-0.09,0.068,0.058);
+   Seg(0.16,-0.20,0.42,-0.14,0.07,0.065);
+  End;
+  hkOpen:Begin
+   Seg(0.04,0,0.38,0,0.21,0.23);
+   Seg(0.38,-0.15,0.70,-0.26,0.063,0.055);
+   Seg(0.40,-0.05,0.80,-0.09,0.066,0.056);
+   Seg(0.40,0.05,0.82,0.09,0.066,0.056);
+   Seg(0.38,0.14,0.70,0.26,0.060,0.052);
+   Seg(0.10,-0.21,0.40,-0.48,0.075,0.062);
+  End;
+  Else Begin
+   { main vue de face, a plat : plus large, les doigts serres }
+   Seg(0.04,0,0.42,0,0.26,0.28);
+   Seg(0.44,-0.17,0.64,-0.17,0.075,0.07);
+   Seg(0.45,-0.06,0.68,-0.06,0.078,0.072);
+   Seg(0.45,0.06,0.68,0.06,0.078,0.072);
+   Seg(0.44,0.17,0.62,0.17,0.07,0.065);
+   Seg(0.16,-0.27,0.40,-0.30,0.08,0.07);
+  End;
+ End;
+End;
+
+{ ---- retrait des bras d'origine ---- }
+
+{ le bras du cote Side (-1 gauche de l'image, 1 droite, 0 les deux) est efface sous la ligne YKeep }
+Procedure RemoveArm(Var S:TScene;Const B:TBody;Side:LongInt;YKeep:Single);
+Var
+ N,K:Int64;
+ X,Y,C,Sd:LongInt;
+ Mk:PByte;
+ Kn,Pt,Kt:PSingle;
+ Inb:Boolean;
+Begin
+ N:=Int64(S.W)*S.H;
+ Mk:=PByte(AllocBytes(N));Kn:=AllocF(N);
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   If Y+0.5<=YKeep Then Continue;
+   If Y+0.5<B.Sy-0.30*B.U Then Continue;
+   If X+0.5<B.Cx Then Sd:=-1 Else Sd:=1;
+   If(Side<>0)and(Sd<>Side)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cArms][K]>=128)or((S.Cat[cTop][K]>=128)and(Abs(X+0.5-B.Cx)>B.Half*0.98))Then Mk[K]:=255;
+  End;
+ MorphMask(Mk,S.W,S.H,2,False);
+ For K:=0 to N-1 do If Mk[K]=0 Then Kn[K]:=1;
+ { la zone du torse est comblee avec la matiere du haut, le reste avec le fond }
+ Pt:=AllocF(N*3);Kt:=AllocF(N);
+ Move(S.Pix^,Pt^,N*12);
+ For K:=0 to N-1 do If(Mk[K]=0)and((S.Cat[cTop][K]+S.Cat[cDress][K])>=200)Then Kt[K]:=1;
+ PushPullFill(S.Pix,Kn,S.W,S.H);
+ PushPullFill(Pt,Kt,S.W,S.H);
+ For Y:=Trunc(B.Ty0)to IMin(S.H-1,B.Ty1)do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(Mk[K]<>0)and(Abs(X+0.5-B.Cx)<=B.Half)Then For C:=0 to 2 do S.Pix[K*3+C]:=Pt[K*3+C];
+  End;
+ FreeMem(Pt);FreeMem(Kt);
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If Mk[K]=0 Then Continue;
+   Inb:=(Abs(X+0.5-B.Cx)<=B.Half)and(Y>=B.Ty0)and(Y<=B.Ty1);
+   For C:=0 to NumCat-1 do S.Cat[C][K]:=0;
+   If Inb Then S.Cat[cTop][K]:=255 Else S.Cat[cBg][K]:=255;
+  End;
+ FreeMem(Mk);FreeMem(Kn);
+End;
+
+{ les bras pendent-ils le long du corps (cote Side) ? axe moyen presque vertical, hors du torse }
+Function ArmHangs(Const S:TScene;Const B:TBody;Side:LongInt):Boolean;
+Var
+ X,Y:LongInt;
+ K,Cnt:Int64;
+ Mx,My,Sxx,Sxy,Syy,Th:Double;
+Begin
+ ArmHangs:=False;
+ Mx:=0;My:=0;Cnt:=0;
+ For Y:=Trunc(B.Sy)to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   If(X+0.5<B.Cx)<>(Side<0)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cArms][K]>=128)or((S.Cat[cTop][K]>=128)and(Abs(X+0.5-B.Cx)>B.Half*0.98))Then Begin Mx:=Mx+X;My:=My+Y;Inc(Cnt);End;
+  End;
+ If Cnt<Trunc(B.U*B.U*0.8)Then Exit;
+ Mx:=Mx/Cnt;My:=My/Cnt;
+ Sxx:=0;Sxy:=0;Syy:=0;
+ For Y:=Trunc(B.Sy)to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   If(X+0.5<B.Cx)<>(Side<0)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cArms][K]>=128)or((S.Cat[cTop][K]>=128)and(Abs(X+0.5-B.Cx)>B.Half*0.98))Then Begin
+    Sxx:=Sxx+(X-Mx)*(X-Mx);Sxy:=Sxy+(X-Mx)*(Y-My);Syy:=Syy+(Y-My)*(Y-My);
+   End;
+  End;
+ Th:=0.5*ATan2F(2*Sxy,Sxx-Syy);
+ ArmHangs:=(Abs(Abs(Th)-Pi/2)*180/Pi<22)and(Abs(Mx-B.Cx)>0.6*B.Half);
+End;
+
+{ ---- plans de bras ---- }
+
+Procedure SetArm(Var A:TArm;Const B:TBody;Sg:LongInt;Ex,Ey,Wx,Wy:Single;Hand:LongInt;Hsz:Single);
+Var
+ L:Single;
+Begin
+ A.Used:=True;A.Keep:=False;A.Sg:=Sg;A.PadX:=0;
+ A.Sx:=B.Cx+Sg*B.Sho;A.Sy:=B.Sy;
+ A.Ex:=Ex;A.Ey:=Ey;A.Wx:=Wx;A.Wy:=Wy;
+ A.Hand:=Hand;
+ L:=Sqrt(Sqr(Wx-Ex)+Sqr(Wy-Ey));
+ If L<0.001 Then Begin A.Hdx:=0;A.Hdy:=-1;End Else Begin A.Hdx:=(Wx-Ex)/L;A.Hdy:=(Wy-Ey)/L;End;
+ A.Hsz:=Hsz;
+ A.R0:=0.23*B.U;A.R1:=0.19*B.U;A.R2:=0.135*B.U;
+End;
+
+{ ajoute (Ang) degres au vecteur (Vx,Vy) }
+Procedure PolarDir(Sg:LongInt;AngDeg:Single;Var Dx,Dy:Single);
+Begin
+ Dx:=Sg*Cos(AngDeg*Pi/180);
+ Dy:=-Sin(AngDeg*Pi/180);
+End;
+
+Procedure PlanArms(Pose:LongInt;Const B:TBody;Side:LongInt;Var P:TArmSet);
+Var
+ I,Sg:LongInt;
+ U,Dx,Dy,Ex,Ey,Wx,Wy,Tx,Ty,Vl,Vx,Vy:Single;
+Begin
+ U:=B.U;
+ P[0].Used:=False;P[1].Used:=False;
+ Case Pose of
+  apCross:
+   For I:=0 to 1 do Begin
+    Sg:=I*2-1;
+    Ex:=B.Cx+Sg*(B.Sho+0.05*U);Ey:=B.Sy+1.65*U-0.10*U*(1-I);
+    { le poignet se rapproche du cote oppose : la main s'arrete au bord du torse }
+    Tx:=B.Cx-Sg*0.78*B.Half;Ty:=Ey-0.50*U;
+    Vx:=Tx-Ex;Vy:=Ty-Ey;Vl:=Sqrt(Vx*Vx+Vy*Vy);
+    Wx:=Tx-Vx/Vl*0.55*U;Wy:=Ty-Vy/Vl*0.55*U;
+    SetArm(P[I],B,Sg,Ex,Ey,Wx,Wy,hkFist,0.95*U);
+    P[I].Keep:=True;
+   End;
+  apPeace:Begin
+   Sg:=Side;
+   Ex:=B.Cx+Sg*(B.Sho+0.80*U);Ey:=B.Sy+1.42*U;
+   Wx:=Ex+Sg*0.25*U;Wy:=Ey-1.42*U;
+   SetArm(P[0],B,Sg,Ex,Ey,Wx,Wy,hkPeace,1.0*U);
+  End;
+  apPoint:Begin
+   Sg:=Side;
+   PolarDir(Sg,16,Dx,Dy);
+   Ex:=B.Cx+Sg*B.Sho+Dx*1.65*U;Ey:=B.Sy+Dy*1.65*U;
+   PolarDir(Sg,10,Dx,Dy);
+   Wx:=Ex+Dx*1.45*U;Wy:=Ey+Dy*1.45*U;
+   SetArm(P[0],B,Sg,Ex,Ey,Wx,Wy,hkPoint,1.0*U);
+  End;
+  apOut:
+   For I:=0 to 1 do Begin
+    Sg:=I*2-1;
+    PolarDir(Sg,-6,Dx,Dy);
+    Ex:=B.Cx+Sg*B.Sho+Dx*1.65*U;Ey:=B.Sy+Dy*1.65*U;
+    PolarDir(Sg,-9,Dx,Dy);
+    Wx:=Ex+Dx*1.45*U;Wy:=Ey+Dy*1.45*U;
+    SetArm(P[I],B,Sg,Ex,Ey,Wx,Wy,hkFist,0.95*U);
+   End;
+  apUp:
+   For I:=0 to 1 do Begin
+    Sg:=I*2-1;
+    PolarDir(Sg,62,Dx,Dy);
+    Ex:=B.Cx+Sg*B.Sho+Dx*1.65*U;Ey:=B.Sy+Dy*1.65*U;
+    PolarDir(Sg,72,Dx,Dy);
+    Wx:=Ex+Dx*1.45*U;Wy:=Ey+Dy*1.45*U;
+    SetArm(P[I],B,Sg,Ex,Ey,Wx,Wy,hkOpen,1.0*U);
+   End;
+  apForward:
+   For I:=0 to 1 do Begin
+    Sg:=I*2-1;
+    Ex:=B.Cx+Sg*(B.Sho+0.12*U);Ey:=B.Sy+1.05*U;
+    Wx:=B.Cx+Sg*0.52*B.Sho;Wy:=B.Sy+0.95*U;
+    SetArm(P[I],B,Sg,Ex,Ey,Wx,Wy,hkFlat,1.05*U);
+    P[I].R0:=0.23*U;P[I].R1:=0.23*U;P[I].R2:=0.21*U;
+    P[I].Hdx:=-Sg*0.35;P[I].Hdy:=-0.94;
+   End;
+  Else Begin
+   { appui sur un meuble : le coude repose sur le meuble, la main pres du menton }
+   Sg:=Side;
+   Ex:=B.Cx+Sg*(B.Sho+1.25*U);Ey:=B.Sy+1.30*U;
+   Wx:=B.Cx+Sg*0.62*U;Wy:=B.Sy-0.55*U;
+   If B.HasFace Then Begin Wx:=B.Cx+Sg*0.46*B.Hd.Fw;Wy:=B.Hd.Fy1+0.05*B.Hd.Fh+0.15*U;End;
+   SetArm(P[0],B,Sg,Ex,Ey,Wx,Wy,hkFist,0.85*U);
+   P[0].PadX:=2.1*U;
+  End;
+ End;
+End;
+
+{ marges necessaires pour contenir les bras et mains (par rapport a l'image) }
+Procedure ArmMargins(Const S:TScene;Const B:TBody;Const P:TArmSet;Var L,T,R,Bt:LongInt);
+Var
+ I:LongInt;
+ X0,X1,Y0,Y1,Pad:Single;
+Begin
+ L:=0;T:=0;R:=0;Bt:=0;
+ Pad:=0.40*B.U;
+ For I:=0 to 1 do If P[I].Used Then Begin
+  X0:=FMin(P[I].Ex,P[I].Wx)-Pad;X1:=FMax(P[I].Ex,P[I].Wx)+Pad;
+  Y0:=FMin(P[I].Ey,P[I].Wy)-Pad;Y1:=FMax(P[I].Ey,P[I].Wy)+Pad;
+  X0:=FMin(X0,P[I].Wx+P[I].Hdx*P[I].Hsz*0.98-Pad);X1:=FMax(X1,P[I].Wx+P[I].Hdx*P[I].Hsz*0.98+Pad);
+  Y0:=FMin(Y0,P[I].Wy+P[I].Hdy*P[I].Hsz*0.98-Pad);Y1:=FMax(Y1,P[I].Wy+P[I].Hdy*P[I].Hsz*0.98+Pad);
+  If P[I].Sg>0 Then X1:=FMax(X1,P[I].Ex+P[I].PadX) Else If P[I].PadX>0 Then X0:=FMin(X0,P[I].Ex-P[I].PadX);
+  If-X0>L Then L:=Trunc(-X0)+1;
+  If X1-S.W>R Then R:=Trunc(X1-S.W)+1;
+  If-Y0>T Then T:=Trunc(-Y0)+1;
+  Bt:=0;
+ End;
+End;
+
+{ dessine un bras du plan (haut du bras, avant-bras, main) }
+Procedure DrawArm(Var S:TScene;Const B:TBody;Const A:TArm);
+Var
+ Pt:TPaint;
+ Lu,Lf,Tm:Single;
+Begin
+ Pt.Sk:=B.Sk;Pt.Sl:=B.Sl;Pt.SEnd:=B.SleeveEnd;
+ Lu:=Sqrt(Sqr(A.Ex-A.Sx)+Sqr(A.Ey-A.Sy));
+ Lf:=Sqrt(Sqr(A.Wx-A.Ex)+Sqr(A.Wy-A.Ey));
+ If Lu+Lf<1 Then Exit;
+ Tm:=Lu/(Lu+Lf);
+ If not A.Keep Then Begin
+  Pt.T0:=0;Pt.T1:=Tm;
+  DrawCapsule(S,A.Sx,A.Sy,A.Ex,A.Ey,A.R0,A.R1,Pt);
+ End;
+ Pt.T0:=Tm;Pt.T1:=1;
+ DrawCapsule(S,A.Ex,A.Ey,A.Wx,A.Wy,A.R1,A.R2,Pt);
+ If A.Hand>=0 Then DrawHand(S,A.Hand,A.Wx,A.Wy,A.Hdx,A.Hdy,A.Hsz,Pt);
+End;
+
+Var
+ LastB:TBody;
+ LastP:TArmSet;
+
+{ pose des bras ; Pose = ap... ; Side = cote de l'unique bras (-1 gauche de l'image, 1 droite) }
+Function ArmPose(Var S:TScene;Pose,Side:LongInt;Const What:AnsiString;Var Msg:AnsiString):Boolean;
+Var
+ B:TBody;
+ P:TArmSet;
+ L,T,R,Bt,I,Gr:LongInt;
+ L2,T2,R2,B2:LongInt;
+ Bm:Boolean;
+ YK:Single;
+Begin
+ ArmPose:=False;
+ If not GetBody(S,B,Msg)Then Exit;
+ PlanArms(Pose,B,Side,P);
+ { image trop etroite d'un cote : le fond est prolonge }
+ ArmMargins(S,B,P,L,T,R,Bt);
+ If(L>0)or(T>0)or(R>0)or(Bt>0)Then Begin
+  If(L>S.W)or(R>S.W)or(T>S.H)or(Bt>S.H)Then Begin
+   Msg:='image trop petite par rapport '#133' la pose demand'#130'e';
+   Exit;
+  End;
+  GrowEdges(S,L,T,R,Bt);
+  If not GetBody(S,B,Msg)Then Exit;
+  PlanArms(Pose,B,Side,P);
+  Detail('  image agrandie ('+IStr(L)+' g, '+IStr(R)+' d, '+IStr(T)+' h, '+IStr(Bt)+' b)');
+ End;
+ { l'ordre de dessin : le bras de droite (image) d'abord }
+ For I:=1 downto 0 do If P[I].Used Then Begin
+  If P[I].Keep Then Begin
+   If ArmHangs(S,B,P[I].Sg)Then YK:=P[I].Ey Else Begin P[I].Keep:=False;YK:=-1;End;
+  End
+   Else YK:=-1;
+  RemoveArm(S,B,P[I].Sg,YK);
+ End;
+ For I:=1 downto 0 do If P[I].Used Then DrawArm(S,B,P[I]);
+ LastB:=B;LastP:=P;
+ ArmPose:=True;
+ Info('  '+What);
+End;
+{ ------------------------------------------------------------------ }
+{ Situations : decors dessines par le programme autour de la personne }
+{ (levitation, saut, couchee, dans un lit, assise a une table...)    }
+{ ------------------------------------------------------------------ }
+
+{ silhouette de la personne (arriere-plan < 128) ; faux si trop petite }
+Function PersonBounds(Const S:TScene;Var X0,Y0,X1,Y1:LongInt):Boolean;
+Var
+ X,Y:LongInt;
+ Cnt:Int64;
+Begin
+ X0:=S.W;Y0:=S.H;X1:=-1;Y1:=-1;Cnt:=0;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do If S.Cat[cBg][Int64(Y)*S.W+X]<128 Then Begin
+   If X<X0 Then X0:=X;If X>X1 Then X1:=X;
+   If Y<Y0 Then Y0:=Y;If Y>Y1 Then Y1:=Y;
+   Inc(Cnt);
+  End;
+ PersonBounds:=Cnt>=Int64(S.W)*S.H div 100;
+End;
+
+{ centre horizontal des pieds (bas de la silhouette) }
+Function FeetCenter(Const S:TScene;Y1,X0,X1:LongInt):Single;
+Var
+ X,Y:LongInt;
+ Sx:Double;
+ Nx:Int64;
+Begin
+ Sx:=0;Nx:=0;
+ For Y:=IMax(0,Y1-IMax(3,(Y1+1)div 40))to Y1 do
+  For X:=0 to S.W-1 do If S.Cat[cBg][Int64(Y)*S.W+X]<128 Then Begin Sx:=Sx+X;Inc(Nx);End;
+ If Nx>0 Then FeetCenter:=Sx/Nx+0.5 Else FeetCenter:=(X0+X1+1)/2;
+End;
+
+{ echantillon d'un plan d'octets, interpolation bilineaire (pixels centres en +0,5) }
+Function ByteBilinear(P:PByte;W,H:LongInt;X,Y:Single):Single;
+Var
+ X0,Y0,X1,Y1:LongInt;
+ Fx,Fy:Single;
+Begin
+ X:=X-0.5;Y:=Y-0.5;
+ If X<0 Then X:=0;If Y<0 Then Y:=0;
+ If X>W-1 Then X:=W-1;If Y>H-1 Then Y:=H-1;
+ X0:=Trunc(X);Y0:=Trunc(Y);
+ X1:=X0+1;If X1>W-1 Then X1:=W-1;
+ Y1:=Y0+1;If Y1>H-1 Then Y1:=H-1;
+ Fx:=X-X0;Fy:=Y-Y0;
+ ByteBilinear:=(P[Int64(Y0)*W+X0]*(1-Fx)+P[Int64(Y0)*W+X1]*Fx)*(1-Fy)+(P[Int64(Y1)*W+X0]*(1-Fx)+P[Int64(Y1)*W+X1]*Fx)*Fy;
+End;
+
+{ nouvelle image NW x NH : la personne est mise a l'echelle Sc, tournee (Rot=1 : 90 degres a gauche)
+  et placee (Ox,Oy) ; le reste est de l'arriere-plan (couleur noire, a remplacer par CompositeBg) }
+Procedure TransformScene(Var S:TScene;NW,NH:LongInt;Sc:Double;Rot:LongInt;Ox,Oy:Double);
+Var
+ N2:Int64;
+ NP:PSingle;
+ NC:Array[0..NumCat-1]of PByte;
+ X,Y,C,A,B,Ss,Cnt:LongInt;
+ K:Int64;
+ U,V,Sx,Sy,Al,AlSum,Wn:Double;
+ Px:Array[0..2]of Single;
+ Col:Array[0..2]of Double;
+ Cs:Array[0..NumCat-1]of Double;
+Begin
+ N2:=Int64(NW)*NH;
+ NP:=AllocF(N2*3);
+ For C:=0 to NumCat-1 do NC[C]:=PByte(AllocBytes(N2));
+ If Sc<0.8 Then Ss:=2 Else Ss:=1;
+ Wn:=1.0/(Ss*Ss);
+ For Y:=0 to NH-1 do
+  For X:=0 to NW-1 do Begin
+   K:=Int64(Y)*NW+X;
+   AlSum:=0;Cnt:=0;
+   Col[0]:=0;Col[1]:=0;Col[2]:=0;
+   For C:=0 to NumCat-1 do Cs[C]:=0;
+   For A:=0 to Ss-1 do
+    For B:=0 to Ss-1 do Begin
+     U:=X+(A+0.5)/Ss;V:=Y+(B+0.5)/Ss;
+     If Rot=0 Then Begin Sx:=(U-Ox)/Sc;Sy:=(V-Oy)/Sc;End
+     Else Begin Sy:=(U-Ox)/Sc;Sx:=S.W-(V-Oy)/Sc;End;
+     If(Sx<0)or(Sy<0)or(Sx>=S.W)or(Sy>=S.H)Then Continue;
+     Al:=1-ByteBilinear(S.Cat[cBg],S.W,S.H,Sx,Sy)/255.0;
+     If Al<=0.004 Then Continue;
+     SampleBilinear(S.Pix,S.W,S.H,3,Sx,Sy,@Px[0]);
+     For C:=0 to 2 do Col[C]:=Col[C]+Px[C]*Al;
+     AlSum:=AlSum+Al;
+     For C:=1 to NumCat-1 do Cs[C]:=Cs[C]+ByteBilinear(S.Cat[C],S.W,S.H,Sx,Sy);
+     Inc(Cnt);
+    End;
+   If AlSum>0.004 Then Begin
+    For C:=0 to 2 do NP[K*3+C]:=Col[C]/AlSum;
+    For C:=1 to NumCat-1 do NC[C][K]:=Trunc(Clamp(Cs[C]*Wn+0.5,0,255));
+    NC[cBg][K]:=255-Trunc(Clamp(AlSum*Wn*255+0.5,0,255));
+   End
+    Else NC[cBg][K]:=255;
+  End;
+ SceneFree(S);
+ S.Pix:=NP;
+ For C:=0 to NumCat-1 do S.Cat[C]:=NC[C];
+ S.W:=NW;S.H:=NH;
+End;
+
+{ la personne est posee sur Bg (meme taille) d'apres la carte d'arriere-plan }
+Procedure CompositeBg(Var S:TScene;Bg:PSingle);
+Var
+ N,K:Int64;
+ C:LongInt;
+ A:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ For K:=0 to N-1 do Begin
+  A:=SmoothStep(0.18,0.92,1-S.Cat[cBg][K]/255.0);
+  For C:=0 to 2 do S.Pix[K*3+C]:=Bg[K*3+C]*(1-A)+S.Pix[K*3+C]*A;
+ End;
+ FreeMem(Bg);
+End;
+
+{ opacite de la personne }
+Function PersonAlpha(Const S:TScene):PSingle;
+Var
+ N,K:Int64;
+ P:PSingle;
+Begin
+ N:=Int64(S.W)*S.H;
+ P:=AllocF(N);
+ For K:=0 to N-1 do P[K]:=1-S.Cat[cBg][K]/255.0;
+ PersonAlpha:=P;
+End;
+
+{ ombre portee douce de la personne sur le decor }
+Procedure CastShadow(Const S:TScene;Bg:PSingle;Dx,Dy,Blur,Dark:Single);
+Var
+ N,K:Int64;
+ Al,Bl:PSingle;
+ X,Y,Sx,Sy,C:LongInt;
+ Sh,A:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ Al:=PersonAlpha(S);
+ Bl:=AllocF(N);
+ BoxBlur(Al,Bl,S.W,S.H,IMax(1,Trunc(Blur)));
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   Sx:=X-Trunc(Dx);Sy:=Y-Trunc(Dy);
+   If(Sx<0)or(Sy<0)or(Sx>=S.W)or(Sy>=S.H)Then Continue;
+   Sh:=Bl[Int64(Sy)*S.W+Sx]*Dark;
+   A:=Al[Int64(Y)*S.W+X];
+   Sh:=Sh*(1-A);
+   If Sh<=0.003 Then Continue;
+   K:=Int64(Y)*S.W+X;
+   For C:=0 to 2 do Bg[K*3+C]:=Bg[K*3+C]*(1-Sh);
+  End;
+ FreeMem(Al);FreeMem(Bl);
+End;
+
+{ bruit a plusieurs echelles, de 0 a 1 }
+Function FBm(X,Y:Single):Single;
+Begin
+ FBm:=0.55*VNoise(X,Y)+0.30*VNoise(X*2.1+17,Y*2.1+5)+0.15*VNoise(X*4.3+3,Y*4.3+29);
+End;
+
+{ parquet : lames horizontales (ou verticales) avec joints et fil du bois }
+Procedure WoodFloor(Bg:PSingle;W,H,X0,Y0,X1,Y1:LongInt;Plank,Len:Single;Base:LongWord);
+Var
+ X,Y,Idx:LongInt;
+ K:Int64;
+ Br,Bgn,Bb,Tone,Gr,Edge,Fy,Jx,V,Off:Single;
+Begin
+ Br:=(Base shr 16)and $FF;Bgn:=(Base shr 8)and $FF;Bb:=Base and $FF;
+ For Y:=Y0 to Y1 do
+  For X:=X0 to X1 do Begin
+   If(X<0)or(Y<0)or(X>=W)or(Y>=H)Then Continue;
+   K:=Int64(Y)*W+X;
+   Idx:=Trunc((Y+0.5)/Plank);
+   Fy:=(Y+0.5)/Plank-Idx;
+   Tone:=0.80+0.34*Hash2(Idx,7);
+   Off:=Hash2(Idx,3)*Len;
+   Jx:=Frac((X+Off)/Len);
+   { joint de bout }
+   Edge:=0;
+   If(Jx*Len<1.6)Then Edge:=0.5;
+   If Fy<0.045 Then Edge:=FMax(Edge,0.6);
+   If Fy>0.965 Then Edge:=FMax(Edge,0.18);
+   Gr:=0.5+0.5*Sin((FBm((X+Off)*0.012,Idx*11.0+Fy*3.0)*9.0+Fy*3.0)*Pi*2);
+   V:=Tone*(0.92+0.10*Gr)*(0.94+0.12*FBm((X+Off)*0.05,Y*0.25))*(1-Edge*0.55);
+   Bg[K*3]:=Br*V;Bg[K*3+1]:=Bgn*V;Bg[K*3+2]:=Bb*V;
+  End;
+End;
+
+{ ---- levitation et saut : le sol et l'ombre restent plus bas que les pieds ---- }
+
+Function SceneLift(Var S:TScene;LiftF:Single;Const What:AnsiString;Var Msg:AnsiString):Boolean;
+Var
+ X0,Y0,X1,Y1,X,Y,Need,C:LongInt;
+ N,K:Int64;
+ BodyH,BodyW,Lift,YFeet,Xc,Yg,Yh,Rx,Ry,Fl,Sh,A,Dd:Single;
+ Sr,Sg,Sb:Double;
+ Cnt:LongInt;
+ Fr,Fg,Fb:Single;
+ Fv:Array[0..2]of Single;
+Begin
+ SceneLift:=False;
+ Msg:='';
+ If not PersonBounds(S,X0,Y0,X1,Y1)Then Begin Msg:='aucune personne d'#130'tect'#130'e';Exit;End;
+ BodyH:=Y1-Y0+1;BodyW:=X1-X0+1;
+ Lift:=LiftF*BodyH;
+ YFeet:=Y1+1;
+ Yg:=YFeet+Lift;
+ Need:=Trunc(Yg+0.09*BodyH+4)-S.H;
+ If Need>0 Then GrowEdges(S,0,0,0,Need);
+ Xc:=FeetCenter(S,Y1,X0,X1);
+ N:=Int64(S.W)*S.H;
+ Yh:=YFeet-0.02*BodyH;
+ { couleur du sol : le fond au-dessus de l'horizon, assombri }
+ Sr:=0;Sg:=0;Sb:=0;Cnt:=0;
+ For Y:=IMax(0,Trunc(Yh)-8)to IMax(0,Trunc(Yh)-2)do
+  For X:=0 to S.W-1 do If S.Cat[cBg][Int64(Y)*S.W+X]>=240 Then Begin
+   K:=Int64(Y)*S.W+X;
+   Sr:=Sr+S.Pix[K*3];Sg:=Sg+S.Pix[K*3+1];Sb:=Sb+S.Pix[K*3+2];Inc(Cnt);
+  End;
+ If Cnt>0 Then Begin Fr:=Sr/Cnt;Fg:=Sg/Cnt;Fb:=Sb/Cnt;End Else Begin Fr:=150;Fg:=150;Fb:=155;End;
+ Rx:=0.30*FMax(BodyW,0.30*BodyH);Ry:=0.026*BodyH+0.012*Lift;
+ For Y:=IMax(0,Trunc(Yh)-6)to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   A:=S.Cat[cBg][K]/255.0;
+   If A<=0.004 Then Continue;
+   Fl:=SmoothStep(Yh-3,Yh+3,Y+0.5);
+   If Fl>0.003 Then Begin
+    Dd:=(1-0.18*SmoothStep(Yh,S.H,Y+0.5))*0.74;
+    Fv[0]:=Fr*Dd*1.02;Fv[1]:=Fg*Dd;Fv[2]:=Fb*Dd*0.97;
+    For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Fl*A)+Fv[C]*Fl*A;
+   End;
+   { ombre sous le corps }
+   Dd:=Sqr((X+0.5-Xc)/Rx)+Sqr((Y+0.5-Yg-0.01*BodyH)/Ry);
+   Sh:=0.58*Exp(-Dd*1.7);
+   If Sh>0.004 Then For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Sh*A);
+  End;
+ SceneLift:=True;
+ Info('  '+What);
+End;
+
+{ ---- couchee au sol, ou dans un lit (vue de dessus) ---- }
+
+Function SceneLie(Var S:TScene;Bed:Boolean;Const What:AnsiString;Var Msg:AnsiString):Boolean;
+Var
+ X0,Y0,X1,Y1,NW,NH,X,Y,C,I:LongInt;
+ N,K:Int64;
+ Bw,Bh,Sc,Lh,Lw,Mh,Xl,Yt,Yc,Ox,Oy,Fx0,Fx1,Fy0,Fy1,Mx0,Mx1,Hx0,Hx1,Xb,V,Cov,Dd,Lg,Bump,Sdx,Sdy:Single;
+ Bg,Al,Bl:PSingle;
+ R,G,B,Cn:Single;
+ Fr,Fg,Fb:Single;
+Begin
+ SceneLie:=False;
+ Msg:='';
+ If not PersonBounds(S,X0,Y0,X1,Y1)Then Begin Msg:='aucune personne d'#130'tect'#130'e';Exit;End;
+ ColorInit;
+ Bw:=X1-X0+1;Bh:=Y1-Y0+1;
+ If Bh<0.9*Bw Then Begin Msg:='la personne doit '#136'tre debout et enti'#138're pour '#136'tre couch'#130'e';Exit;End;
+ Sc:=1;
+ Mh:=FMax(2.0*Bw,0.50*Bh);
+ If Bed Then Begin NW:=Trunc(Bh*1.36);NH:=Trunc(Mh*1.30);End
+ Else Begin NW:=Trunc(Bh*1.30);NH:=Trunc(FMax(Bw*2.0,Bh*0.55));End;
+ If FMax(NW,NH)>2600 Then Begin Sc:=2600/FMax(NW,NH);NW:=Trunc(NW*Sc);NH:=Trunc(NH*Sc);End;
+ Lh:=Bh*Sc;Lw:=Bw*Sc;Mh:=Mh*Sc;
+ Xl:=(NW-Lh)*0.5;
+ Yt:=(NH-Lw)*0.5;
+ Ox:=Xl-Y0*Sc;
+ Oy:=Yt-(S.W-X1-1)*Sc;
+ TransformScene(S,NW,NH,Sc,1,Ox,Oy);
+ N:=Int64(S.W)*S.H;
+ Yc:=NH*0.5;
+ Bg:=AllocF(N*3);
+ If not Bed Then Begin
+  WoodFloor(Bg,NW,NH,0,0,NW-1,NH-1,0.075*NH,0.55*NW,RgbOf(168,118,74));
+  { vignette }
+  For Y:=0 to NH-1 do
+   For X:=0 to NW-1 do Begin
+    K:=Int64(Y)*NW+X;
+    Dd:=Sqrt(Sqr((X+0.5)/NW-0.5)*0.9+Sqr((Y+0.5)/NH-0.5)*1.2);
+    V:=1-0.45*SmoothStep(0.25,0.75,Dd);
+    For C:=0 to 2 do Bg[K*3+C]:=Bg[K*3+C]*V;
+   End;
+  CastShadow(S,Bg,0.012*Lw,0.025*Lw,0.03*Lw,0.55);
+  CompositeBg(S,Bg);
+  SceneLie:=True;
+  Info('  '+What);
+  Exit;
+ End;
+ { sol }
+ WoodFloor(Bg,NW,NH,0,0,NW-1,NH-1,0.06*NH,0.45*NW,RgbOf(150,104,66));
+ { cadre de lit }
+ Fx0:=Xl-0.115*Lh;Fx1:=Xl+Lh+0.075*Lh;
+ Fy0:=Yc-Mh*0.5-0.045*Mh;Fy1:=Yc+Mh*0.5+0.045*Mh;
+ Mx0:=Xl-0.085*Lh;Mx1:=Xl+Lh+0.055*Lh;
+ { ombre du lit sur le sol }
+ For Y:=Trunc(Fy0-0.08*Mh)to Trunc(Fy1+0.10*Mh)do
+  For X:=Trunc(Fx0-0.08*Lh)to Trunc(Fx1+0.08*Lh)do Begin
+   If(X<0)or(Y<0)or(X>=NW)or(Y>=NH)Then Continue;
+   Cov:=0.55*(1-SmoothStep(0,0.07*Mh,RoundRectD(X+0.5,Y+0.5-0.025*Mh,(Fx0+Fx1)/2,(Fy0+Fy1)/2,(Fx1-Fx0)/2,(Fy1-Fy0)/2,0.03*Mh)));
+   PutBg(Bg,NW,NH,X,Y,Cov,6,4,3);
+  End;
+ For Y:=Trunc(Fy0)-1 to Trunc(Fy1)+1 do
+  For X:=Trunc(Fx0)-1 to Trunc(Fx1)+1 do Begin
+   Cov:=CoverD(RoundRectD(X+0.5,Y+0.5,(Fx0+Fx1)/2,(Fy0+Fy1)/2,(Fx1-Fx0)/2,(Fy1-Fy0)/2,0.03*Mh));
+   If Cov<=0 Then Continue;
+   V:=0.78+0.30*FBm(X*0.02,Y*0.2)+0.12*(1-SmoothStep(0,0.05*Mh,-RoundRectD(X+0.5,Y+0.5,(Fx0+Fx1)/2,(Fy0+Fy1)/2,(Fx1-Fx0)/2,(Fy1-Fy0)/2,0.03*Mh)));
+   PutBg(Bg,NW,NH,X,Y,Cov,98*V,60*V,38*V);
+  End;
+ { tete de lit }
+ Hx0:=Xl-0.165*Lh;Hx1:=Xl-0.105*Lh;
+ For Y:=Trunc(Fy0-0.05*Mh)to Trunc(Fy1+0.05*Mh)do
+  For X:=Trunc(Hx0)-1 to Trunc(Hx1)+1 do Begin
+   Cov:=CoverD(RoundRectD(X+0.5,Y+0.5,(Hx0+Hx1)/2,(Fy0+Fy1)/2,(Hx1-Hx0)/2,(Fy1-Fy0)/2+0.05*Mh,0.35*(Hx1-Hx0)));
+   If Cov<=0 Then Continue;
+   V:=0.62+0.55*Sin((X+0.5-Hx0)/(Hx1-Hx0)*Pi)*0.6+0.18*FBm(X*0.04,Y*0.15);
+   PutBg(Bg,NW,NH,X,Y,Cov,92*V,56*V,34*V);
+  End;
+ { matelas }
+ For Y:=Trunc(Yc-Mh*0.5)-2 to Trunc(Yc+Mh*0.5)+2 do
+  For X:=Trunc(Mx0)-2 to Trunc(Mx1)+2 do Begin
+   Dd:=RoundRectD(X+0.5,Y+0.5,(Mx0+Mx1)/2,Yc,(Mx1-Mx0)/2,Mh*0.5,0.025*Mh);
+   Cov:=CoverD(Dd);
+   If Cov<=0 Then Continue;
+   V:=0.93+0.07*FBm(X*0.03,Y*0.03)-0.16*Exp(Dd/(0.04*Mh));
+   PutBg(Bg,NW,NH,X,Y,Cov,242*V,238*V,230*V);
+  End;
+ { oreiller sous la tete }
+ Fx0:=Xl-0.06*Lh;Fx1:=Xl+0.21*Lh;
+ For Y:=Trunc(Yc-0.33*Mh)-6 to Trunc(Yc+0.33*Mh)+6 do
+  For X:=Trunc(Fx0)-8 to Trunc(Fx1)+8 do Begin
+   Dd:=RoundRectD(X+0.5,Y+0.5,(Fx0+Fx1)/2,Yc,(Fx1-Fx0)/2,0.31*Mh,0.10*Mh);
+   Cov:=0.30*(1-SmoothStep(0,0.035*Mh,RoundRectD(X+0.5,Y+0.5-0.012*Mh,(Fx0+Fx1)/2,Yc,(Fx1-Fx0)/2,0.31*Mh,0.10*Mh)));
+   PutBg(Bg,NW,NH,X,Y,Cov,40,36,32);
+   Cov:=CoverD(Dd);
+   If Cov<=0 Then Continue;
+   V:=0.97-0.20*Exp(Dd/(0.05*Mh))+0.06*FBm(X*0.05,Y*0.05)+0.05*Cos((X-Fx0)/(Fx1-Fx0)*Pi*2);
+   PutBg(Bg,NW,NH,X,Y,Cov,248*V,246*V,240*V);
+  End;
+ CastShadow(S,Bg,0.006*Lw,0.012*Lw,0.015*Lw,0.40);
+ CompositeBg(S,Bg);
+ { couverture par-dessus le bas du corps, avec le relief du corps dessous }
+ Al:=PersonAlpha(S);
+ Bl:=AllocF(N);
+ BoxBlur(Al,Bl,NW,NH,IMax(2,Trunc(0.05*Lw)));
+ Xb:=Xl+0.37*Lh;
+ Sdx:=0.03*Lw;Sdy:=0.03*Lw;
+ For Y:=Trunc(Yc-Mh*0.5-0.02*Mh)to Trunc(Yc+Mh*0.5+0.02*Mh)do
+  For X:=Trunc(Xb-0.05*Lh)to Trunc(Mx1+0.01*Lh)do Begin
+   If(X<0)or(Y<0)or(X>=NW)or(Y>=NH)Then Continue;
+   K:=Int64(Y)*NW+X;
+   { bord de la couverture : leger debordement sur les cotes }
+   Dd:=RoundRectD(X+0.5,Y+0.5,(Xb-0.05*Lh+Mx1+0.01*Lh)/2,Yc,(Mx1+0.01*Lh-Xb+0.05*Lh)/2,Mh*0.5+0.02*Mh,0.02*Mh);
+   Cov:=CoverD(Dd);
+   If Cov<=0 Then Continue;
+   If X+0.5<Xb Then Begin
+    { drap replie : bande claire }
+    V:=0.88+0.12*Cos((X+0.5-(Xb-0.05*Lh))/(0.05*Lh)*Pi)*0.5+0.04*FBm(X*0.04,Y*0.04);
+    If X+0.5>Xb-0.012*Lh Then V:=V*0.80;
+    R:=248*V;G:=244*V;B:=236*V;
+   End
+    Else Begin
+     Bump:=Bl[K];
+     If(X+Trunc(Sdx)>=0)and(Y+Trunc(Sdy)>=0)and(X+Trunc(Sdx)<NW)and(Y+Trunc(Sdy)<NH)and(X-Trunc(Sdx)>=0)and(Y-Trunc(Sdy)>=0)Then
+      Lg:=Bl[Int64(Y+Trunc(Sdy))*NW+X+Trunc(Sdx)]-Bl[Int64(Y-Trunc(Sdy))*NW+X-Trunc(Sdx)]
+     Else Lg:=0;
+     V:=Clamp(0.94+0.08*FBm(X*0.02,Y*0.02)-0.55*Lg+0.05*Bump,0.72,1.10);
+     V:=V*(0.94+0.06*Sin(X*0.35+FBm(X*0.03,Y*0.03)*5)*Sin(Y*0.35));
+     R:=70*V;G:=102*V;B:=158*V;
+     { ombre portee par le drap replie }
+     V:=1-0.30*Exp(-Sqr((X+0.5-Xb)/(0.03*Lh)));
+     R:=R*V;G:=G*V;B:=B*V;
+    End;
+   V:=1-0.22*Exp(Dd/(0.05*Mh));
+   PutBg(S.Pix,NW,NH,X,Y,Cov,R*V,G*V,B*V);
+   For C:=0 to NumCat-1 do S.Cat[C][K]:=0;
+   S.Cat[cOther][K]:=255;
+  End;
+ FreeMem(Al);FreeMem(Bl);
+ SceneLie:=True;
+ Info('  '+What);
+End;
+{ ------------------------------------------------------------------ }
+{ Situations (suite) : assise a une table, funambule, toit de niche, }
+{ escalier, somnambule, appuyee sur un meuble                         }
+{ ------------------------------------------------------------------ }
+
+{ degrade vertical dans un rectangle du decor }
+Procedure VGradient(Bg:PSingle;W,H,Y0,Y1:LongInt;R0,G0,B0,R1,G1,B1:Single);
+Var
+ X,Y:LongInt;
+ K:Int64;
+ T:Single;
+Begin
+ For Y:=Y0 to Y1 do Begin
+  If(Y<0)or(Y>=H)Then Continue;
+  If Y1>Y0 Then T:=(Y-Y0)/(Y1-Y0) Else T:=0;
+  For X:=0 to W-1 do Begin
+   K:=Int64(Y)*W+X;
+   Bg[K*3]:=R0+(R1-R0)*T;Bg[K*3+1]:=G0+(G1-G0)*T;Bg[K*3+2]:=B0+(B1-B0)*T;
+  End;
+ End;
+End;
+
+{ nuages doux sur une zone de ciel }
+Procedure Clouds(Bg:PSingle;W,H,Y0,Y1:LongInt;Scale,Amount:Single);
+Var
+ X,Y:LongInt;
+ V,T:Single;
+Begin
+ For Y:=IMax(0,Y0)to IMin(H-1,Y1)do
+  For X:=0 to W-1 do Begin
+   V:=FBm(X*Scale,Y*Scale*1.8+50);
+   T:=SmoothStep(0.52,0.78,V)*Amount*(1-0.5*(Y-Y0)/FMax(1,Y1-Y0));
+   PutBg(Bg,W,H,X,Y,T,255,255,255);
+  End;
+End;
+
+{ ---- assise : a une table, les jambes cachees ---- }
+
+Function SceneSit(Var S:TScene;Const What:AnsiString;Var Msg:AnsiString):Boolean;
+Var
+ B:TBody;
+ X0,Y0,X1,Y1,X,Y,Need,C,Side:LongInt;
+ N,K:Int64;
+ BodyH,Yt,Tb,U,Cx,V,Cov,A,Px,Ytop,Wp,Sd:Single;
+ Bg:PSingle;
+ Feet:Boolean;
+Begin
+ SceneSit:=False;
+ Msg:='';
+ If not PersonBounds(S,X0,Y0,X1,Y1)Then Begin Msg:='aucune personne d'#130'tect'#130'e';Exit;End;
+ If not GetBody(S,B,Msg)Then Exit;
+ Msg:='';
+ U:=B.U;Cx:=B.Cx;
+ BodyH:=Y1-Y0+1;
+ Feet:=CatArea(S,msShoes)>=Int64(S.W)*S.H div 2000;
+ If Feet Then Yt:=Y0+0.52*BodyH Else Yt:=Y0+0.66*BodyH;
+ { la table doit commencer sous les epaules }
+ If Yt<B.Sy+1.1*U Then Yt:=B.Sy+1.1*U;
+ Tb:=0.05*FMax(BodyH,6*U);
+ Need:=Trunc(Yt+Tb+0.20*U)-S.H;
+ If Need>0 Then GrowEdges(S,0,0,0,Need);
+ N:=Int64(S.W)*S.H;
+ Bg:=AllocF(N*3);
+ Move(S.Pix^,Bg^,N*12);
+ { dossier de la chaise, derriere les epaules }
+ Ytop:=B.Sy-0.35*U;
+ For Side:=-1 to 1 do Begin
+  If Side=0 Then Continue;
+  Px:=Cx+Side*(B.Half+0.55*U);
+  For Y:=Trunc(Ytop)to Trunc(Yt)do
+   For X:=Trunc(Px-0.12*U)-2 to Trunc(Px+0.12*U)+2 do Begin
+    Cov:=CoverD(Abs(X+0.5-Px)-0.085*U);
+    If Y<Ytop+0.085*U Then Cov:=Cov*CoverD(Sqrt(Sqr(X+0.5-Px)+Sqr(Y+0.5-Ytop-0.085*U))-0.085*U)*0+Cov;
+    If Cov<=0 Then Continue;
+    V:=0.55+0.55*Sin((X+0.5-Px+0.085*U)/(0.17*U)*Pi);
+    PutBg(Bg,S.W,S.H,X,Y,Cov,112*V,70*V,42*V);
+   End;
+ End;
+ For Y:=Trunc(Ytop)to Trunc(Ytop+0.30*U)do
+  For X:=Trunc(Cx-B.Half-0.65*U)to Trunc(Cx+B.Half+0.65*U)do Begin
+   Cov:=CoverD(RoundRectD(X+0.5,Y+0.5,Cx,Ytop+0.15*U,B.Half+0.60*U,0.15*U,0.10*U));
+   If Cov<=0 Then Continue;
+   V:=0.60+0.60*Sin((Y+0.5-Ytop)/(0.30*U)*Pi);
+   PutBg(Bg,S.W,S.H,X,Y,Cov,118*V,74*V,44*V);
+  End;
+ CompositeBg(S,Bg);
+ { table : plateau clair avec reflet, tablier sombre ; tout ce qui est dessous est cache }
+ For Y:=Trunc(Yt)-6 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If Y+0.5<Yt Then Begin
+    { ombre du corps sur le plateau, juste au-dessus }
+    Sd:=0.22*Exp(-Sqr((Y+0.5-Yt)/(0.05*U)))*S.Cat[cBg][K]/255.0*0;
+    Continue;
+   End;
+   If Y+0.5<Yt+Tb Then Begin
+    A:=(Y+0.5-Yt)/Tb;
+    V:=0.88+0.22*(1-A)+0.12*FBm(X*0.02,Y*0.4)-0.06*Sin(X*0.05+FBm(X*0.01,Y*0.1)*6);
+    If A>0.90 Then V:=V*0.78;
+    If A<0.06 Then V:=V*1.18;
+    S.Pix[K*3]:=170*V;S.Pix[K*3+1]:=112*V;S.Pix[K*3+2]:=70*V;
+   End
+    Else Begin
+     V:=0.46+0.10*FBm(X*0.015,Y*0.3)*(1-0.4*(Y-Yt-Tb)/FMax(1,S.H-Yt-Tb));
+     S.Pix[K*3]:=118*V;S.Pix[K*3+1]:=74*V;S.Pix[K*3+2]:=46*V;
+    End;
+   For C:=0 to NumCat-1 do S.Cat[C][K]:=0;
+   S.Cat[cBg][K]:=255;
+  End;
+ SceneSit:=True;
+ Info('  '+What);
+End;
+
+{ ---- funambule : decor de ciel, rope tendue, balancier dans les mains ---- }
+
+Function SceneTightrope(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ X0,Y0,X1,Y1,X,Y,I,Need,C:LongInt;
+ N,K:Int64;
+ BodyH,YFeet,Xc,U,Yr,Ry,T,V,Cov,Rr,Ux,Pyl,Pyr,Pxl,Pxr,Hx,Hy,Dd,Sx,Sh,Hb,Bx,By,Bw:Single;
+ Bg:PSingle;
+ Tmp:Single;
+ Hxs:Array[0..1]of Single;
+ Hys:Array[0..1]of Single;
+ Haz:Boolean;
+Begin
+ SceneTightrope:=False;
+ Msg:='';
+ If not PersonBounds(S,X0,Y0,X1,Y1)Then Begin Msg:='aucune personne d'#130'tect'#130'e';Exit;End;
+ BodyH:=Y1-Y0+1;YFeet:=Y1+1;
+ Need:=Trunc(YFeet+0.22*BodyH)-S.H;
+ If Need>0 Then GrowEdges(S,0,0,0,Need);
+ Xc:=FeetCenter(S,Y1,X0,X1);
+ N:=Int64(S.W)*S.H;
+ Bg:=AllocF(N*3);
+ { ciel du matin et nuages }
+ VGradient(Bg,S.W,S.H,0,S.H-1,70,124,200,222,232,244);
+ Clouds(Bg,S.W,S.H,0,S.H-1,0.5/FMax(40,0.12*S.W),0.85);
+ { ville lointaine dans la brume, sous la corde }
+ For I:=0 to 2 do Begin
+  Yr:=YFeet+0.04*BodyH+I*0.045*BodyH;
+  For X:=0 to S.W-1 do Begin
+   Ux:=X/(0.035*S.W+I*7);
+   Hb:=Yr-(0.02+0.05*Hash2(Trunc(Ux)+I*31,5))*BodyH*(1.0+0.4*Hash2(Trunc(Ux),9));
+   For Y:=Trunc(Hb)to S.H-1 do Begin
+    T:=0.62+I*0.13;
+    PutBg(Bg,S.W,S.H,X,Y,1,150*T+60*(1-T)*0+I*18,165*T+I*14,190*T+I*10);
+   End;
+  End;
+ End;
+ For Y:=Trunc(YFeet+0.04*BodyH)to S.H-1 do
+  For X:=0 to S.W-1 do PutBg(Bg,S.W,S.H,X,Y,0.35*SmoothStep(YFeet,S.H,Y),210,220,235);
+ { mats d'ancrage de part et d'autre }
+ For I:=0 to 1 do Begin
+  Bx:=I*(S.W-1)*1.0;
+  If I=0 Then Bx:=0.035*S.W Else Bx:=0.965*S.W;
+  Bw:=0.012*S.W;
+  For Y:=Trunc(YFeet-0.30*BodyH)to S.H-1 do
+   For X:=Trunc(Bx-Bw-2)to Trunc(Bx+Bw+2)do Begin
+    Cov:=CoverD(Abs(X+0.5-Bx)-Bw);
+    V:=0.55+0.45*Sin((X+0.5-Bx+Bw)/(2*Bw)*Pi);
+    PutBg(Bg,S.W,S.H,X,Y,Cov,58*V,62*V,72*V);
+   End;
+ End;
+ { corde : plus haute aux ancrages qu'au centre }
+ For X:=0 to S.W-1 do Begin
+  Ux:=(X+0.5-Xc)/FMax(Xc,S.W-Xc);
+  Ry:=YFeet-0.045*BodyH*Ux*Ux+0.004*BodyH;
+  For Y:=Trunc(Ry-4)to Trunc(Ry+6)do Begin
+   Cov:=CoverD(Abs(Y+0.5-Ry)-FMax(0.8,0.006*BodyH));
+   PutBg(Bg,S.W,S.H,X,Y,Cov,36,30,28);
+   Cov:=0.30*CoverD(Abs(Y+0.5-(Ry-0.004*BodyH))-0.4);
+   PutBg(Bg,S.W,S.H,X,Y,Cov,150,140,128);
+  End;
+ End;
+ { balancier : barre horizontale qui passe par les poings }
+ Haz:=LastP[0].Used and LastP[1].Used;
+ If Haz Then Begin
+  For I:=0 to 1 do Begin
+   Hxs[I]:=LastP[I].Wx+LastP[I].Hdx*LastP[I].Hsz*0.22;
+   Hys[I]:=LastP[I].Wy+LastP[I].Hdy*LastP[I].Hsz*0.22;
+  End;
+  Pxl:=FMin(Hxs[0],Hxs[1])-0.9*LastB.U;Pxr:=FMax(Hxs[0],Hxs[1])+0.9*LastB.U;
+  Hy:=(Hys[0]+Hys[1])/2;
+  Rr:=FMax(1.2,0.055*LastB.U);
+  For X:=Trunc(Pxl)to Trunc(Pxr)do Begin
+   T:=(X+0.5-(Pxl+Pxr)/2)/((Pxr-Pxl)/2);
+   Sh:=Hy+0.02*(Pxr-Pxl)*T*T*0.5;
+   For Y:=Trunc(Sh-Rr-3)to Trunc(Sh+Rr+3)do Begin
+    Cov:=CoverD(Abs(Y+0.5-Sh)-Rr);
+    V:=0.55+0.55*Sin(Clamp((Y+0.5-Sh+Rr)/(2*Rr),0,1)*Pi);
+    PutBg(Bg,S.W,S.H,X,Y,Cov,150*V,150*V,158*V);
+   End;
+  End;
+  { poids aux extremites }
+  For I:=0 to 1 do Begin
+   If I=0 Then Sx:=Pxl Else Sx:=Pxr;
+   Tmp:=Hy+0.02*(Pxr-Pxl)*0.5;
+   For Y:=Trunc(Tmp-0.25*LastB.U)to Trunc(Tmp+0.25*LastB.U)do
+    For X:=Trunc(Sx-0.14*LastB.U)-1 to Trunc(Sx+0.14*LastB.U)+1 do
+     PutBg(Bg,S.W,S.H,X,Y,CoverD(RoundRectD(X+0.5,Y+0.5,Sx,Tmp,0.12*LastB.U,0.22*LastB.U,0.05*LastB.U)),70,72,80);
+  End;
+ End;
+ CompositeBg(S,Bg);
+ SceneTightrope:=True;
+ Info('  funambule sur un fil (balancier tenu par les deux mains)');
+End;
+
+{ ---- sur le toit d'une niche a chien ---- }
+
+Function SceneDoghouse(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ X0,Y0,X1,Y1,NW,NH,X,Y,I:LongInt;
+ N,K:Int64;
+ BodyH,BodyW,Sc,Ph,Xc,Yr,Dw,Dx0,Dx1,Ry,Wh,Dd,Cov,V,T,Rx,Ax,Px,Rh,Y2,Y3,Fy,Door0,Door1,Dh,Dr,Ox,Oy,Rw,L0,L1,Rowh:Single;
+ Bg:PSingle;
+ Row,Col:LongInt;
+Begin
+ SceneDoghouse:=False;
+ Msg:='';
+ If not PersonBounds(S,X0,Y0,X1,Y1)Then Begin Msg:='aucune personne d'#130'tect'#130'e';Exit;End;
+ ColorInit;
+ BodyH:=Y1-Y0+1;BodyW:=X1-X0+1;
+ Xc:=FeetCenter(S,Y1,X0,X1);
+ Sc:=0.62;
+ If 1.58*BodyH*Sc>2300 Then Sc:=2300/(1.58*BodyH);
+ Ph:=BodyH*Sc;
+ NW:=Trunc(FMax(1.18*Ph,1.30*BodyW*Sc));NH:=Trunc(1.58*Ph);
+ Yr:=NH-0.52*Ph;
+ Ox:=NW*0.5-Xc*Sc;
+ Oy:=Yr-(Y1+1)*Sc+0.004*Ph;
+ TransformScene(S,NW,NH,Sc,0,Ox,Oy);
+ N:=Int64(S.W)*S.H;
+ Bg:=AllocF(N*3);
+ VGradient(Bg,NW,NH,0,NH-1,96,158,226,214,232,246);
+ Clouds(Bg,NW,NH,0,Trunc(Yr),0.8/FMax(40,0.15*NW),0.9);
+ { haie et pelouse }
+ Rh:=NH-0.075*Ph;
+ For Y:=Trunc(Rh-0.05*Ph)to NH-1 do
+  For X:=0 to NW-1 do Begin
+   T:=FBm(X*0.05,Y*0.05);
+   If Y<Rh Then PutBg(Bg,NW,NH,X,Y,1,52+30*T,100+34*T,48+20*T)
+   Else PutBg(Bg,NW,NH,X,Y,1,(78+30*T)*(1-0.25*(Y-Rh)/(NH-Rh)),(142+40*T)*(1-0.25*(Y-Rh)/(NH-Rh)),(58+22*T)*(1-0.25*(Y-Rh)/(NH-Rh)));
+  End;
+ Dw:=0.94*NW;Dx0:=(NW-Dw)/2;Dx1:=Dx0+Dw;
+ Rh:=0.15*Ph;            { hauteur du toit visible }
+ Wh:=0.30*Ph;            { hauteur du mur }
+ Y2:=Yr+Rh;Y3:=Y2+Wh;
+ { mur : planches verticales bleu-vert }
+ For Y:=Trunc(Y2)to Trunc(Y3)do
+  For X:=Trunc(Dx0+0.02*Dw)to Trunc(Dx1-0.02*Dw)do Begin
+   Col:=Trunc((X-Dx0)/(0.06*Dw));
+   Fy:=Frac((X-Dx0)/(0.06*Dw));
+   V:=0.78+0.28*Hash2(Col,11)+0.08*FBm(X*0.02,Y*0.2);
+   If Fy<0.05 Then V:=V*0.45;
+   PutBg(Bg,NW,NH,X,Y,1,74*V,126*V,150*V);
+  End;
+ { ombre de l'avant-toit sur le mur }
+ For Y:=Trunc(Y2)to Trunc(Y2+0.07*Ph)do
+  For X:=Trunc(Dx0+0.02*Dw)to Trunc(Dx1-0.02*Dw)do PutBg(Bg,NW,NH,X,Y,0.55*(1-(Y-Y2)/(0.07*Ph)),10,18,26);
+ { porte en arche }
+ Door0:=NW/2-0.15*Dw;Door1:=NW/2+0.15*Dw;Dh:=0.62*Wh;
+ For Y:=Trunc(Y3-Dh)-2 to Trunc(Y3)do
+  For X:=Trunc(Door0)-6 to Trunc(Door1)+6 do Begin
+   Rx:=Door1-Door0;
+   If Y+0.5<Y3-Dh+Rx/2 Then Dd:=Sqrt(Sqr(X+0.5-NW/2)+Sqr(Y+0.5-(Y3-Dh+Rx/2)))-Rx/2
+   Else Dd:=Abs(X+0.5-NW/2)-Rx/2;
+   If Y+0.5>Y3 Then Continue;
+   Cov:=CoverD(Dd);
+   If Cov>0 Then Begin
+    V:=0.10+0.12*(1-(Y+0.5-(Y3-Dh))/Dh);
+    PutBg(Bg,NW,NH,X,Y,Cov,34*V*3,26*V*3,22*V*3);
+   End;
+   Cov:=CoverD(Abs(Dd-0.022*Dw)-0.018*Dw)*(1-CoverD(Dd));
+   If Cov>0 Then PutBg(Bg,NW,NH,X,Y,Cov,226,214,190);
+  End;
+ { gamelle devant la porte }
+ For Y:=Trunc(Y3-0.045*Ph)to Trunc(Y3+0.02*Ph)do
+  For X:=Trunc(Door1+0.03*Dw)to Trunc(Door1+0.14*Dw)do Begin
+   Cov:=CoverD(EllipseD(X+0.5,Y+0.5,Door1+0.085*Dw,Y3-0.012*Ph,0.055*Dw,0.032*Ph));
+   V:=0.7+0.5*Sin(Clamp((Y+0.5-(Y3-0.044*Ph))/(0.065*Ph),0,1)*Pi);
+   PutBg(Bg,NW,NH,X,Y,Cov,200*V,60*V,52*V);
+  End;
+ { ombre au sol sous la niche }
+ For Y:=Trunc(Y3-0.01*Ph)to Trunc(Y3+0.04*Ph)do
+  For X:=Trunc(Dx0)to Trunc(Dx1)do PutBg(Bg,NW,NH,X,Y,0.5*(1-SmoothStep(0,0.04*Ph,Y-Y3))*0+0.45*Exp(-Sqr((Y-Y3)/(0.018*Ph))),12,28,12);
+ { toit : trapeze de bardeaux rouges, faitage en haut }
+ L0:=Dx0+0.12*Dw;L1:=Dx1-0.12*Dw;
+ For Y:=Trunc(Yr)to Trunc(Y2)+1 do Begin
+  T:=(Y+0.5-Yr)/Rh;
+  Ax:=L0+(Dx0-0.015*Dw-L0)*T;
+  Rw:=L1+(Dx1+0.015*Dw-L1)*T;
+  For X:=Trunc(Ax)-1 to Trunc(Rw)+1 do Begin
+   Cov:=CoverD(Ax-(X+0.5))*0+1;
+   If(X+0.5<Ax-0.5)or(X+0.5>Rw+0.5)Then Continue;
+   Rowh:=0.032*Ph;
+   Row:=Trunc((Y+0.5-Yr)/Rowh);
+   Fy:=Frac((Y+0.5-Yr)/Rowh);
+   Col:=Trunc((X+0.5+Row*0.5*0.07*Dw)/(0.07*Dw));
+   V:=0.70+0.45*Hash2(Col,Row+13)+0.10*FBm(X*0.03,Y*0.15)+0.20*(1-T);
+   If Fy>0.85 Then V:=V*0.55;
+   If Frac((X+0.5+Row*0.5*0.07*Dw)/(0.07*Dw))<0.03 Then V:=V*0.6;
+   PutBg(Bg,NW,NH,X,Y,1,164*V,62*V,44*V);
+  End;
+ End;
+ { faitage }
+ For Y:=Trunc(Yr-0.012*Ph)to Trunc(Yr+0.012*Ph)do
+  For X:=Trunc(L0)-2 to Trunc(L1)+2 do
+   PutBg(Bg,NW,NH,X,Y,CoverD(RoundRectD(X+0.5,Y+0.5,(L0+L1)/2,Yr,(L1-L0)/2,0.012*Ph,0.012*Ph)),110,36,28);
+ { ombre de la personne sur le toit }
+ For Y:=Trunc(Yr-0.01*Ph)to Trunc(Yr+0.05*Ph)do
+  For X:=Trunc(NW/2-0.25*Ph)to Trunc(NW/2+0.25*Ph)do
+   PutBg(Bg,NW,NH,X,Y,0.55*Exp(-Sqr((X+0.5-NW/2)/(0.14*Ph))-Sqr((Y+0.5-Yr-0.012*Ph)/(0.022*Ph))),20,8,6);
+ CompositeBg(S,Bg);
+ SceneDoghouse:=True;
+ Info('  personne debout sur le toit d''une niche (r'#130'duite pour para'#140'tre sur le toit)');
+End;
+{ ------------------------------------------------------------------ }
+{ Situations (fin) : escalier, chambre de somnambule, meuble         }
+{ ------------------------------------------------------------------ }
+
+{ ---- sur un escalier : les marches montent derriere la personne ---- }
+
+Function SceneStairs(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ X0,Y0,X1,Y1,X,Y,J,Need:LongInt;
+ N,K:Int64;
+ BodyH,YFeet,Xc,P,Yn,Wj,Xa,Xb,V,T,Fy,Sh,Cov,Up,Rx,Dd:Single;
+ Bg:PSingle;
+Begin
+ SceneStairs:=False;
+ Msg:='';
+ If not PersonBounds(S,X0,Y0,X1,Y1)Then Begin Msg:='aucune personne d'#130'tect'#130'e';Exit;End;
+ BodyH:=Y1-Y0+1;YFeet:=Y1+1;
+ Need:=Trunc(YFeet+0.30*BodyH)-S.H;
+ If Need>0 Then GrowEdges(S,0,0,0,Need);
+ Xc:=FeetCenter(S,Y1,X0,X1);
+ N:=Int64(S.W)*S.H;
+ Bg:=AllocF(N*3);
+ P:=0.085*BodyH;
+ { murs : crepi sombre degrade }
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   T:=Y/S.H;
+   V:=(0.62-0.30*T)*(0.92+0.16*FBm(X*0.01,Y*0.01))*(1-0.35*Sqr((X+0.5)/S.W-0.5)*2);
+   Bg[K*3]:=150*V;Bg[K*3+1]:=138*V;Bg[K*3+2]:=124*V;
+  End;
+ { marches : numerotees de J=0 (sous les pieds) ; J<0 = plus haut (plus etroites) }
+ For J:=-Trunc(YFeet/P)-2 to Trunc((S.H-YFeet)/P)+2 do Begin
+  Yn:=YFeet+0.25*P+J*P;                    { arete de la marche }
+  Wj:=0.99-0.030*(-J);                     { largeur relative : decroit en montant }
+  If J>=0 Then Wj:=0.99+0.01*J;
+  If Wj<0.42 Then Wj:=0.42;
+  If Wj>1.5 Then Wj:=1.5;
+  Xa:=S.W*0.5-S.W*Wj*0.5;Xb:=S.W*0.5+S.W*Wj*0.5;
+  Up:=Clamp((YFeet-Yn)/FMax(YFeet,1),0,1);
+  For Y:=Trunc(Yn-0.45*P)-1 to Trunc(Yn+0.55*P)+1 do Begin
+   If(Y<0)or(Y>=S.H)Then Continue;
+   For X:=Trunc(Xa)to Trunc(Xb)do Begin
+    If(X<0)or(X>=S.W)Then Continue;
+    If Y+0.5<Yn-0.45*P Then Continue;
+    If Y+0.5<Yn Then Begin
+     { dessus de la marche }
+     Fy:=(Y+0.5-(Yn-0.45*P))/(0.45*P);
+     V:=(0.98-0.20*Up)*(0.93+0.12*FBm(X*0.03,Y*0.03))*(0.93+0.07*Fy);
+     If Fy<0.08 Then V:=V*0.78;
+     PutBg(Bg,S.W,S.H,X,Y,1,186*V,178*V,164*V);
+    End
+     Else Begin
+      { contremarche }
+      Fy:=(Y+0.5-Yn)/(0.55*P);
+      V:=(0.64-0.18*Up)*(0.93+0.12*FBm(X*0.03,Y*0.05))*(1-0.30*Fy);
+      If Fy<0.07 Then V:=V*1.35;
+      PutBg(Bg,S.W,S.H,X,Y,1,172*V,160*V,146*V);
+     End;
+    { cotes : ombre le long des murs }
+    Rx:=FMin(X-Xa,Xb-X)/FMax(1,S.W*0.05);
+    If Rx<1 Then PutBg(Bg,S.W,S.H,X,Y,0.45*(1-Rx),10,8,8);
+   End;
+  End;
+ End;
+ { ombre sous les pieds }
+ For Y:=Trunc(YFeet-0.03*BodyH)to Trunc(YFeet+0.05*BodyH)do
+  For X:=Trunc(Xc-0.35*BodyH*0.45)to Trunc(Xc+0.35*BodyH*0.45)do Begin
+   Dd:=Sqr((X+0.5-Xc)/(0.26*FMax(X1-X0+1,0.25*BodyH)))+Sqr((Y+0.5-YFeet)/(0.02*BodyH));
+   PutBg(Bg,S.W,S.H,X,Y,0.55*Exp(-Dd*1.5),8,6,6);
+  End;
+ CompositeBg(S,Bg);
+ SceneStairs:=True;
+ Info('  personne debout sur un escalier (jambes non pli'#130'es : la mont'#130'e n''est pas anim'#130'e)');
+End;
+
+{ ---- somnambule : chambre la nuit, clair de lune, teinte nocturne ---- }
+
+Function SceneNight(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ X0,Y0,X1,Y1,X,Y,I,Need,C:LongInt;
+ N,K:Int64;
+ BodyH,YFeet,Xc,Yh,V,T,Cov,Wx0,Wx1,Wy0,Wy1,Mx,My,Mr,D,A,Fw:Single;
+ Bg:PSingle;
+Begin
+ SceneNight:=False;
+ Msg:='';
+ If not PersonBounds(S,X0,Y0,X1,Y1)Then Begin Msg:='aucune personne d'#130'tect'#130'e';Exit;End;
+ BodyH:=Y1-Y0+1;YFeet:=Y1+1;
+ Need:=Trunc(YFeet+0.10*BodyH)-S.H;
+ If Need>0 Then GrowEdges(S,0,0,0,Need);
+ Xc:=FeetCenter(S,Y1,X0,X1);
+ N:=Int64(S.W)*S.H;
+ Bg:=AllocF(N*3);
+ Yh:=YFeet-0.10*BodyH;
+ { mur }
+ VGradient(Bg,S.W,S.H,0,Trunc(Yh),22,28,62,40,48,92);
+ For Y:=0 to Trunc(Yh)do
+  For X:=0 to S.W-1 do PutBg(Bg,S.W,S.H,X,Y,0.10*FBm(X*0.015,Y*0.015),120,130,190);
+ { fenetre cote oppose a la personne }
+ If Xc>S.W*0.5 Then Wx0:=0.07*S.W Else Wx0:=0.60*S.W;
+ Wx1:=Wx0+0.33*S.W;
+ Wy0:=0.10*Yh;Wy1:=0.78*Yh;
+ For Y:=Trunc(Wy0)-3 to Trunc(Wy1)+3 do
+  For X:=Trunc(Wx0)-3 to Trunc(Wx1)+3 do Begin
+   Cov:=CoverD(RoundRectD(X+0.5,Y+0.5,(Wx0+Wx1)/2,(Wy0+Wy1)/2,(Wx1-Wx0)/2+0.012*S.W,(Wy1-Wy0)/2+0.012*S.W,0.01*S.W));
+   If Cov>0 Then PutBg(Bg,S.W,S.H,X,Y,Cov,200,205,225);
+   Cov:=CoverD(RoundRectD(X+0.5,Y+0.5,(Wx0+Wx1)/2,(Wy0+Wy1)/2,(Wx1-Wx0)/2,(Wy1-Wy0)/2,0.004*S.W));
+   If Cov<=0 Then Continue;
+   T:=(Y+0.5-Wy0)/(Wy1-Wy0);
+   V:=1-0.45*T;
+   PutBg(Bg,S.W,S.H,X,Y,Cov,14*V+10,26*V+14,64*V+22);
+   { etoiles }
+   A:=Hash2(Trunc((X+0.5)/2.5)+11,Trunc((Y+0.5)/2.5)+5);
+   If A>0.992 Then PutBg(Bg,S.W,S.H,X,Y,Cov*(A-0.99)*90,255,255,240);
+  End;
+ { lune et halo }
+ Mx:=Wx0+0.68*(Wx1-Wx0);My:=Wy0+0.30*(Wy1-Wy0);Mr:=0.09*(Wx1-Wx0)*1.4;
+ For Y:=Trunc(Wy0)to Trunc(Wy1)do
+  For X:=Trunc(Wx0)to Trunc(Wx1)do Begin
+   D:=Sqrt(Sqr(X+0.5-Mx)+Sqr(Y+0.5-My));
+   Cov:=0.35*Exp(-Sqr(D/(Mr*2.6)));
+   PutBg(Bg,S.W,S.H,X,Y,Cov,170,190,255);
+   Cov:=CoverD(D-Mr);
+   If Cov>0 Then PutBg(Bg,S.W,S.H,X,Y,Cov,(244-14*FBm(X*0.08,Y*0.08)),(242-16*FBm(X*0.08,Y*0.08)),(222-10*FBm(X*0.08,Y*0.08)));
+  End;
+ { croisillons }
+ Fw:=0.007*S.W;
+ For Y:=Trunc(Wy0)to Trunc(Wy1)do
+  For X:=Trunc(Wx0)to Trunc(Wx1)do Begin
+   Cov:=FMax(CoverD(Abs(X+0.5-(Wx0+Wx1)/2)-Fw/2),CoverD(Abs(Y+0.5-((Wy0+Wy1)/2-0.06*(Wy1-Wy0)))-Fw/2));
+   PutBg(Bg,S.W,S.H,X,Y,Cov,190,196,215);
+  End;
+ { rideaux }
+ For Y:=Trunc(Wy0)-4 to Trunc(Wy1)+10 do
+  For X:=Trunc(Wx0-0.06*S.W)to Trunc(Wx1+0.06*S.W)do Begin
+   If(X+0.5>Wx0+0.03*S.W)and(X+0.5<Wx1-0.03*S.W)Then Continue;
+   If(X<0)or(X>=S.W)Then Continue;
+   If(Y+0.5<Wy0-0.02*S.H)or(Y+0.5>Yh)Then Continue;
+   V:=0.55+0.45*Sin(X*0.22+FBm(X*0.02,Y*0.01)*4);
+   PutBg(Bg,S.W,S.H,X,Y,0.92,40*V,48*V,92*V);
+  End;
+ { plancher bleute, plinthe, tache de lune }
+ WoodFloor(Bg,S.W,S.H,0,Trunc(Yh),S.W-1,S.H-1,0.05*S.H,0.5*S.W,RgbOf(92,70,66));
+ For Y:=Trunc(Yh)to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   Bg[K*3]:=Bg[K*3]*0.46;Bg[K*3+1]:=Bg[K*3+1]*0.56;Bg[K*3+2]:=Bg[K*3+2]*0.88;
+   T:=(Y-Yh)/FMax(1,S.H-Yh);
+   Cov:=0.30*Exp(-Sqr((X+0.5-(Wx0+Wx1)/2-0.15*(X-Wx0))/(0.22*S.W)))*(1-T)*SmoothStep(Yh,Yh+0.02*S.H,Y);
+   PutBg(Bg,S.W,S.H,X,Y,Cov,150,170,235);
+  End;
+ For Y:=Trunc(Yh)-Trunc(0.025*BodyH)to Trunc(Yh)do
+  For X:=0 to S.W-1 do PutBg(Bg,S.W,S.H,X,Y,1,70,76,112);
+ { ombre au sol }
+ For Y:=Trunc(YFeet-0.02*BodyH)to Trunc(YFeet+0.06*BodyH)do
+  For X:=0 to S.W-1 do Begin
+   D:=Sqr((X+0.5-Xc)/(0.20*FMax(X1-X0+1,0.30*BodyH)))+Sqr((Y+0.5-YFeet-0.01*BodyH)/(0.025*BodyH));
+   PutBg(Bg,S.W,S.H,X,Y,0.55*Exp(-D*1.6),4,4,10);
+  End;
+ { la personne recoit la teinte de la nuit }
+ N:=Int64(S.W)*S.H;
+ For K:=0 to N-1 do Begin
+  S.Pix[K*3]:=S.Pix[K*3]*0.66;S.Pix[K*3+1]:=S.Pix[K*3+1]*0.74;S.Pix[K*3+2]:=S.Pix[K*3+2]*0.98+8;
+ End;
+ CompositeBg(S,Bg);
+ SceneNight:=True;
+ Info('  chambre de nuit, teinte de clair de lune');
+End;
+
+{ ---- appuyee sur un meuble (commode) : le coude repose dessus ---- }
+
+Function SceneLean(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ X,Y,Sg,I,J,Row:LongInt;
+ Xa,Xb,Yt,U,Ex,Th,V,Cov,Dd,Dx,Dy,Cxm,Lh,Wd,T:Single;
+ Bg:PSingle;
+Begin
+ SceneLean:=False;
+ Msg:='';
+ If not LastP[0].Used Then Begin Msg:='la position du bras est inconnue';Exit;End;
+ Sg:=LastP[0].Sg;U:=LastB.U;
+ Ex:=LastP[0].Ex;
+ N:=Int64(S.W)*S.H;
+ Bg:=AllocF(N*3);
+ Move(S.Pix^,Bg^,N*12);
+ Yt:=LastP[0].Ey+0.17*U;
+ Th:=0.16*U;
+ If Sg>0 Then Begin Xa:=Ex-0.55*U;Xb:=S.W-1+0.0;End
+ Else Begin Xb:=Ex+0.55*U;Xa:=0;End;
+ If Yt+0.6*U>S.H Then Begin Msg:='le meuble sortirait du cadre';FreeMem(Bg);Exit;End;
+ { dessus du meuble }
+ For Y:=Trunc(Yt-0.02*U)to Trunc(Yt+Th)+1 do
+  For X:=Trunc(Xa)to Trunc(Xb)do Begin
+   Cov:=CoverD(RoundRectD(X+0.5,Y+0.5,(Xa+Xb)/2,Yt+Th/2-0.01*U,(Xb-Xa)/2+0.2*U,Th/2,0.03*U));
+   If Cov<=0 Then Continue;
+   V:=0.78+0.40*(1-(Y+0.5-Yt)/Th)+0.10*FBm(X*0.03,Y*0.4);
+   If(Y+0.5-Yt)<0.1*Th Then V:=V*1.25;
+   PutBg(Bg,S.W,S.H,X,Y,Cov,150*V,98*V,62*V);
+  End;
+ { corps : tiroirs }
+ Lh:=S.H-(Yt+Th);
+ For Y:=Trunc(Yt+Th)to S.H-1 do
+  For X:=Trunc(Xa+0.05*U*0)to Trunc(Xb)do Begin
+   V:=0.52+0.10*FBm(X*0.02,Y*0.3);
+   PutBg(Bg,S.W,S.H,X,Y,1,112*V,70*V,44*V);
+   Dx:=Frac((X-Xa)/(1.05*U));
+   Row:=Trunc((Y-(Yt+Th))/(0.62*U));
+   Dy:=Frac((Y-(Yt+Th))/(0.62*U));
+   If(Dx>0.04)and(Dx<0.96)and(Dy>0.07)and(Dy<0.93)Then Begin
+    V:=0.58+0.10*FBm(X*0.02,Y*0.3);
+    If(Dx<0.07)or(Dx>0.93)or(Dy<0.10)or(Dy>0.90)Then V:=V*0.78;
+    PutBg(Bg,S.W,S.H,X,Y,1,128*V,80*V,50*V);
+   End;
+  End;
+ { poignees }
+ I:=0;
+ For J:=0 to Trunc((Xb-Xa)/(1.05*U)) do
+  For Row:=0 to Trunc(Lh/(0.62*U)) do Begin
+   Cxm:=Xa+(J+0.5)*1.05*U;
+   Dy:=Yt+Th+(Row+0.5)*0.62*U;
+   If(Dy>S.H)or(Cxm>Xb+0.2*U)Then Continue;
+   For Y:=Trunc(Dy-0.06*U)to Trunc(Dy+0.06*U)do
+    For X:=Trunc(Cxm-0.14*U)to Trunc(Cxm+0.14*U)do
+     PutBg(Bg,S.W,S.H,X,Y,CoverD(RoundRectD(X+0.5,Y+0.5,Cxm,Dy,0.13*U,0.035*U,0.03*U)),214,176,96);
+  End;
+ { lampe de chevet a l'extremite }
+ If Sg>0 Then Cxm:=Xb-0.60*U Else Cxm:=Xa+0.60*U;
+ If(Cxm>0.3*U)and(Cxm<S.W-0.3*U)Then Begin
+  For Y:=Trunc(Yt-1.4*U)to Trunc(Yt)do
+   For X:=Trunc(Cxm-0.7*U)to Trunc(Cxm+0.7*U)do Begin
+    Dx:=Abs(X+0.5-Cxm);
+    Dd:=Sqrt(Sqr(X+0.5-Cxm)+Sqr(Y+0.5-(Yt-0.95*U)));
+    PutBg(Bg,S.W,S.H,X,Y,0.30*Exp(-Sqr(Dd/(0.55*U))),255,226,160);
+    { pied }
+    PutBg(Bg,S.W,S.H,X,Y,CoverD(RoundRectD(X+0.5,Y+0.5,Cxm,Yt-0.30*U,0.035*U,0.30*U,0.02*U)),196,160,90);
+    PutBg(Bg,S.W,S.H,X,Y,CoverD(EllipseD(X+0.5,Y+0.5,Cxm,Yt-0.02*U,0.20*U,0.05*U)),196,160,90);
+    { abat-jour }
+    If(Y+0.5>Yt-1.22*U)and(Y+0.5<Yt-0.68*U)Then Begin
+     T:=(Y+0.5-(Yt-1.22*U))/(0.54*U);
+     Wd:=(0.18+0.20*T)*U;
+     PutBg(Bg,S.W,S.H,X,Y,CoverD(Dx-Wd),255*(0.8+0.2*T),228*(0.8+0.2*T),170*(0.8+0.2*T));
+    End;
+   End;
+ End;
+ CompositeBg(S,Bg);
+ SceneLean:=True;
+ Info('  appuy'#130'e sur un meuble (commode)');
+End;
+{ ------------------------------------------------------------------ }
+{ Repartiteur des poses et situations (? assis ?, ? bras croises ?...) }
+{ ------------------------------------------------------------------ }
+
+{ cote (image) qui offre le plus de place pour un bras tendu }
+Function BestSide(Var S:TScene):LongInt;
+Var
+ B:TBody;
+ Msg:AnsiString;
+Begin
+ BestSide:=1;
+ If GetBody(S,B,Msg)Then
+  If(B.Cx-B.Sho)>(S.W-(B.Cx+B.Sho))Then BestSide:=-1;
+End;
+
+{ Phase 0 : visage, bras, aureole (avant les autres retouches) ; Phase 1 : decors et situations }
+Procedure ApplyPoses(Var S:TScene;Poses:LongWord;Phase:LongInt;Var NOk,NFail:LongInt);
+Var
+ Msg:AnsiString;
+ Procedure Run(Ok:Boolean);
+ Begin
+  If Ok Then Inc(NOk)
+  Else Begin
+   If Msg<>'' Then Warn(Msg);
+   Inc(NFail);
+  End;
+  Msg:='';
+ End;
+ Function Has(Code:LongInt):Boolean;
+ Begin
+  Has:=(Poses and(LongWord(1)shl Code))<>0;
+ End;
+Begin
+ Msg:='';
+ If Phase=0 Then Begin
+ LastP[0].Used:=False;LastP[1].Used:=False;
+ { visage }
+ If Has(pcHeadStraight)Then Run(HeadStraight(S,Msg));
+ If Has(pcSerious)Then Run(ApplyMood(S,False,Msg));
+ If Has(pcSad)Then Run(ApplyMood(S,True,Msg));
+ If Has(pcLost)Then Run(ApplyGaze(S,-1,-1,Msg));
+ If Has(pcSleep)Then Run(CloseEyes(S,Msg));
+ { bras }
+ If Has(pcCross)Then Run(ArmPose(S,apCross,0,'bras crois'#130's',Msg));
+ If Has(pcPeace)Then Run(ArmPose(S,apPeace,BestSide(S),'main lev'#130'e en V (peace & love)',Msg));
+ If Has(pcPoint)Then Run(ArmPose(S,apPoint,BestSide(S),'bras tendu, doigt point'#130,Msg));
+ If Has(pcJump)Then Run(ArmPose(S,apUp,0,'bras lev'#130's',Msg));
+ If Has(pcTightrope)Then Run(ArmPose(S,apOut,0,'bras '#130'cart'#130's',Msg));
+ If Has(pcSleep)Then Run(ArmPose(S,apForward,0,'bras tendus devant',Msg));
+ If Has(pcLean)Then Run(ArmPose(S,apLean,BestSide(S),'coude pos'#130' sur le meuble',Msg));
+ { aureole : dessinee avec la personne pour suivre ses deplacements }
+ If Has(pcHalo)Then Run(ApplyHalo(S,Msg));
+ End
+ Else Begin
+ { situations }
+ If Has(pcFloat)Then Run(SceneLift(S,0.13,'personne en l'#130'vitation (ombre au sol)',Msg));
+ If Has(pcJump)Then Run(SceneLift(S,0.07,'saut (jambes non pli'#130'es, ombre au sol)',Msg));
+ If Has(pcLie)or Has(pcBed)Then Begin
+  If Has(pcBed)Then Run(SceneLie(S,True,'personne couch'#130'e dans un lit (vue de dessus)',Msg))
+  Else Run(SceneLie(S,False,'personne couch'#130'e au sol (vue de dessus)',Msg));
+ End;
+ If Has(pcSit)Then Run(SceneSit(S,'assise '#133' une table (jambes cach'#130'es par la table)',Msg));
+ If Has(pcTightrope)Then Run(SceneTightrope(S,Msg));
+ If Has(pcDoghouse)Then Run(SceneDoghouse(S,Msg));
+ If Has(pcStairs)Then Run(SceneStairs(S,Msg));
+ If Has(pcSleep)Then Run(SceneNight(S,Msg));
+ If Has(pcLean)Then Run(SceneLean(S,Msg));
+ End;
+ If(Phase=0)and Has(pcKneel)Then Begin
+  Warn('"'#133' genoux" n''est pas pris en charge : les jambes devraient '#136'tre repli'#130'es, ce qu''une retouche de l''image ne peut pas inventer');
+  Inc(NFail);
+ End;
+ If(Phase=0)and Has(pcBike)Then Begin
+  Warn('"v'#130'lo" n''est pas pris en charge : il faudrait redessiner les jambes sur les p'#130'dales et un v'#130'lo complet');
+  Inc(NFail);
+ End;
+End;
 
 { ------------------------------------------------------------------ }
 { Couche systeme : console, repertoires, telechargement (Windows)      }
@@ -10015,6 +12057,10 @@ Begin
  WriteLn('  "bras bien aligner de chaque c'#147't'#130' du corps"');
  WriteLn('  "corps d''or"  "corps m'#130'tallique"  "corps robot"  "style statue"  "v'#136'tement de cha'#140'ne d''or"');
  WriteLn('  "debout sur un carrousel"');
+ WriteLn('  "bras crois'#130's"  "montre une main peace & love"  "pointe du doigt"  "t'#136'te droite"  "aur'#130'ole"');
+ WriteLn('  "s'#130'rieuse"  "triste"  "regarde perdu"  "somnambule"  "saute"  "flotte"  "assis"  "appuy'#130' sur un meuble"');
+ WriteLn('  "couch'#130'"  "couch'#130' dans un lit"  "monte les escaliers"  "sur le toit de la niche '#133' chien"');
+ WriteLn('  "marche sur un fil de fer"  (poses dessin'#130'es par le programme ; "'#133' genoux" et "v'#130'lo" : non pris en charge)');
  WriteLn('  "transforme cette personne en BD" (ou dessin anim'#130', croquis)');
  WriteLn('  "transforme ce personnage de BD en r'#130'el" (approximatif : ce n''est pas une photo)');
  WriteLn('  (plusieurs instructions possibles, s'#130'par'#130'es par des virgules ou "et" ;');
@@ -10313,7 +12359,7 @@ Begin
   ImgFree(Img);
  End;
  { scene : le corps coupe doit montrer ses pieds pour se tenir sur la plateforme }
- For I:=0 to High(Edits)do If Edits[I].Action=eaScene Then Begin
+ For I:=0 to High(Edits)do If(Edits[I].Action=eaScene)or((Edits[I].Action=eaPose2)and((Edits[I].Poses and FeetPoses)<>0))Then Begin
   Cnt0:=0;
   For J:=0 to Scene.W-1 do If Scene.Cat[cBg][Int64(Scene.H-1)*Scene.W+J]<128 Then Inc(Cnt0);
   If(Cnt0>=Scene.W div 50)and(CatArea(Scene,msShoes)<Int64(Scene.W)*Scene.H div 2000)Then Begin
@@ -10407,6 +12453,12 @@ Begin
    End;
   GarmentFree(G);
  End;
+ { poses et situations (expression, bras, decor) }
+ For I:=0 to High(Edits)do
+  If Edits[I].Action=eaPose2 Then Begin
+   Info('Pose : '+DescribeEdit(Edits[I]));
+   ApplyPoses(Scene,Edits[I].Poses,0,NOk,NFail);
+  End;
  { retouches sur la scene }
  For I:=0 to High(Edits)do Begin
   If GarmentEdits[I]<>0 Then Continue;
@@ -10419,6 +12471,7 @@ Begin
   { ? mettre un chapeau ? alors qu'il n'y en a pas : on l'ajoute }
   If(Edits[I].Action=eaRecolor)and Edits[I].Put and((Edits[I].Target and(msHat or msScarf or msGlasses or msBelt))<>0)and
     (CatArea(Scene,Edits[I].Target)<Int64(Scene.W)*Scene.H div 2000)Then Edits[I].Action:=eaAdd;
+  If Edits[I].Action=eaPose2 Then Continue;
   Info('Retouche : '+DescribeEdit(Edits[I]));
   If(Edits[I].Action=eaRemove)and(Edits[I].Jewel<>0)Then Begin
    Warn('le retrait de bijoux n''est pas pris en charge');Inc(NFail);Continue;
@@ -10455,6 +12508,9 @@ Begin
   Else If ApplyEdit(Scene,Edits[I],Msg)Then Inc(NOk)
   Else Begin Warn(Msg);Inc(NFail);End;
  End;
+ { situations : decors dessines autour de la personne }
+ For I:=0 to High(Edits)do
+  If Edits[I].Action=eaPose2 Then ApplyPoses(Scene,Edits[I].Poses,1,NOk,NFail);
  { scene : decor genere autour de la personne }
  For I:=0 to High(Edits)do
   If Edits[I].Action=eaScene Then Begin
