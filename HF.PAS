@@ -276,6 +276,131 @@ Begin
  B.D:='';B.N:=0;
 End;
 
+{ ------------------------------------------------------------------ }
+{ Messages du programme en CP437 (#130, #138, ...) ; la console est en   }
+{ UTF-8 : chaque Write/WriteLn est converti a la volee. Les sequences    }
+{ UTF-8 valides (noms, textes recus du serveur) passent telles quelles ;  }
+{ les octets isoles >= $80 sont des caracteres CP437.                      }
+{ ------------------------------------------------------------------ }
+
+Const
+ Cp437Tab:Array[128..255]of Word=(
+  $00C7,$00FC,$00E9,$00E2,$00E4,$00E0,$00E5,$00E7,
+  $00EA,$00EB,$00E8,$00EF,$00EE,$00EC,$00C4,$00C5,
+  $00C9,$00E6,$00C6,$00F4,$00F6,$00F2,$00FB,$00F9,
+  $00FF,$00D6,$00DC,$00A2,$00A3,$00A5,$20A7,$0192,
+  $00E1,$00ED,$00F3,$00FA,$00F1,$00D1,$00AA,$00BA,
+  $00BF,$2310,$00AC,$00BD,$00BC,$00A1,$00AB,$00BB,
+  $2591,$2592,$2593,$2502,$2524,$2561,$2562,$2556,
+  $2555,$2563,$2551,$2557,$255D,$255C,$255B,$2510,
+  $2514,$2534,$252C,$251C,$2500,$253C,$255E,$255F,
+  $255A,$2554,$2569,$2566,$2560,$2550,$256C,$2567,
+  $2568,$2564,$2565,$2559,$2558,$2552,$2553,$256B,
+  $256A,$2518,$250C,$2588,$2584,$258C,$2590,$2580,
+  $03B1,$00DF,$0393,$03C0,$03A3,$03C3,$00B5,$03C4,
+  $03A6,$0398,$03A9,$03B4,$221E,$03C6,$03B5,$2229,
+  $2261,$00B1,$2265,$2264,$2320,$2321,$00F7,$2248,
+  $00B0,$2219,$00B7,$221A,$207F,$00B2,$25A0,$00A0
+ );
+
+Type
+ TTextFn=Function(Var F:TextRec):LongInt;
+
+Var
+ OrigOutFn,OrigErrFn:TTextFn;
+ PendOut,PendErr:AnsiString;
+
+Procedure PutCp437(Var R:AnsiString;Var J:LongInt;B:LongInt);
+Var
+ W:LongInt;
+Begin
+ W:=Cp437Tab[B];
+ If W<$800 Then Begin
+  Inc(J);R[J]:=Chr($C0 or(W shr 6));
+  Inc(J);R[J]:=Chr($80 or(W and $3F));
+ End
+  Else Begin
+   Inc(J);R[J]:=Chr($E0 or(W shr 12));
+   Inc(J);R[J]:=Chr($80 or((W shr 6)and $3F));
+   Inc(J);R[J]:=Chr($80 or(W and $3F));
+  End;
+End;
+
+Function Cp437ToUtf8(Var Pend:AnsiString;Const Src:AnsiString):AnsiString;
+Var
+ S,R:AnsiString;
+ I,J,N,C,Need,K:LongInt;
+ Ok:Boolean;
+Begin
+ S:=Pend+Src;Pend:='';
+ N:=Length(S);
+ SetLength(R,N*3);
+ I:=1;J:=0;
+ While I<=N do Begin
+  C:=Ord(S[I]);
+  If C<$80 Then Begin Inc(J);R[J]:=S[I];Inc(I);Continue;End;
+  Need:=0;
+  If(C>=$C2)and(C<=$DF)Then Need:=1
+   Else If(C>=$E0)and(C<=$EF)Then Need:=2
+   Else If(C>=$F0)and(C<=$F4)Then Need:=3;
+  If Need=0 Then Begin PutCp437(R,J,C);Inc(I);Continue;End;
+  Ok:=True;
+  For K:=1 to Need do Begin
+   If I+K>N Then Break;
+   If(Ord(S[I+K])and $C0)<>$80 Then Begin Ok:=False;Break;End;
+  End;
+  If not Ok Then Begin PutCp437(R,J,C);Inc(I);Continue;End;
+  If I+Need>N Then Begin Pend:=Copy(S,I,N-I+1);Break;End;
+  For K:=0 to Need do Begin Inc(J);R[J]:=S[I+K];End;
+  Inc(I,Need+1);
+ End;
+ SetLength(R,J);
+ Cp437ToUtf8:=R;
+End;
+
+Function ConvOutput(Var F:TextRec;Orig:TTextFn;Var Pend:AnsiString):LongInt;
+Var
+ Raw,Conv:AnsiString;
+ P,L:LongInt;
+Begin
+ ConvOutput:=0;
+ SetLength(Raw,F.BufPos);
+ If F.BufPos>0 Then Move(F.BufPtr^,Raw[1],F.BufPos);
+ Conv:=Cp437ToUtf8(Pend,Raw);
+ If Conv='' Then Begin F.BufPos:=0;Exit;End;
+ P:=1;
+ While P<=Length(Conv)do Begin
+  L:=Length(Conv)-P+1;
+  If L>F.BufSize Then L:=F.BufSize;
+  Move(Conv[P],F.BufPtr^,L);
+  F.BufPos:=L;
+  ConvOutput:=Orig(F);
+  Inc(P,L);
+ End;
+End;
+
+Function OutFn(Var F:TextRec):LongInt;
+Begin
+ OutFn:=ConvOutput(F,OrigOutFn,PendOut);
+End;
+
+Function ErrFn(Var F:TextRec):LongInt;
+Begin
+ ErrFn:=ConvOutput(F,OrigErrFn,PendErr);
+End;
+
+Procedure InstallUtf8Output;
+Begin
+ SetTextCodePage(Output,DefaultSystemCodePage);
+ SetTextCodePage(StdErr,DefaultSystemCodePage);
+ OrigOutFn:=TTextFn(TextRec(Output).InOutFunc);
+ TextRec(Output).InOutFunc:=@OutFn;
+ TextRec(Output).FlushFunc:=@OutFn;
+ OrigErrFn:=TTextFn(TextRec(StdErr).InOutFunc);
+ TextRec(StdErr).InOutFunc:=@ErrFn;
+ TextRec(StdErr).FlushFunc:=@ErrFn;
+End;
+
 Procedure Die(Const Msg:AnsiString);
 Begin
  WriteLn(StdErr,'Error: '+Msg);
@@ -771,7 +896,8 @@ Begin
  UrlQ:=UrlEnc(S,False);
 End;
 
-Procedure SplitUrl(Const U:AnsiString;Var Scheme,Host:AnsiString;Var Port:LongInt;Var Path:AnsiString);
+Procedure SplitUrl(Const U:AnsiString;Var Scheme,Host:AnsiString;Var Port:LongInt;Var
+  Path:AnsiString);
 Var
  P,Q:LongInt;
  HP:AnsiString;
@@ -1859,7 +1985,8 @@ Begin
  For I:=1 to 10 do Begin
   HttpOnce(R);
   If R.Err<>'' Then Exit;
-  If(R.Status<>301)and(R.Status<>302)and(R.Status<>303)and(R.Status<>307)and(R.Status<>308)Then Exit;
+  If(R.Status<>301)and(R.Status<>302)and(R.Status<>303)and(R.Status<>307)and(R.Status<>308)Then
+    Exit;
   If not R.Follow Then Exit;
   If R.StopAtLinked and(HeaderGet(R.RespHeaders,'x-linked-etag')<>'')Then Exit;
   Loc:=HeaderGet(R.RespHeaders,'location');
@@ -1884,248 +2011,408 @@ Type
 Const
  NTr=243;
  TrTable:Array[0..NTr-1]of TTrPair=(
-  (E:'A User Access Token generated from https://huggingface.co/settings/tokens.';F:'Jeton d''accès utilisateur généré sur https://huggingface.co/settings/tokens.'),
-  (E:'The type of repository (model, dataset, or space). [default: model]';F:'Type de dépôt (model, dataset ou space). [défaut : model]'),
-  (E:'Download files from the Hub.';F:'Télécharge des fichiers depuis le Hub.'),
-  (E:'The ID of the repo (e.g. `username/repo-name`).';F:'Identifiant du dépôt (ex. : `utilisateur/nom-du-depot`).'),
-  (E:'Files to download (e.g. `config.json`, `data/metadata.jsonl`).';F:'Fichiers à télécharger (ex. : `config.json`, `data/metadata.jsonl`).'),
-  (E:'Git revision id which can be a branch name, a tag, or a commit hash.';F:'Révision Git : nom de branche, étiquette (tag) ou empreinte de commit.'),
-  (E:'Glob patterns to include from files to download. eg: *.json';F:'Motifs glob des fichiers à inclure dans le téléchargement. ex. : *.json'),
-  (E:'Glob patterns to exclude from files to download.';F:'Motifs glob des fichiers à exclure du téléchargement.'),
-  (E:'Directory where to save files.';F:'Répertoire où enregistrer les fichiers.'),
-  (E:'If set, the downloaded file will be placed under this directory.';F:'Si défini, les fichiers téléchargés sont placés dans ce répertoire.'),
-  (E:'If True, the files will be downloaded even if they are already cached.';F:'Télécharge les fichiers même s''ils sont déjà dans le cache.'),
-  (E:'If True, perform a dry run without actually downloading the file.';F:'Simulation : indique ce qui serait téléchargé sans rien télécharger.'),
-  (E:'Disable progress bars and warnings; print only the returned path.';F:'Désactive les barres de progression et les avertissements ; affiche uniquement le chemin obtenu.'),
-  (E:'Maximum number of workers to use for downloading files. Default is 8.';F:'Nombre maximal de téléchargements parallèles. Par défaut : 8 (ignoré par ce clone).'),
-  (E:'The ID of the repo to upload to (e.g. `username/repo-name`).';F:'Identifiant du dépôt cible (ex. : `utilisateur/nom-du-depot`).'),
-  (E:'Local path to the file or folder to upload. Defaults to the current directory.';F:'Chemin local du fichier ou du dossier à envoyer. Par défaut : le répertoire courant.'),
-  (E:'Path of the file or folder in the repo. Defaults to the root of the repo.';F:'Chemin du fichier ou du dossier dans le dépôt. Par défaut : la racine du dépôt.'),
-  (E:'An optional Git revision to push to. It can be a branch name or a PR reference.';F:'Révision Git cible (facultatif) : nom de branche ou référence de PR.'),
-  (E:'Whether to create a private repo if repo doesn''t exist on the Hub.';F:'Crée un dépôt privé si le dépôt n''existe pas sur le Hub.'),
-  (E:'Glob patterns to match files to upload.';F:'Motifs glob des fichiers à envoyer.'),
-  (E:'Glob patterns to exclude from files to upload.';F:'Motifs glob des fichiers à exclure de l''envoi.'),
-  (E:'Glob patterns for file to be deleted from the repo while committing.';F:'Motifs glob des fichiers à supprimer du dépôt pendant le commit.'),
-  (E:'The summary / title / first line of the generated commit.';F:'Résumé / titre / première ligne du commit généré.'),
-  (E:'The description of the generated commit.';F:'Description du commit généré.'),
-  (E:'Whether to upload content as a new Pull Request.';F:'Envoie le contenu dans une nouvelle Pull Request.'),
+  (E:'A User Access Token generated from https://huggingface.co/settings/tokens.';F:'Jeton d''acc'+
+    #138+'s utilisateur g'+#130+'n'+#130+'r'+#130+' sur https://huggingface.co/settings/tokens.'),
+  (E:'The type of repository (model, dataset, or space). [default: model]';F:'Type de d'+#130+'p'+
+    #147+'t (model, dataset ou space). [d'+#130+'faut : model]'),
+  (E:'Download files from the Hub.';F:'T'+#130+'l'+#130+'charge des fichiers depuis le Hub.'),
+  (E:'The ID of the repo (e.g. `username/repo-name`).';F:'Identifiant du d'+#130+'p'+#147+
+    't (ex. : `utilisateur/nom-du-depot`).'),
+  (E:'Files to download (e.g. `config.json`, `data/metadata.jsonl`).';F:'Fichiers '+#133+' t'+#130+
+    'l'+#130+'charger (ex. : `config.json`, `data/metadata.jsonl`).'),
+  (E:'Git revision id which can be a branch name, a tag, or a commit hash.';F:'R'+#130+
+    'vision Git : nom de branche, '+#130+'tiquette (tag) ou empreinte de commit.'),
+  (E:'Glob patterns to include from files to download. eg: *.json';F:'Motifs glob des fichiers '+
+    #133+' inclure dans le t'+#130+'l'+#130+'chargement. ex. : *.json'),
+  (E:'Glob patterns to exclude from files to download.';F:'Motifs glob des fichiers '+#133+
+    ' exclure du t'+#130+'l'+#130+'chargement.'),
+  (E:'Directory where to save files.';F:'R'+#130+'pertoire o'+#151+' enregistrer les fichiers.'),
+  (E:'If set, the downloaded file will be placed under this directory.';F:'Si d'+#130+
+    'fini, les fichiers t'+#130+'l'+#130+'charg'+#130+'s sont plac'+#130+'s dans ce r'+#130+
+    'pertoire.'),
+  (E:'If True, the files will be downloaded even if they are already cached.';F:'T'+#130+'l'+#130+
+    'charge les fichiers m'+#136+'me s''ils sont d'+#130+'j'+#133+' dans le cache.'),
+  (E:'If True, perform a dry run without actually downloading the file.';F:'Simulation : indique c'+
+    'e qui serait t'+#130+'l'+#130+'charg'+#130+' sans rien t'+#130+'l'+#130+'charger.'),
+  (E:'Disable progress bars and warnings; print only the returned path.';F:'D'+#130+
+    'sactive les barres de progression et les avertissements ; affiche uniquement le chemin obtenu'+
+    '.'),
+  (E:'Maximum number of workers to use for downloading files. Default is 8.';F:'Nombre maximal de '+
+    't'+#130+'l'+#130+'chargements parall'+#138+'les. Par d'+#130+'faut : 8 (ignor'+#130+
+    ' par ce clone).'),
+  (E:'The ID of the repo to upload to (e.g. `username/repo-name`).';F:'Identifiant du d'+#130+'p'+
+    #147+'t cible (ex. : `utilisateur/nom-du-depot`).'),
+  (E:'Local path to the file or folder to upload. Defaults to the current directory.';F:'Chemin lo'+
+    'cal du fichier ou du dossier '+#133+' envoyer. Par d'+#130+'faut : le r'+#130+
+    'pertoire courant.'),
+  (E:'Path of the file or folder in the repo. Defaults to the root of the repo.';F:'Chemin du fich'+
+    'ier ou du dossier dans le d'+#130+'p'+#147+'t. Par d'+#130+'faut : la racine du d'+#130+'p'+
+    #147+'t.'),
+  (E:'An optional Git revision to push to. It can be a branch name or a PR reference.';F:'R'+#130+
+    'vision Git cible (facultatif) : nom de branche ou r'+#130+'f'+#130+'rence de PR.'),
+  (E:'Whether to create a private repo if repo doesn''t exist on the Hub.';F:'Cr'+#130+'e un d'+
+    #130+'p'+#147+'t priv'+#130+' si le d'+#130+'p'+#147+'t n''existe pas sur le Hub.'),
+  (E:'Glob patterns to match files to upload.';F:'Motifs glob des fichiers '+#133+' envoyer.'),
+  (E:'Glob patterns to exclude from files to upload.';F:'Motifs glob des fichiers '+#133+
+    ' exclure de l''envoi.'),
+  (E:'Glob patterns for file to be deleted from the repo while committing.';F:'Motifs glob des fic'+
+    'hiers '+#133+' supprimer du d'+#130+'p'+#147+'t pendant le commit.'),
+  (E:'The summary / title / first line of the generated commit.';F:'R'+#130+'sum'+#130+
+    ' / titre / premi'+#138+'re ligne du commit g'+#130+'n'+#130+'r'+#130+'.'),
+  (E:'The description of the generated commit.';F:'Description du commit g'+#130+'n'+#130+'r'+#130+
+    '.'),
+  (E:'Whether to upload content as a new Pull Request.';F:'Envoie le contenu dans une nouvelle Pul'+
+    'l Request.'),
   (E:'Not supported by this clone.';F:'Non pris en charge par ce clone.'),
-  (E:'Login using a token from huggingface.co/settings/tokens.';F:'Se connecte avec un jeton obtenu sur huggingface.co/settings/tokens.'),
-  (E:'Save to git credential helper (not supported by this clone).';F:'Enregistre dans l''assistant d''identifiants git (non pris en charge par ce clone).'),
-  (E:'Logout from a specific token.';F:'Se déconnecte d''un jeton précis.'),
-  (E:'Name of token to logout';F:'Nom du jeton dont il faut se déconnecter'),
-  (E:'Find out which huggingface.co account you are logged in as.';F:'Indique avec quel compte huggingface.co vous êtes connecté.'),
+  (E:'Login using a token from huggingface.co/settings/tokens.';F:'Se connecte avec un jeton obten'+
+    'u sur huggingface.co/settings/tokens.'),
+  (E:'Save to git credential helper (not supported by this clone).';F:'Enregistre dans l''assistan'+
+    't d''identifiants git (non pris en charge par ce clone).'),
+  (E:'Logout from a specific token.';F:'Se d'+#130+'connecte d''un jeton pr'+#130+'cis.'),
+  (E:'Name of token to logout';F:'Nom du jeton dont il faut se d'+#130+'connecter'),
+  (E:'Find out which huggingface.co account you are logged in as.';F:'Indique avec quel compte hug'+
+    'gingface.co vous '+#136+'tes connect'+#130+'.'),
   (E:'Output format (table or json).';F:'Format de sortie (table ou json).'),
-  (E:'List all stored access tokens.';F:'Liste tous les jetons d''accès enregistrés.'),
-  (E:'Switch between access tokens.';F:'Bascule entre les jetons d''accès.'),
-  (E:'Name of the token to switch to';F:'Nom du jeton à activer'),
-  (E:'Search query.';F:'Requête de recherche.'),
+  (E:'List all stored access tokens.';F:'Liste tous les jetons d''acc'+#138+'s enregistr'+#130+
+    's.'),
+  (E:'Switch between access tokens.';F:'Bascule entre les jetons d''acc'+#138+'s.'),
+  (E:'Name of the token to switch to';F:'Nom du jeton '+#133+' activer'),
+  (E:'Search query.';F:'Requ'+#136+'te de recherche.'),
   (E:'Filter by author or organization.';F:'Filtre par auteur ou organisation.'),
-  (E:'Filter by tags (e.g. ''text-classification''). Can be used multiple times.';F:'Filtre par étiquettes (ex. : ''text-classification''). Répétable.'),
-  (E:'Sort key. One of downloads, likes, created_at, last_modified, trending_score.';F:'Critère de tri : downloads, likes, created_at, last_modified ou trending_score.'),
-  (E:'Limit the number of results. [default: 10]';F:'Limite le nombre de résultats. [défaut : 10]'),
-  (E:'Properties to expand in the response. Can be used multiple times.';F:'Propriétés à développer dans la réponse. Répétable.'),
-  (E:'Output format: table or json. [default: table]';F:'Format de sortie : table ou json. [défaut : table]'),
+  (E:'Filter by tags (e.g. ''text-classification''). Can be used multiple times.';F:'Filtre par '+
+    #130+'tiquettes (ex. : ''text-classification''). R'+#130+'p'+#130+'table.'),
+  (E:'Sort key. One of downloads, likes, created_at, last_modified, trending_score.';F:'Crit'+#138+
+    're de tri : downloads, likes, created_at, last_modified ou trending_score.'),
+  (E:'Limit the number of results. [default: 10]';F:'Limite le nombre de r'+#130+'sultats. [d'+#130+
+    'faut : 10]'),
+  (E:'Properties to expand in the response. Can be used multiple times.';F:'Propri'+#130+'t'+#130+
+    's '+#133+' d'+#130+'velopper dans la r'+#130+'ponse. R'+#130+'p'+#130+'table.'),
+  (E:'Output format: table or json. [default: table]';F:'Format de sortie : table ou json. [d'+#130+
+    'faut : table]'),
   (E:'Print only IDs, one per line.';F:'Affiche uniquement les identifiants, un par ligne.'),
-  (E:'List cached repositories or revisions.';F:'Liste les dépôts ou les révisions présents dans le cache.'),
-  (E:'Cache directory to scan (defaults to Hugging Face cache).';F:'Répertoire de cache à analyser (par défaut : le cache Hugging Face).'),
-  (E:'Include revisions in the output instead of aggregated repositories.';F:'Affiche les révisions au lieu des dépôts agrégés.'),
-  (E:'Filter entries (e.g. ''size>1GB'', ''modified>1w''). Can be used multiple times.';F:'Filtre les entrées (ex. : ''size>1GB'', ''modified>1w''). Répétable.'),
-  (E:'Print only IDs (repo IDs or revision hashes).';F:'Affiche uniquement les identifiants (dépôts ou empreintes de révisions).'),
-  (E:'Remove cached repositories or revisions.';F:'Supprime des dépôts ou des révisions du cache.'),
-  (E:'One or more repo IDs (e.g. model/bert-base-uncased) or revision hashes to delete.';F:'Un ou plusieurs identifiants de dépôts (ex. : model/bert-base-uncased) ou empreintes de révisions à supprimer.'),
+  (E:'List cached repositories or revisions.';F:'Liste les d'+#130+'p'+#147+'ts ou les r'+#130+
+    'visions pr'+#130+'sents dans le cache.'),
+  (E:'Cache directory to scan (defaults to Hugging Face cache).';F:'R'+#130+'pertoire de cache '+
+    #133+' analyser (par d'+#130+'faut : le cache Hugging Face).'),
+  (E:'Include revisions in the output instead of aggregated repositories.';F:'Affiche les r'+#130+
+    'visions au lieu des d'+#130+'p'+#147+'ts agr'+#130+'g'+#130+'s.'),
+  (E:'Filter entries (e.g. ''size>1GB'', ''modified>1w''). Can be used multiple times.';F:'Filtre '+
+    'les entr'+#130+'es (ex. : ''size>1GB'', ''modified>1w''). R'+#130+'p'+#130+'table.'),
+  (E:'Print only IDs (repo IDs or revision hashes).';F:'Affiche uniquement les identifiants (d'+
+    #130+'p'+#147+'ts ou empreintes de r'+#130+'visions).'),
+  (E:'Remove cached repositories or revisions.';F:'Supprime des d'+#130+'p'+#147+'ts ou des r'+#130+
+    'visions du cache.'),
+  (E:'One or more repo IDs (e.g. model/bert-base-uncased) or revision hashes to delete.';F:'Un ou '+
+    'plusieurs identifiants de d'+#130+'p'+#147+
+    'ts (ex. : model/bert-base-uncased) ou empreintes de r'+#130+'visions '+#133+' supprimer.'),
   (E:'Skip confirmation prompt.';F:'Ne demande pas de confirmation.'),
-  (E:'Preview deletions without removing anything.';F:'Affiche les suppressions prévues sans rien supprimer.'),
-  (E:'Remove detached revisions from the cache.';F:'Supprime les révisions détachées (non référencées) du cache.'),
-  (E:'Cache directory to use when verifying files from the cache.';F:'Répertoire de cache à utiliser pour vérifier les fichiers du cache.'),
-  (E:'If set, verify files under this directory instead of the cache.';F:'Si défini, vérifie les fichiers de ce répertoire au lieu du cache.'),
-  (E:'Fail if some files exist on the remote but are missing locally.';F:'Échoue si des fichiers du dépôt distant sont absents en local.'),
-  (E:'Fail if some files exist locally but are not present on the remote revision.';F:'Échoue si des fichiers locaux n''existent pas dans la révision distante.'),
-  (E:'Create a new repo on the Hub.';F:'Crée un nouveau dépôt sur le Hub.'),
-  (E:'Hugging Face Spaces SDK type. Required when --repo-type is ''space''.';F:'Type de SDK Hugging Face Spaces. Obligatoire quand --repo-type vaut ''space''.'),
-  (E:'Do not raise an error if repo already exists.';F:'Ne signale pas d''erreur si le dépôt existe déjà.'),
-  (E:'Delete a repo from the Hub. This is an irreversible operation.';F:'Supprime un dépôt du Hub. Opération irréversible.'),
-  (E:'If set to True, do not raise an error if repo does not exist.';F:'Ne signale pas d''erreur si le dépôt n''existe pas.'),
-  (E:'The ID of the repo to move (e.g. `username/repo-name`).';F:'Identifiant du dépôt à déplacer (ex. : `utilisateur/nom-du-depot`).'),
-  (E:'The new ID of the repo (e.g. `username/new-repo-name`).';F:'Nouvel identifiant du dépôt (ex. : `utilisateur/nouveau-nom`).'),
-  (E:'Update the settings of a repository.';F:'Modifie les paramètres d''un dépôt.'),
-  (E:'The gated status for the repository (auto, manual or false).';F:'Mode d''accès restreint (« gated ») du dépôt : auto, manual ou false.'),
-  (E:'Make the repository private.';F:'Rend le dépôt privé.'),
-  (E:'Make the repository public.';F:'Rend le dépôt public.'),
-  (E:'Create a new branch for a repo on the Hub.';F:'Crée une nouvelle branche pour un dépôt du Hub.'),
-  (E:'The name of the branch to create.';F:'Nom de la branche à créer.'),
-  (E:'The git revision to create the branch from.';F:'Révision git à partir de laquelle créer la branche.'),
-  (E:'If set to True, do not raise an error if branch already exists.';F:'Ne signale pas d''erreur si la branche existe déjà.'),
-  (E:'Delete a branch from a repo on the Hub.';F:'Supprime une branche d''un dépôt du Hub.'),
-  (E:'The name of the branch to delete.';F:'Nom de la branche à supprimer.'),
-  (E:'Create a tag for a repo.';F:'Crée une étiquette (tag) pour un dépôt.'),
-  (E:'The name of the tag to create.';F:'Nom de l''étiquette à créer.'),
-  (E:'The description of the tag to create.';F:'Description de l''étiquette à créer.'),
-  (E:'The git revision to tag.';F:'Révision git à étiqueter.'),
-  (E:'Delete a tag from a repo.';F:'Supprime une étiquette (tag) d''un dépôt.'),
-  (E:'The name of the tag to delete.';F:'Nom de l''étiquette à supprimer.'),
-  (E:'Answer Yes to prompt automatically.';F:'Répond automatiquement oui à la confirmation.'),
-  (E:'List tags for a repo.';F:'Liste les étiquettes (tags) d''un dépôt.'),
-  (E:'Delete files from a repo on the Hub.';F:'Supprime des fichiers d''un dépôt du Hub.'),
-  (E:'Glob patterns to match files to delete.';F:'Motifs glob des fichiers à supprimer.'),
-  (E:'An optional Git revision to delete files from.';F:'Révision Git (facultatif) dont il faut supprimer les fichiers.'),
-  (E:'Whether to create a Pull Request from the changes.';F:'Crée une Pull Request à partir des modifications.'),
+  (E:'Preview deletions without removing anything.';F:'Affiche les suppressions pr'+#130+
+    'vues sans rien supprimer.'),
+  (E:'Remove detached revisions from the cache.';F:'Supprime les r'+#130+'visions d'+#130+'tach'+
+    #130+'es (non r'+#130+'f'+#130+'renc'+#130+'es) du cache.'),
+  (E:'Cache directory to use when verifying files from the cache.';F:'R'+#130+'pertoire de cache '+
+    #133+' utiliser pour v'+#130+'rifier les fichiers du cache.'),
+  (E:'If set, verify files under this directory instead of the cache.';F:'Si d'+#130+'fini, v'+#130+
+    'rifie les fichiers de ce r'+#130+'pertoire au lieu du cache.'),
+  (E:'Fail if some files exist on the remote but are missing locally.';F:#144+
+    'choue si des fichiers du d'+#130+'p'+#147+'t distant sont absents en local.'),
+  (E:'Fail if some files exist locally but are not present on the remote revision.';F:#144+
+    'choue si des fichiers locaux n''existent pas dans la r'+#130+'vision distante.'),
+  (E:'Create a new repo on the Hub.';F:'Cr'+#130+'e un nouveau d'+#130+'p'+#147+'t sur le Hub.'),
+  (E:'Hugging Face Spaces SDK type. Required when --repo-type is ''space''.';F:'Type de SDK Huggin'+
+    'g Face Spaces. Obligatoire quand --repo-type vaut ''space''.'),
+  (E:'Do not raise an error if repo already exists.';F:'Ne signale pas d''erreur si le d'+#130+'p'+
+    #147+'t existe d'+#130+'j'+#133+'.'),
+  (E:'Delete a repo from the Hub. This is an irreversible operation.';F:'Supprime un d'+#130+'p'+
+    #147+'t du Hub. Op'+#130+'ration irr'+#130+'versible.'),
+  (E:'If set to True, do not raise an error if repo does not exist.';F:'Ne signale pas d''erreur s'+
+    'i le d'+#130+'p'+#147+'t n''existe pas.'),
+  (E:'The ID of the repo to move (e.g. `username/repo-name`).';F:'Identifiant du d'+#130+'p'+#147+
+    't '+#133+' d'+#130+'placer (ex. : `utilisateur/nom-du-depot`).'),
+  (E:'The new ID of the repo (e.g. `username/new-repo-name`).';F:'Nouvel identifiant du d'+#130+'p'+
+    #147+'t (ex. : `utilisateur/nouveau-nom`).'),
+  (E:'Update the settings of a repository.';F:'Modifie les param'+#138+'tres d''un d'+#130+'p'+#147+
+    't.'),
+  (E:'The gated status for the repository (auto, manual or false).';F:'Mode d''acc'+#138+
+    's restreint ('+#174+' gated '+#175+') du d'+#130+'p'+#147+'t : auto, manual ou false.'),
+  (E:'Make the repository private.';F:'Rend le d'+#130+'p'+#147+'t priv'+#130+'.'),
+  (E:'Make the repository public.';F:'Rend le d'+#130+'p'+#147+'t public.'),
+  (E:'Create a new branch for a repo on the Hub.';F:'Cr'+#130+'e une nouvelle branche pour un d'+
+    #130+'p'+#147+'t du Hub.'),
+  (E:'The name of the branch to create.';F:'Nom de la branche '+#133+' cr'+#130+'er.'),
+  (E:'The git revision to create the branch from.';F:'R'+#130+'vision git '+#133+
+    ' partir de laquelle cr'+#130+'er la branche.'),
+  (E:'If set to True, do not raise an error if branch already exists.';F:'Ne signale pas d''erreur'+
+    ' si la branche existe d'+#130+'j'+#133+'.'),
+  (E:'Delete a branch from a repo on the Hub.';F:'Supprime une branche d''un d'+#130+'p'+#147+
+    't du Hub.'),
+  (E:'The name of the branch to delete.';F:'Nom de la branche '+#133+' supprimer.'),
+  (E:'Create a tag for a repo.';F:'Cr'+#130+'e une '+#130+'tiquette (tag) pour un d'+#130+'p'+#147+
+    't.'),
+  (E:'The name of the tag to create.';F:'Nom de l'''+#130+'tiquette '+#133+' cr'+#130+'er.'),
+  (E:'The description of the tag to create.';F:'Description de l'''+#130+'tiquette '+#133+' cr'+
+    #130+'er.'),
+  (E:'The git revision to tag.';F:'R'+#130+'vision git '+#133+' '+#130+'tiqueter.'),
+  (E:'Delete a tag from a repo.';F:'Supprime une '+#130+'tiquette (tag) d''un d'+#130+'p'+#147+
+    't.'),
+  (E:'The name of the tag to delete.';F:'Nom de l'''+#130+'tiquette '+#133+' supprimer.'),
+  (E:'Answer Yes to prompt automatically.';F:'R'+#130+'pond automatiquement oui '+#133+
+    ' la confirmation.'),
+  (E:'List tags for a repo.';F:'Liste les '+#130+'tiquettes (tags) d''un d'+#130+'p'+#147+'t.'),
+  (E:'Delete files from a repo on the Hub.';F:'Supprime des fichiers d''un d'+#130+'p'+#147+
+    't du Hub.'),
+  (E:'Glob patterns to match files to delete.';F:'Motifs glob des fichiers '+#133+' supprimer.'),
+  (E:'An optional Git revision to delete files from.';F:'R'+#130+
+    'vision Git (facultatif) dont il faut supprimer les fichiers.'),
+  (E:'Whether to create a Pull Request from the changes.';F:'Cr'+#130+'e une Pull Request '+#133+
+    ' partir des modifications.'),
   (E:'List collections on the Hub.';F:'Liste les collections du Hub.'),
-  (E:'Filter by owner username or organization.';F:'Filtre par propriétaire (utilisateur ou organisation).'),
-  (E:'Filter collections containing a specific item (e.g. models/gpt2).';F:'Filtre les collections contenant un élément précis (ex. : models/gpt2).'),
-  (E:'Sort results by lastModified, trending or upvotes.';F:'Trie les résultats par lastModified, trending ou upvotes.'),
+  (E:'Filter by owner username or organization.';F:'Filtre par propri'+#130+
+    'taire (utilisateur ou organisation).'),
+  (E:'Filter collections containing a specific item (e.g. models/gpt2).';F:'Filtre les collections'+
+    ' contenant un '+#130+'l'+#130+'ment pr'+#130+'cis (ex. : models/gpt2).'),
+  (E:'Sort results by lastModified, trending or upvotes.';F:'Trie les r'+#130+
+    'sultats par lastModified, trending ou upvotes.'),
   (E:'Print only slugs.';F:'Affiche uniquement les identifiants courts (slugs).'),
-  (E:'The collection slug (e.g. `username/collection-slug-123abc`).';F:'Identifiant court (slug) de la collection (ex. : `utilisateur/slug-123abc`).'),
-  (E:'Create a new collection on the Hub.';F:'Crée une nouvelle collection sur le Hub.'),
+  (E:'The collection slug (e.g. `username/collection-slug-123abc`).';F:'Identifiant court (slug) d'+
+    'e la collection (ex. : `utilisateur/slug-123abc`).'),
+  (E:'Create a new collection on the Hub.';F:'Cr'+#130+'e une nouvelle collection sur le Hub.'),
   (E:'The title of the collection.';F:'Titre de la collection.'),
-  (E:'The namespace of the collection (defaults to the authenticated user).';F:'Espace de noms de la collection (par défaut : l''utilisateur connecté).'),
+  (E:'The namespace of the collection (defaults to the authenticated user).';F:'Espace de noms de '+
+    'la collection (par d'+#130+'faut : l''utilisateur connect'+#130+').'),
   (E:'The description of the collection.';F:'Description de la collection.'),
-  (E:'Create a private collection.';F:'Crée une collection privée.'),
-  (E:'Do not raise an error if the collection already exists.';F:'Ne signale pas d''erreur si la collection existe déjà.'),
+  (E:'Create a private collection.';F:'Cr'+#130+'e une collection priv'+#130+'e.'),
+  (E:'Do not raise an error if the collection already exists.';F:'Ne signale pas d''erreur si la c'+
+    'ollection existe d'+#130+'j'+#133+'.'),
   (E:'Delete a collection from the Hub.';F:'Supprime une collection du Hub.'),
-  (E:'Do not raise an error if the collection does not exist.';F:'Ne signale pas d''erreur si la collection n''existe pas.'),
-  (E:'Add an item to a collection.';F:'Ajoute un élément à une collection.'),
-  (E:'The ID of the item to add (e.g. `username/repo-name`).';F:'Identifiant de l''élément à ajouter (ex. : `utilisateur/nom-du-depot`).'),
-  (E:'Type of item: model, dataset, space, paper or collection. [default: model]';F:'Type d''élément : model, dataset, space, paper ou collection. [défaut : model]'),
-  (E:'A note to attach to the item (max 500 characters).';F:'Note à associer à l''élément (500 caractères maximum).'),
-  (E:'Do not raise an error if the item is already in the collection.';F:'Ne signale pas d''erreur si l''élément est déjà dans la collection.'),
-  (E:'The item object id (as shown by `hf collections info`).';F:'Identifiant objet de l''élément (affiché par `hf collections info`).'),
-  (E:'Do not raise an error if the item does not exist.';F:'Ne signale pas d''erreur si l''élément n''existe pas.'),
+  (E:'Do not raise an error if the collection does not exist.';F:'Ne signale pas d''erreur si la c'+
+    'ollection n''existe pas.'),
+  (E:'Add an item to a collection.';F:'Ajoute un '+#130+'l'+#130+'ment '+#133+' une collection.'),
+  (E:'The ID of the item to add (e.g. `username/repo-name`).';F:'Identifiant de l'''+#130+'l'+#130+
+    'ment '+#133+' ajouter (ex. : `utilisateur/nom-du-depot`).'),
+  (E:'Type of item: model, dataset, space, paper or collection. [default: model]';F:'Type d'''+#130+
+    'l'+#130+'ment : model, dataset, space, paper ou collection. [d'+#130+'faut : model]'),
+  (E:'A note to attach to the item (max 500 characters).';F:'Note '+#133+' associer '+#133+' l'''+
+    #130+'l'+#130+'ment (500 caract'+#138+'res maximum).'),
+  (E:'Do not raise an error if the item is already in the collection.';F:'Ne signale pas d''erreur'+
+    ' si l'''+#130+'l'+#130+'ment est d'+#130+'j'+#133+' dans la collection.'),
+  (E:'The item object id (as shown by `hf collections info`).';F:'Identifiant objet de l'''+#130+
+    'l'+#130+'ment (affich'+#130+' par `hf collections info`).'),
+  (E:'Do not raise an error if the item does not exist.';F:'Ne signale pas d''erreur si l'''+#130+
+    'l'+#130+'ment n''existe pas.'),
   (E:'List daily papers on the Hub.';F:'Liste les articles du jour (daily papers) du Hub.'),
   (E:'Date in ISO format (YYYY-MM-DD).';F:'Date au format ISO (AAAA-MM-JJ).'),
   (E:'Sort order: publishedAt or trending.';F:'Ordre de tri : publishedAt ou trending.'),
-  (E:'Limit the number of results. [default: 50]';F:'Limite le nombre de résultats. [défaut : 50]'),
+  (E:'Limit the number of results. [default: 50]';F:'Limite le nombre de r'+#130+'sultats. [d'+#130+
+    'faut : 50]'),
   (E:'Search papers on the Hub.';F:'Recherche des articles scientifiques sur le Hub.'),
-  (E:'Get info about a paper on the Hub. Output is in JSON format.';F:'Affiche les informations d''un article du Hub, au format JSON.'),
-  (E:'The arXiv id of the paper (e.g. `2307.09288`).';F:'Identifiant arXiv de l''article (ex. : `2307.09288`).'),
-  (E:'List discussions and pull requests on a repo.';F:'Liste les discussions et les pull requests d''un dépôt.'),
-  (E:'Filter by status (open, closed, all). [default: open]';F:'Filtre par statut (open, closed, all). [défaut : open]'),
-  (E:'Filter by kind (discussion, pull_request, all). [default: all]';F:'Filtre par nature (discussion, pull_request, all). [défaut : all]'),
+  (E:'Get info about a paper on the Hub. Output is in JSON format.';F:'Affiche les informations '+
+    'd''un article du Hub, au format JSON.'),
+  (E:'The arXiv id of the paper (e.g. `2307.09288`).';F:'Identifiant arXiv de l''article (ex. : `2'+
+    '307.09288`).'),
+  (E:'List discussions and pull requests on a repo.';F:'Liste les discussions et les pull requests'+
+    ' d''un d'+#130+'p'+#147+'t.'),
+  (E:'Filter by status (open, closed, all). [default: open]';F:'Filtre par statut (open, closed, a'+
+    'll). [d'+#130+'faut : open]'),
+  (E:'Filter by kind (discussion, pull_request, all). [default: all]';F:'Filtre par nature (discus'+
+    'sion, pull_request, all). [d'+#130+'faut : all]'),
   (E:'Filter by author.';F:'Filtre par auteur.'),
-  (E:'The discussion number.';F:'Numéro de la discussion.'),
-  (E:'Create a new discussion or pull request on a repo.';F:'Crée une discussion ou une pull request sur un dépôt.'),
-  (E:'The title of the discussion or pull request.';F:'Titre de la discussion ou de la pull request.'),
-  (E:'The description of the discussion or pull request.';F:'Description de la discussion ou de la pull request.'),
-  (E:'Create a pull request instead of a discussion.';F:'Crée une pull request au lieu d''une discussion.'),
+  (E:'The discussion number.';F:'Num'+#130+'ro de la discussion.'),
+  (E:'Create a new discussion or pull request on a repo.';F:'Cr'+#130+
+    'e une discussion ou une pull request sur un d'+#130+'p'+#147+'t.'),
+  (E:'The title of the discussion or pull request.';F:'Titre de la discussion ou de la pull reques'+
+    't.'),
+  (E:'The description of the discussion or pull request.';F:'Description de la discussion ou de la'+
+    ' pull request.'),
+  (E:'Create a pull request instead of a discussion.';F:'Cr'+#130+
+    'e une pull request au lieu d''une discussion.'),
   (E:'Comment on a discussion or pull request.';F:'Commente une discussion ou une pull request.'),
   (E:'The comment text.';F:'Texte du commentaire.'),
-  (E:'An optional comment to post with the change.';F:'Commentaire facultatif à publier avec le changement.'),
+  (E:'An optional comment to post with the change.';F:'Commentaire facultatif '+#133+
+    ' publier avec le changement.'),
   (E:'Merge a pull request.';F:'Fusionne une pull request.'),
-  (E:'The pull request number.';F:'Numéro de la pull request.'),
-  (E:'An optional comment to post with the merge.';F:'Commentaire facultatif à publier avec la fusion.'),
-  (E:'Lists all Inference Endpoints for the given namespace.';F:'Liste les Inference Endpoints de l''espace de noms indiqué.'),
-  (E:'The namespace associated with the Inference Endpoints. Defaults to the current user.';F:'Espace de noms des Inference Endpoints. Par défaut : l''utilisateur courant.'),
+  (E:'The pull request number.';F:'Num'+#130+'ro de la pull request.'),
+  (E:'An optional comment to post with the merge.';F:'Commentaire facultatif '+#133+
+    ' publier avec la fusion.'),
+  (E:'Lists all Inference Endpoints for the given namespace.';F:'Liste les Inference Endpoints de '+
+    'l''espace de noms indiqu'+#130+'.'),
+  (E:'The namespace associated with the Inference Endpoints. Defaults to the current user.';F:'Esp'+
+    'ace de noms des Inference Endpoints. Par d'+#130+'faut : l''utilisateur courant.'),
   (E:'Endpoint name.';F:'Nom du point de terminaison (endpoint).'),
-  (E:'The namespace associated with the Inference Endpoint. Defaults to the current user.';F:'Espace de noms de l''Inference Endpoint. Par défaut : l''utilisateur courant.'),
+  (E:'The namespace associated with the Inference Endpoint. Defaults to the current user.';F:'Espa'+
+    'ce de noms de l''Inference Endpoint. Par d'+#130+'faut : l''utilisateur courant.'),
   (E:'Skip confirmation prompts.';F:'Ne demande pas de confirmation.'),
-  (E:'Run a Job.';F:'Exécute un Job.'),
-  (E:'The Docker image to use (or a Space URL).';F:'Image Docker à utiliser (ou URL d''un Space).'),
-  (E:'The command to run.';F:'Commande à exécuter.'),
-  (E:'Flavor for the hardware, as in HF Spaces. [default: cpu-basic]';F:'Type de matériel, comme pour les HF Spaces. [défaut : cpu-basic]'),
-  (E:'Set environment variables. E.g. --env ENV=value';F:'Définit des variables d''environnement. Ex. : --env ENV=valeur'),
-  (E:'Set secret environment variables. E.g. --secrets SECRET=value';F:'Définit des variables d''environnement secrètes. Ex. : --secrets SECRET=valeur'),
-  (E:'Max duration: int/float with s (seconds), m (minutes), h (hours) or d (days).';F:'Durée maximale : nombre suivi de s (secondes), m (minutes), h (heures) ou d (jours).'),
-  (E:'Run the Job in the background and print the Job ID.';F:'Exécute le Job en arrière-plan et affiche son identifiant.'),
-  (E:'The namespace where the job will be running. Defaults to the current user''s namespace.';F:'Espace de noms où le job s''exécute. Par défaut : celui de l''utilisateur courant.'),
+  (E:'Run a Job.';F:'Ex'+#130+'cute un Job.'),
+  (E:'The Docker image to use (or a Space URL).';F:'Image Docker '+#133+
+    ' utiliser (ou URL d''un Space).'),
+  (E:'The command to run.';F:'Commande '+#133+' ex'+#130+'cuter.'),
+  (E:'Flavor for the hardware, as in HF Spaces. [default: cpu-basic]';F:'Type de mat'+#130+
+    'riel, comme pour les HF Spaces. [d'+#130+'faut : cpu-basic]'),
+  (E:'Set environment variables. E.g. --env ENV=value';F:'D'+#130+
+    'finit des variables d''environnement. Ex. : --env ENV=valeur'),
+  (E:'Set secret environment variables. E.g. --secrets SECRET=value';F:'D'+#130+
+    'finit des variables d''environnement secr'+#138+'tes. Ex. : --secrets SECRET=valeur'),
+  (E:'Max duration: int/float with s (seconds), m (minutes), h (hours) or d (days).';F:'Dur'+#130+
+    'e maximale : nombre suivi de s (secondes), m (minutes), h (heures) ou d (jours).'),
+  (E:'Run the Job in the background and print the Job ID.';F:'Ex'+#130+'cute le Job en arri'+#138+
+    're-plan et affiche son identifiant.'),
+  (E:'The namespace where the job will be running. Defaults to the current user''s namespace'+
+    '.';F:'Espace de noms o'+#151+' le job s''ex'+#130+'cute. Par d'+#130+
+    'faut : celui de l''utilisateur courant.'),
   (E:'List Jobs.';F:'Liste les Jobs.'),
-  (E:'Show all Jobs (default shows just running Jobs).';F:'Affiche tous les Jobs (par défaut, seulement ceux en cours d''exécution).'),
-  (E:'The namespace from where it lists the jobs. Defaults to the current user''s namespace.';F:'Espace de noms dont les jobs sont listés. Par défaut : celui de l''utilisateur courant.'),
+  (E:'Show all Jobs (default shows just running Jobs).';F:'Affiche tous les Jobs (par d'+#130+
+    'faut, seulement ceux en cours d''ex'+#130+'cution).'),
+  (E:'The namespace from where it lists the jobs. Defaults to the current user''s namespace.';F:'E'+
+    'space de noms dont les jobs sont list'+#130+'s. Par d'+#130+
+    'faut : celui de l''utilisateur courant.'),
   (E:'Print only Job IDs.';F:'Affiche uniquement les identifiants des Jobs.'),
-  (E:'Display detailed information on one or more Jobs.';F:'Affiche les informations détaillées d''un ou plusieurs Jobs.'),
-  (E:'The jobs to inspect.';F:'Jobs à inspecter.'),
-  (E:'The namespace where the job is running. Defaults to the current user''s namespace.';F:'Espace de noms où le job s''exécute. Par défaut : celui de l''utilisateur courant.'),
-  (E:'Fetch the logs of a Job.';F:'Récupère les journaux d''un Job.'),
+  (E:'Display detailed information on one or more Jobs.';F:'Affiche les informations d'+#130+
+    'taill'+#130+'es d''un ou plusieurs Jobs.'),
+  (E:'The jobs to inspect.';F:'Jobs '+#133+' inspecter.'),
+  (E:'The namespace where the job is running. Defaults to the current user''s namespace.';F:'Espac'+
+    'e de noms o'+#151+' le job s''ex'+#130+'cute. Par d'+#130+
+    'faut : celui de l''utilisateur courant.'),
+  (E:'Fetch the logs of a Job.';F:'R'+#130+'cup'+#138+'re les journaux d''un Job.'),
   (E:'Job ID.';F:'Identifiant du Job.'),
   (E:'Cancel a Job.';F:'Annule un Job.'),
-  (E:'Copy files between local paths and Hub repositories (hf://...).';F:'Copie des fichiers entre des chemins locaux et des dépôts du Hub (hf://...).'),
-  (E:'Source: a local path or hf://[datasets/|spaces/]owner/name[@revision]/path.';F:'Source : un chemin local ou hf://[datasets/|spaces/]propriétaire/nom[@révision]/chemin.'),
-  (E:'Destination: a local path or hf://[datasets/|spaces/]owner/name[@revision]/path.';F:'Destination : un chemin local ou hf://[datasets/|spaces/]propriétaire/nom[@révision]/chemin.'),
-  (E:'Copy directories recursively.';F:'Copie les répertoires récursivement.'),
-  (E:'Commit message when copying to a repository.';F:'Message de commit lors d''une copie vers un dépôt.'),
-  (E:'Sync files between two local directories.';F:'Synchronise les fichiers entre deux répertoires locaux.'),
-  (E:'Source directory.';F:'Répertoire source.'),
-  (E:'Destination directory.';F:'Répertoire de destination.'),
-  (E:'Delete files in DST that do not exist in SRC.';F:'Supprime dans DST les fichiers absents de SRC.'),
+  (E:'Copy files between local paths and Hub repositories (hf://...).';F:'Copie des fichiers entre'+
+    ' des chemins locaux et des d'+#130+'p'+#147+'ts du Hub (hf://...).'),
+  (E:'Source: a local path or hf://[datasets/|spaces/]owner/name[@revision]/path.';F:'Source : un '+
+    'chemin local ou hf://[datasets/|spaces/]propri'+#130+'taire/nom[@r'+#130+'vision]/chemin.'),
+  (E:'Destination: a local path or hf://[datasets/|spaces/]owner/name[@revision]/path.';F:'Destina'+
+    'tion : un chemin local ou hf://[datasets/|spaces/]propri'+#130+'taire/nom[@r'+#130+
+    'vision]/chemin.'),
+  (E:'Copy directories recursively.';F:'Copie les r'+#130+'pertoires r'+#130+'cursivement.'),
+  (E:'Commit message when copying to a repository.';F:'Message de commit lors d''une copie vers un'+
+    ' d'+#130+'p'+#147+'t.'),
+  (E:'Sync files between two local directories.';F:'Synchronise les fichiers entre deux r'+#130+
+    'pertoires locaux.'),
+  (E:'Source directory.';F:'R'+#130+'pertoire source.'),
+  (E:'Destination directory.';F:'R'+#130+'pertoire de destination.'),
+  (E:'Delete files in DST that do not exist in SRC.';F:'Supprime dans DST les fichiers absents de '+
+    'SRC.'),
   (E:'Show what would be done without doing it.';F:'Affiche ce qui serait fait sans le faire.'),
-  (E:'Glob patterns to include.';F:'Motifs glob à inclure.'),
-  (E:'Glob patterns to exclude.';F:'Motifs glob à exclure.'),
+  (E:'Glob patterns to include.';F:'Motifs glob '+#133+' inclure.'),
+  (E:'Glob patterns to exclude.';F:'Motifs glob '+#133+' exclure.'),
   (E:'Commands to interact with buckets.';F:'Commandes pour interagir avec les buckets.'),
-  (E:'List installed extensions.';F:'Liste les extensions installées.'),
-  (E:'Path to a local hf-NAME executable (GitHub sources are not supported).';F:'Chemin d''un exécutable local hf-NOM (les sources GitHub ne sont pas prises en charge).'),
-  (E:'Overwrite an existing extension.';F:'Écrase une extension existante.'),
-  (E:'Remove an installed extension.';F:'Supprime une extension installée.'),
-  (E:'Extension name (without the hf- prefix).';F:'Nom de l''extension (sans le préfixe hf-).'),
-  (E:'Run an extension.';F:'Exécute une extension.'),
+  (E:'List installed extensions.';F:'Liste les extensions install'+#130+'es.'),
+  (E:'Path to a local hf-NAME executable (GitHub sources are not supported).';F:'Chemin d''un ex'+
+    #130+'cutable local hf-NOM (les sources GitHub ne sont pas prises en charge).'),
+  (E:'Overwrite an existing extension.';F:#144+'crase une extension existante.'),
+  (E:'Remove an installed extension.';F:'Supprime une extension install'+#130+'e.'),
+  (E:'Extension name (without the hf- prefix).';F:'Nom de l''extension (sans le pr'+#130+
+    'fixe hf-).'),
+  (E:'Run an extension.';F:'Ex'+#130+'cute une extension.'),
   (E:'Print information about the environment.';F:'Affiche des informations sur l''environnement.'),
   (E:'Print information about the hf version.';F:'Affiche des informations sur la version de hf.'),
-  (E:'Check for a newer version of the hf CLI.';F:'Vérifie l''existence d''une version plus récente de la CLI hf.'),
-  (E:'Print the generated SKILL.md to stdout.';F:'Affiche le fichier SKILL.md généré sur la sortie standard.'),
-  (E:'Install the hf-cli skill for AI assistants.';F:'Installe la compétence (skill) hf-cli pour les assistants IA.'),
+  (E:'Check for a newer version of the hf CLI.';F:'V'+#130+
+    'rifie l''existence d''une version plus r'+#130+'cente de la CLI hf.'),
+  (E:'Print the generated SKILL.md to stdout.';F:'Affiche le fichier SKILL.md g'+#130+'n'+#130+'r'+
+    #130+' sur la sortie standard.'),
+  (E:'Install the hf-cli skill for AI assistants.';F:'Installe la comp'+#130+
+    'tence (skill) hf-cli pour les assistants IA.'),
   (E:'Install for Claude Code (.claude/skills).';F:'Installe pour Claude Code (.claude/skills).'),
   (E:'Install for Codex (.agents/skills).';F:'Installe pour Codex (.agents/skills).'),
   (E:'Install for OpenCode (.opencode/skills).';F:'Installe pour OpenCode (.opencode/skills).'),
-  (E:'Install globally (in the home directory) instead of the current project.';F:'Installe globalement (dans le répertoire personnel) plutôt que dans le projet courant.'),
-  (E:'Install into this skills directory.';F:'Installe dans ce répertoire de compétences.'),
-  (E:'Overwrite an existing installation.';F:'Écrase une installation existante.'),
-  (E:'Verify checksums for a single repo revision from cache or a local directory.';F:'Vérifie les sommes de contrôle d''une révision de dépôt, depuis le cache ou un répertoire local.'),
-  (E:'List models on the Hub.';F:'Liste les modèles du Hub.'),
-  (E:'Get info about a model on the Hub.';F:'Affiche les informations d''un modèle du Hub.'),
-  (E:'List datasets on the Hub.';F:'Liste les jeux de données du Hub.'),
-  (E:'Get info about a dataset on the Hub.';F:'Affiche les informations d''un jeu de données du Hub.'),
+  (E:'Install globally (in the home directory) instead of the current project.';F:'Installe global'+
+    'ement (dans le r'+#130+'pertoire personnel) plut'+#147+'t que dans le projet courant.'),
+  (E:'Install into this skills directory.';F:'Installe dans ce r'+#130+'pertoire de comp'+#130+
+    'tences.'),
+  (E:'Overwrite an existing installation.';F:#144+'crase une installation existante.'),
+  (E:'Verify checksums for a single repo revision from cache or a local directory.';F:'V'+#130+
+    'rifie les sommes de contr'+#147+'le d''une r'+#130+'vision de d'+#130+'p'+#147+
+    't, depuis le cache ou un r'+#130+'pertoire local.'),
+  (E:'List models on the Hub.';F:'Liste les mod'+#138+'les du Hub.'),
+  (E:'Get info about a model on the Hub.';F:'Affiche les informations d''un mod'+#138+'le du Hub.'),
+  (E:'List datasets on the Hub.';F:'Liste les jeux de donn'+#130+'es du Hub.'),
+  (E:'Get info about a dataset on the Hub.';F:'Affiche les informations d''un jeu de donn'+#130+
+    'es du Hub.'),
   (E:'List spaces on the Hub.';F:'Liste les Spaces du Hub.'),
   (E:'Get info about a space on the Hub.';F:'Affiche les informations d''un Space du Hub.'),
-  (E:'Get info about a model on the Hub. Output is in JSON format.';F:'Affiche les informations d''un modèle du Hub, au format JSON.'),
-  (E:'Get info about a dataset on the Hub. Output is in JSON format.';F:'Affiche les informations d''un jeu de données du Hub, au format JSON.'),
-  (E:'Get info about a space on the Hub. Output is in JSON format.';F:'Affiche les informations d''un Space du Hub, au format JSON.'),
-  (E:'The ID of the model (e.g. `username/repo-name`).';F:'Identifiant du modèle (ex. : `utilisateur/nom-du-depot`).'),
-  (E:'The ID of the dataset (e.g. `username/repo-name`).';F:'Identifiant du jeu de données (ex. : `utilisateur/nom-du-depot`).'),
-  (E:'The ID of the space (e.g. `username/repo-name`).';F:'Identifiant du Space (ex. : `utilisateur/nom-du-depot`).'),
-  (E:'Move a repository from a namespace to another namespace.';F:'Déplace un dépôt d''un espace de noms vers un autre.'),
-  (E:'Manage branches for a repo on the Hub.';F:'G'+#138+'re les branches d''un dépôt du Hub.'),
-  (E:'Manage tags for a repo on the Hub.';F:'G'+#138+'re les étiquettes (tags) d''un dépôt du Hub.'),
-  (E:'Get info about a collection on the Hub.';F:'Affiche les informations d''une collection du Hub.'),
-  (E:'Get info about a collection on the Hub. Output is in JSON format.';F:'Affiche les informations d''une collection du Hub, au format JSON.'),
-  (E:'Delete an item from a collection.';F:'Supprime un élément d''une collection.'),
+  (E:'Get info about a model on the Hub. Output is in JSON format.';F:'Affiche les informations '+
+    'd''un mod'+#138+'le du Hub, au format JSON.'),
+  (E:'Get info about a dataset on the Hub. Output is in JSON format.';F:'Affiche les informations '+
+    'd''un jeu de donn'+#130+'es du Hub, au format JSON.'),
+  (E:'Get info about a space on the Hub. Output is in JSON format.';F:'Affiche les informations '+
+    'd''un Space du Hub, au format JSON.'),
+  (E:'The ID of the model (e.g. `username/repo-name`).';F:'Identifiant du mod'+#138+
+    'le (ex. : `utilisateur/nom-du-depot`).'),
+  (E:'The ID of the dataset (e.g. `username/repo-name`).';F:'Identifiant du jeu de donn'+#130+
+    'es (ex. : `utilisateur/nom-du-depot`).'),
+  (E:'The ID of the space (e.g. `username/repo-name`).';F:'Identifiant du Space (ex. : `utilisateu'+
+    'r/nom-du-depot`).'),
+  (E:'Move a repository from a namespace to another namespace.';F:'D'+#130+'place un d'+#130+'p'+
+    #147+'t d''un espace de noms vers un autre.'),
+  (E:'Manage branches for a repo on the Hub.';F:'G'+#138+'re les branches d''un d'+#130+'p'+#147+
+    't du Hub.'),
+  (E:'Manage tags for a repo on the Hub.';F:'G'+#138+'re les '+#130+'tiquettes (tags) d''un d'+#130+
+    'p'+#147+'t du Hub.'),
+  (E:'Get info about a collection on the Hub.';F:'Affiche les informations d''une collection du Hu'+
+    'b.'),
+  (E:'Get info about a collection on the Hub. Output is in JSON format.';F:'Affiche les informatio'+
+    'ns d''une collection du Hub, au format JSON.'),
+  (E:'Delete an item from a collection.';F:'Supprime un '+#130+'l'+#130+'ment d''une collection.'),
   (E:'Get info about a paper on the Hub.';F:'Affiche les informations d''un article du Hub.'),
-  (E:'Get info about a discussion or pull request.';F:'Affiche les informations d''une discussion ou d''une pull request.'),
-  (E:'Get info about a discussion or pull request. Output is in JSON format.';F:'Affiche les informations d''une discussion ou d''une pull request, au format JSON.'),
+  (E:'Get info about a discussion or pull request.';F:'Affiche les informations d''une discussion '+
+    'ou d''une pull request.'),
+  (E:'Get info about a discussion or pull request. Output is in JSON format.';F:'Affiche les infor'+
+    'mations d''une discussion ou d''une pull request, au format JSON.'),
   (E:'Close a discussion or pull request.';F:'Ferme une discussion ou une pull request.'),
-  (E:'Reopen a closed discussion or pull request.';F:'Rouvre une discussion ou une pull request fermée.'),
-  (E:'Get information about an existing endpoint.';F:'Affiche les informations d''un endpoint existant.'),
+  (E:'Reopen a closed discussion or pull request.';F:'Rouvre une discussion ou une pull request fe'+
+    'rm'+#130+'e.'),
+  (E:'Get information about an existing endpoint.';F:'Affiche les informations d''un endpoint exis'+
+    'tant.'),
   (E:'Pause an Inference Endpoint.';F:'Met en pause un Inference Endpoint.'),
   (E:'Resume an Inference Endpoint.';F:'Reprend un Inference Endpoint.'),
-  (E:'Scale an Inference Endpoint to zero.';F:'Ramène un Inference Endpoint à zéro réplique.'),
-  (E:'Delete an Inference Endpoint permanently.';F:'Supprime définitivement un Inference Endpoint.'),
-  (E:'Create a bucket (not supported by this clone).';F:'Crée un bucket (non pris en charge par ce clone).'),
-  (E:'List buckets (not supported by this clone).';F:'Liste les buckets (non pris en charge par ce clone).'),
-  (E:'Get info about a bucket (not supported by this clone).';F:'Affiche les informations d''un bucket (non pris en charge par ce clone).'),
-  (E:'Delete a bucket (not supported by this clone).';F:'Supprime un bucket (non pris en charge par ce clone).'),
-  (E:'Copy files to or from a bucket (not supported by this clone).';F:'Copie des fichiers vers ou depuis un bucket (non pris en charge par ce clone).'),
-  (E:'Sync a directory with a bucket (not supported by this clone).';F:'Synchronise un répertoire avec un bucket (non pris en charge par ce clone).'),
-  (E:'Install an extension from a local executable named hf-NAME.';F:'Installe une extension à partir d''un exécutable local nommé hf-NOM.'),
+  (E:'Scale an Inference Endpoint to zero.';F:'Ram'+#138+'ne un Inference Endpoint '+#133+' z'+#130+
+    'ro r'+#130+'plique.'),
+  (E:'Delete an Inference Endpoint permanently.';F:'Supprime d'+#130+
+    'finitivement un Inference Endpoint.'),
+  (E:'Create a bucket (not supported by this clone).';F:'Cr'+#130+
+    'e un bucket (non pris en charge par ce clone).'),
+  (E:'List buckets (not supported by this clone).';F:'Liste les buckets (non pris en charge par ce'+
+    ' clone).'),
+  (E:'Get info about a bucket (not supported by this clone).';F:'Affiche les informations d''un bu'+
+    'cket (non pris en charge par ce clone).'),
+  (E:'Delete a bucket (not supported by this clone).';F:'Supprime un bucket (non pris en charge pa'+
+    'r ce clone).'),
+  (E:'Copy files to or from a bucket (not supported by this clone).';F:'Copie des fichiers vers ou'+
+    ' depuis un bucket (non pris en charge par ce clone).'),
+  (E:'Sync a directory with a bucket (not supported by this clone).';F:'Synchronise un r'+#130+
+    'pertoire avec un bucket (non pris en charge par ce clone).'),
+  (E:'Install an extension from a local executable named hf-NAME.';F:'Installe une extension '+#133+
+    ' partir d''un ex'+#130+'cutable local nomm'+#130+' hf-NOM.'),
   (E:'Install an extension.';F:'Installe une extension.'),
-  (E:'Manage authentication (login, logout, etc.).';F:'G'+#138+'re l''authentification (connexion, déconnexion, etc.).'),
-  (E:'Manage local cache directory.';F:'G'+#138+'re le répertoire de cache local.'),
+  (E:'Manage authentication (login, logout, etc.).';F:'G'+#138+
+    're l''authentification (connexion, d'+#130+'connexion, etc.).'),
+  (E:'Manage local cache directory.';F:'G'+#138+'re le r'+#130+'pertoire de cache local.'),
   (E:'Interact with collections on the Hub.';F:'Interagit avec les collections du Hub.'),
-  (E:'Copy files between local paths and Hub repositories.';F:'Copie des fichiers entre des chemins locaux et des dépôts du Hub.'),
-  (E:'Interact with datasets on the Hub.';F:'Interagit avec les jeux de données du Hub.'),
-  (E:'Manage discussions and pull requests on the Hub.';F:'G'+#138+'re les discussions et les pull requests du Hub.'),
-  (E:'Manage Hugging Face Inference Endpoints.';F:'G'+#138+'re les Inference Endpoints de Hugging Face.'),
+  (E:'Copy files between local paths and Hub repositories.';F:'Copie des fichiers entre des chemin'+
+    's locaux et des d'+#130+'p'+#147+'ts du Hub.'),
+  (E:'Interact with datasets on the Hub.';F:'Interagit avec les jeux de donn'+#130+'es du Hub.'),
+  (E:'Manage discussions and pull requests on the Hub.';F:'G'+#138+
+    're les discussions et les pull requests du Hub.'),
+  (E:'Manage Hugging Face Inference Endpoints.';F:'G'+#138+
+    're les Inference Endpoints de Hugging Face.'),
   (E:'Manage hf CLI extensions.';F:'G'+#138+'re les extensions de la CLI hf.'),
-  (E:'Run and manage Jobs on the Hub.';F:'Exécute et g'+#138+'re des Jobs sur le Hub.'),
-  (E:'Interact with models on the Hub.';F:'Interagit avec les modèles du Hub.'),
+  (E:'Run and manage Jobs on the Hub.';F:'Ex'+#130+'cute et g'+#138+'re des Jobs sur le Hub.'),
+  (E:'Interact with models on the Hub.';F:'Interagit avec les mod'+#138+'les du Hub.'),
   (E:'Interact with papers on the Hub.';F:'Interagit avec les articles scientifiques du Hub.'),
-  (E:'Manage repos on the Hub.';F:'G'+#138+'re les dépôts du Hub.'),
-  (E:'Manage skills for AI assistants.';F:'G'+#138+'re les compétences (skills) des assistants IA.'),
+  (E:'Manage repos on the Hub.';F:'G'+#138+'re les d'+#130+'p'+#147+'ts du Hub.'),
+  (E:'Manage skills for AI assistants.';F:'G'+#138+'re les comp'+#130+
+    'tences (skills) des assistants IA.'),
   (E:'Interact with spaces on the Hub.';F:'Interagit avec les Spaces du Hub.'),
   (E:'Upload a file or a folder to the Hub.';F:'Envoie un fichier ou un dossier vers le Hub.'),
-  (E:'Upload a file or a folder to the Hub. Recommended for single-commit uploads.';F:'Envoie un fichier ou un dossier vers le Hub, en un seul commit.'),
+  (E:'Upload a file or a folder to the Hub. Recommended for single-commit uploads.';F:'Envoie un f'+
+    'ichier ou un dossier vers le Hub, en un seul commit.'),
   (E:'Hugging Face Hub CLI (Pascal clone)';F:'CLI du Hugging Face Hub (clone Pascal)'),
   (E:'Show this message and exit.';F:'Affiche ce message et quitte.'),
   (E:'Missing option ''--title''.';F:'Option ''--title'' manquante.'),
   (E:'Missing option ''--body''.';F:'Option ''--body'' manquante.'),
-  (E:'--space-sdk is required when --repo-type is ''space''.';F:'--space-sdk est obligatoire quand --repo-type vaut ''space''.'),
-  (E:'Nothing to update: pass --gated, --private or --public.';F:'Rien à modifier : indiquez --gated, --private ou --public.'),
+  (E:'--space-sdk is required when --repo-type is ''space''.';F:'--space-sdk est obligatoire quand'+
+    ' --repo-type vaut ''space''.'),
+  (E:'Nothing to update: pass --gated, --private or --public.';F:'Rien '+#133+
+    ' modifier : indiquez --gated, --private ou --public.'),
   (E:'Lists the Inference Endpoints.';F:'Liste les Inference Endpoints.'));
 
 Function IsEn:Boolean;
@@ -2250,7 +2537,8 @@ Begin
          'Cette commande permet de lancer l''interface Hugging Face Optimum.'));
  WriteLn;
  WriteLn(StdErr,L('Usage: ','Syntaxe : '),CmdPath,' [OPTIONS] ',CmdUsage);
- WriteLn(StdErr,L('Try ''','Essayez ''') ,CmdPath,L(' -h'' for help.',' -h'' pour obtenir de l''aide.'));
+ WriteLn(StdErr,L('Try ''','Essayez ''') ,CmdPath,L(' -h'' for help.',
+   ' -h'' pour obtenir de l''aide.'));
  WriteLn(StdErr);
  WriteLn(StdErr,L('Error: ','Erreur : '),Tr(Msg));
  Halt(2);
@@ -2287,12 +2575,14 @@ Begin
    K:=FindOpt(Nm,False);
    If K<0 Then UsageErr(L('No such option: --','Option inconnue : --')+Nm);
    If ODef[K].Meta='' Then Begin
-    If P>0 Then UsageErr(L('Option ''--'+Nm+''' does not take a value.','L''option ''--'+Nm+''' n''accepte pas de valeur.'));
+    If P>0 Then UsageErr(L('Option ''--'+Nm+''' does not take a value.','L''option ''--'+Nm+
+      ''' n''accepte pas de valeur.'));
     OSet[K]:=True;
    End
    Else Begin
     If P=0 Then Begin
-     If I>=ParamCount Then UsageErr(L('Option ''--'+Nm+''' requires an argument.','L''option ''--'+Nm+''' requiert un argument.'));
+     If I>=ParamCount Then UsageErr(L('Option ''--'+Nm+''' requires an argument.','L''option ''--'+
+       Nm+''' requiert un argument.'));
      Inc(I);V:=ParamStr(I);
     End;
     OSet[K]:=True;
@@ -2307,7 +2597,8 @@ Begin
    Else Begin
     If Length(A)>2 Then V:=Copy(A,3,Length(A))
     Else Begin
-     If I>=ParamCount Then UsageErr(L('Option ''-'+Nm+''' requires an argument.','L''option ''-'+Nm+''' requiert un argument.'));
+     If I>=ParamCount Then UsageErr(L('Option ''-'+Nm+''' requires an argument.','L''option ''-'+Nm+
+       ''' requiert un argument.'));
      Inc(I);V:=ParamStr(I);
     End;
     OSet[K]:=True;
@@ -2322,11 +2613,13 @@ End;
 Procedure NeedArgs(Min,Max:LongInt);
 Begin
  If PosArgs.N<Min Then Begin
-  If PosArgs.N<ArgNames.N Then UsageErr(L('Missing argument ''','Argument manquant : ''')+ArgNames.A[PosArgs.N]+'''.')
+  If PosArgs.N<ArgNames.N Then UsageErr(L('Missing argument ''','Argument manquant : ''')+
+    ArgNames.A[PosArgs.N]+'''.')
   Else UsageErr(L('Missing argument.','Argument manquant.'));
  End;
  If(Max>=0)and(PosArgs.N>Max)Then
-   UsageErr(L('Got unexpected extra argument (','Argument supplémentaire inattendu (')+PosArgs.A[Max]+')');
+   UsageErr(L('Got unexpected extra argument (','Argument suppl'+#130+'mentaire inattendu (')+
+     PosArgs.A[Max]+')');
 End;
 
 Function OptHas(Const Long:AnsiString):Boolean;
@@ -2436,7 +2729,8 @@ End;
 
 Procedure AddTokenOpt;
 Begin
- Opt('token','','TEXT','A User Access Token generated from https://huggingface.co/settings/tokens.');
+ Opt('token','','TEXT',
+   'A User Access Token generated from https://huggingface.co/settings/tokens.');
 End;
 
 Procedure AddTypeOpt;
@@ -2452,7 +2746,8 @@ Begin
  If T='models' Then T:='model' Else If T='datasets' Then T:='dataset'
   Else If T='spaces' Then T:='space';
  If(T<>'model')and(T<>'dataset')and(T<>'space')Then
-   UsageErr('Invalid value for ''--repo-type'': '''+T+''' is not one of ''model'', ''dataset'', ''space''.');
+   UsageErr('Invalid value for ''--repo-type'': '''+T+
+     ''' is not one of ''model'', ''dataset'', ''space''.');
  RepoType:=T;
 End;
 
@@ -2511,7 +2806,8 @@ Begin
  Case R.Status of
   401:Result:=Result+#10'Invalid credentials. Please log in with `hf auth login` or pass --token.';
   404:If Code='RepoNotFound' Then
-       Result:=Result+#10'Repository not found. Make sure the repo id and --repo-type are correct. '+
+       Result:=Result+
+         #10'Repository not found. Make sure the repo id and --repo-type are correct. '+
        'If it is private or gated, make sure you are authenticated.'
       Else If Code='RevisionNotFound' Then Result:=Result+#10'Revision not found.'
       Else If Code='EntryNotFound' Then Result:=Result+#10'Entry not found in the repository.';
@@ -2822,11 +3118,13 @@ Begin
  Opt('exclude','','*TEXT','Glob patterns to exclude from files to download.');
  Opt('cache-dir','','TEXT','Directory where to save files.');
  Opt('local-dir','','TEXT','If set, the downloaded file will be placed under this directory.');
- Opt('force-download','','','If True, the files will be downloaded even if they are already cached.');
+ Opt('force-download','','',
+   'If True, the files will be downloaded even if they are already cached.');
  Opt('dry-run','','','If True, perform a dry run without actually downloading the file.');
  AddTokenOpt;
  Opt('quiet','q','','Disable progress bars and warnings; print only the returned path.');
- Opt('max-workers','','INTEGER','Maximum number of workers to use for downloading files. Default is 8.');
+ Opt('max-workers','','INTEGER',
+   'Maximum number of workers to use for downloading files. Default is 8.');
  ParseArgs(ArgStart);
  NeedArgs(1,-1);
  Repo:=Pos1(0);RType:=RepoType;
@@ -3237,13 +3535,16 @@ Var
  IsDir,Quiet:Boolean;
  Base:AnsiString;
 Begin
- CmdBegin('hf upload','Upload a file or a folder to the Hub. Recommended for single-commit uploads.',
+ CmdBegin('hf upload',
+   'Upload a file or a folder to the Hub. Recommended for single-commit uploads.',
    'REPO_ID [LOCAL_PATH] [PATH_IN_REPO]');
  CmdArg('REPO_ID','The ID of the repo to upload to (e.g. `username/repo-name`).');
- CmdArg('LOCAL_PATH','Local path to the file or folder to upload. Defaults to the current directory.');
+ CmdArg('LOCAL_PATH',
+   'Local path to the file or folder to upload. Defaults to the current directory.');
  CmdArg('PATH_IN_REPO','Path of the file or folder in the repo. Defaults to the root of the repo.');
  AddTypeOpt;
- Opt('revision','','TEXT','An optional Git revision to push to. It can be a branch name or a PR reference.');
+ Opt('revision','','TEXT',
+   'An optional Git revision to push to. It can be a branch name or a PR reference.');
  Opt('private','','','Whether to create a private repo if repo doesn''t exist on the Hub.');
  Opt('include','','*TEXT','Glob patterns to match files to upload.');
  Opt('exclude','','*TEXT','Glob patterns to exclude from files to upload.');
@@ -3285,7 +3586,8 @@ Begin
   SAdd(Locals,AbsPath(Local));
   SAdd(Remotes,InRepo);
  End;
- If(Locals.N=0)and(DelPat.N=0)Then Die('no file to upload (check the path and the --include / --exclude patterns).');
+ If(Locals.N=0)and(DelPat.N=0)Then
+   Die('no file to upload (check the path and the --include / --exclude patterns).');
  Full:=CreateRepo(Repo,RType,Tok,OptHas('private'),'',True);
  If Full<>Repo Then Begin
   If not Quiet Then WriteLn(StdErr,'Repository: ',Full);
@@ -3410,7 +3712,8 @@ Begin
  NeedArgs(0,0);
  Tok:=OptGet('token');
  If Tok='' Then Begin
-  WriteLn('To log in, `hf` requires a token generated from https://huggingface.co/settings/tokens .');
+  WriteLn('To log in, `hf` requires a token generated from https://huggingface.co/settings/tokens '+
+    '.');
   Tok:=ReadSecret('Enter your token (input will not be visible): ');
  End;
  If Tok='' Then Die('empty token.');
@@ -3576,8 +3879,10 @@ Begin
  CmdBegin('hf '+Kind+'s ls','List '+Kind+'s on the Hub.','');
  Opt('search','','TEXT','Search query.');
  Opt('author','','TEXT','Filter by author or organization.');
- Opt('filter','','*TEXT','Filter by tags (e.g. ''text-classification''). Can be used multiple times.');
- Opt('sort','','TEXT','Sort key. One of downloads, likes, created_at, last_modified, trending_score.');
+ Opt('filter','','*TEXT',
+   'Filter by tags (e.g. ''text-classification''). Can be used multiple times.');
+ Opt('sort','','TEXT',
+   'Sort key. One of downloads, likes, created_at, last_modified, trending_score.');
  Opt('limit','','INTEGER','Limit the number of results. [default: 10]');
  Opt('expand','','*TEXT','Properties to expand in the response. Can be used multiple times.');
  Opt('format','','TEXT','Output format: table or json. [default: table]');
@@ -3867,7 +4172,8 @@ Begin
  CmdBegin('hf cache ls','List cached repositories or revisions.','');
  Opt('cache-dir','','TEXT','Cache directory to scan (defaults to Hugging Face cache).');
  Opt('revisions','','','Include revisions in the output instead of aggregated repositories.');
- Opt('filter','f','*TEXT','Filter entries (e.g. ''size>1GB'', ''modified>1w''). Can be used multiple times.');
+ Opt('filter','f','*TEXT',
+   'Filter entries (e.g. ''size>1GB'', ''modified>1w''). Can be used multiple times.');
  Opt('format','','TEXT','Output format: table or json. [default: table]');
  Opt('quiet','q','','Print only IDs (repo IDs or revision hashes).');
  ParseArgs(ArgStart);
@@ -3938,7 +4244,8 @@ Var
  Found:Boolean;
 Begin
  CmdBegin('hf cache rm','Remove cached repositories or revisions.','TARGETS...');
- CmdArg('TARGETS','One or more repo IDs (e.g. model/bert-base-uncased) or revision hashes to delete.');
+ CmdArg('TARGETS',
+   'One or more repo IDs (e.g. model/bert-base-uncased) or revision hashes to delete.');
  Opt('cache-dir','','TEXT','Cache directory to scan (defaults to Hugging Face cache).');
  Opt('yes','y','','Skip confirmation prompt.');
  Opt('dry-run','','','Preview deletions without removing anything.');
@@ -4009,15 +4316,18 @@ Var
  K_:LongInt;
  Nok2:Boolean;
 Begin
- CmdBegin('hf cache verify','Verify checksums for a single repo revision from cache or a local directory.',
+ CmdBegin('hf cache verify',
+   'Verify checksums for a single repo revision from cache or a local directory.',
    'REPO_ID');
  CmdArg('REPO_ID','The ID of the repo (e.g. `username/repo-name`).');
  AddTypeOpt;
  Opt('revision','','TEXT','Git revision id which can be a branch name, a tag, or a commit hash.');
  Opt('cache-dir','','TEXT','Cache directory to use when verifying files from the cache.');
  Opt('local-dir','','TEXT','If set, verify files under this directory instead of the cache.');
- Opt('fail-on-missing-files','','','Fail if some files exist on the remote but are missing locally.');
- Opt('fail-on-extra-files','','','Fail if some files exist locally but are not present on the remote revision.');
+ Opt('fail-on-missing-files','','',
+   'Fail if some files exist on the remote but are missing locally.');
+ Opt('fail-on-extra-files','','',
+   'Fail if some files exist locally but are not present on the remote revision.');
  AddTokenOpt;
  ParseArgs(ArgStart);
  NeedArgs(1,1);
@@ -4117,7 +4427,8 @@ Var
  Repo,RType,Tok,Ns,Nm,Body:AnsiString;
  R:THttpReq;
 Begin
- CmdBegin('hf repos delete','Delete a repo from the Hub. This is an irreversible operation.','REPO_ID');
+ CmdBegin('hf repos delete','Delete a repo from the Hub. This is an irreversible operation.',
+   'REPO_ID');
  CmdArg('REPO_ID','The ID of the repo (e.g. `username/repo-name`).');
  AddTypeOpt;
  Opt('missing-ok','','','If set to True, do not raise an error if repo does not exist.');
@@ -4437,7 +4748,8 @@ Var
  T,Body:AnsiString;
  R:THttpReq;
 Begin
- CmdBegin('hf collections add-item','Add an item to a collection.','COLLECTION_SLUG ITEM_ID [ITEM_TYPE]');
+ CmdBegin('hf collections add-item','Add an item to a collection.',
+   'COLLECTION_SLUG ITEM_ID [ITEM_TYPE]');
  CmdArg('COLLECTION_SLUG','The collection slug (e.g. `username/collection-slug-123abc`).');
  CmdArg('ITEM_ID','The ID of the item to add (e.g. `username/repo-name`).');
  CmdArg('ITEM_TYPE','Type of item: model, dataset, space, paper or collection. [default: model]');
@@ -4531,7 +4843,8 @@ End;
 
 Procedure CmdPapersInfo;
 Begin
- CmdBegin('hf papers info','Get info about a paper on the Hub. Output is in JSON format.','PAPER_ID');
+ CmdBegin('hf papers info','Get info about a paper on the Hub. Output is in JSON format.',
+   'PAPER_ID');
  CmdArg('PAPER_ID','The arXiv id of the paper (e.g. `2307.09288`).');
  AddTokenOpt;
  ParseArgs(ArgStart);
@@ -4565,7 +4878,8 @@ Begin
  NeedArgs(1,1);
  Repo:=Pos1(0);RType:=RepoType;
  Fmt:=LoStr(OptGetDef('format','table'));
- Q:='?status='+UrlQ(LoStr(OptGetDef('status','open')))+'&type='+UrlQ(LoStr(OptGetDef('kind','all')));
+ Q:='?status='+UrlQ(LoStr(OptGetDef('status','open')))+'&type='+UrlQ(LoStr(OptGetDef('kind',
+   'all')));
  If OptHas('author')Then Q:=Q+'&author='+UrlQ(OptGet('author'));
  J:=ApiJson('GET',DiscBase(Repo,RType)+Q,'',TokenOpt);
  D:=JGet(J,'discussions');
@@ -4581,7 +4895,8 @@ End;
 
 Procedure CmdDiscInfo;
 Begin
- CmdBegin('hf discussions info','Get info about a discussion or pull request. Output is in JSON format.',
+ CmdBegin('hf discussions info',
+   'Get info about a discussion or pull request. Output is in JSON format.',
    'REPO_ID NUM');
  CmdArg('REPO_ID','The ID of the repo (e.g. `username/repo-name`).');
  CmdArg('NUM','The discussion number.');
@@ -4695,7 +5010,8 @@ Var
  J,L,I:LongInt;
 Begin
  CmdBegin('hf endpoints ls','Lists all Inference Endpoints for the given namespace.','');
- Opt('namespace','','TEXT','The namespace associated with the Inference Endpoints. Defaults to the current user.');
+ Opt('namespace','','TEXT',
+   'The namespace associated with the Inference Endpoints. Defaults to the current user.');
  Opt('format','','TEXT','Output format: table or json. [default: table]');
  AddTokenOpt;
  ParseArgs(ArgStart);
@@ -4722,7 +5038,8 @@ Var
 Begin
  CmdBegin('hf endpoints '+Cmd,Desc,'NAME');
  CmdArg('NAME','Endpoint name.');
- Opt('namespace','','TEXT','The namespace associated with the Inference Endpoint. Defaults to the current user.');
+ Opt('namespace','','TEXT',
+   'The namespace associated with the Inference Endpoint. Defaults to the current user.');
  If Cmd='delete' Then Opt('yes','y','','Skip confirmation prompts.');
  AddTokenOpt;
  ParseArgs(ArgStart);
@@ -4827,9 +5144,11 @@ Begin
  Opt('flavor','','TEXT','Flavor for the hardware, as in HF Spaces. [default: cpu-basic]');
  Opt('env','e','*TEXT','Set environment variables. E.g. --env ENV=value');
  Opt('secrets','s','*TEXT','Set secret environment variables. E.g. --secrets SECRET=value');
- Opt('timeout','','TEXT','Max duration: int/float with s (seconds), m (minutes), h (hours) or d (days).');
+ Opt('timeout','','TEXT',
+   'Max duration: int/float with s (seconds), m (minutes), h (hours) or d (days).');
  Opt('detach','d','','Run the Job in the background and print the Job ID.');
- Opt('namespace','','TEXT','The namespace where the job will be running. Defaults to the current user''s namespace.');
+ Opt('namespace','','TEXT',
+   'The namespace where the job will be running. Defaults to the current user''s namespace.');
  AddTokenOpt;
  ParseArgs(ArgStart);
  NeedArgs(2,-1);
@@ -4870,7 +5189,8 @@ Var
 Begin
  CmdBegin('hf jobs ps','List Jobs.','');
  Opt('all','a','','Show all Jobs (default shows just running Jobs).');
- Opt('namespace','','TEXT','The namespace from where it lists the jobs. Defaults to the current user''s namespace.');
+ Opt('namespace','','TEXT',
+   'The namespace from where it lists the jobs. Defaults to the current user''s namespace.');
  Opt('format','','TEXT','Output format: table or json. [default: table]');
  Opt('quiet','q','','Print only Job IDs.');
  AddTokenOpt;
@@ -4908,13 +5228,15 @@ Var
 Begin
  CmdBegin('hf jobs inspect','Display detailed information on one or more Jobs.','JOB_IDS...');
  CmdArg('JOB_IDS','The jobs to inspect.');
- Opt('namespace','','TEXT','The namespace where the job is running. Defaults to the current user''s namespace.');
+ Opt('namespace','','TEXT',
+   'The namespace where the job is running. Defaults to the current user''s namespace.');
  AddTokenOpt;
  ParseArgs(ArgStart);
  NeedArgs(1,-1);
  Tok:=TokenOpt;
  Ns:=JobNs(Tok);
- For I:=0 to PosArgs.N-1 do JPrint(ApiJson('GET','/api/jobs/'+Ns+'/'+UrlEnc(PosArgs.A[I],False),'',Tok));
+ For I:=0 to PosArgs.N-1 do JPrint(ApiJson('GET','/api/jobs/'+Ns+'/'+UrlEnc(PosArgs.A[I],False),'',
+   Tok));
 End;
 
 Procedure CmdJobsLogs;
@@ -4923,7 +5245,8 @@ Var
 Begin
  CmdBegin('hf jobs logs','Fetch the logs of a Job.','JOB_ID');
  CmdArg('JOB_ID','Job ID.');
- Opt('namespace','','TEXT','The namespace where the job is running. Defaults to the current user''s namespace.');
+ Opt('namespace','','TEXT',
+   'The namespace where the job is running. Defaults to the current user''s namespace.');
  AddTokenOpt;
  ParseArgs(ArgStart);
  NeedArgs(1,1);
@@ -4938,7 +5261,8 @@ Var
 Begin
  CmdBegin('hf jobs cancel','Cancel a Job.','JOB_ID');
  CmdArg('JOB_ID','Job ID.');
- Opt('namespace','','TEXT','The namespace where the job is running. Defaults to the current user''s namespace.');
+ Opt('namespace','','TEXT',
+   'The namespace where the job is running. Defaults to the current user''s namespace.');
  AddTokenOpt;
  ParseArgs(ArgStart);
  NeedArgs(1,1);
@@ -4977,7 +5301,8 @@ Begin
   Else If L.A[0]='spaces' Then Begin RType:='space';I:=1;End
   Else If L.A[0]='models' Then I:=1;
  End;
- If L.N<I+2 Then Die('invalid hf:// URL, expected hf://[datasets/|spaces/]owner/name[@revision]/path: '+U);
+ If L.N<I+2 Then
+   Die('invalid hf:// URL, expected hf://[datasets/|spaces/]owner/name[@revision]/path: '+U);
  Repo:=L.A[I];
  Rev:='main';
  S:=L.A[I+1];
@@ -5127,7 +5452,8 @@ Begin
    Inc(NDel);
   End;
  End;
- WriteLn('Sync complete: ',NCopy,' file(s) copied, ',NDel,' deleted',IfThen_(Dry,' (dry run)',''),'.');
+ WriteLn('Sync complete: ',NCopy,' file(s) copied, ',NDel,' deleted',IfThen_(Dry,' (dry run)',''),
+   '.');
 End;
 
 Procedure CmdBuckets;
@@ -5289,96 +5615,172 @@ Type
 Const
  NSubs=66;
  Subs:Array[0..NSubs-1]of TSub=(
-  (G:'auth';N:'login';D:'Login using a token from huggingface.co/settings/tokens.';F:'Se connecte avec un jeton obtenu sur huggingface.co/settings/tokens.'),
-  (G:'auth';N:'logout';D:'Logout from a specific token.';F:'Se déconnecte d''un jeton précis.'),
-  (G:'auth';N:'switch';D:'Switch between access tokens.';F:'Bascule entre les jetons d''accès.'),
-  (G:'auth';N:'list';D:'List all stored access tokens.';F:'Liste tous les jetons d''accès enregistrés.'),
-  (G:'auth';N:'whoami';D:'Find out which huggingface.co account you are logged in as.';F:'Indique avec quel compte huggingface.co vous êtes connecté.'),
-  (G:'cache';N:'ls';D:'List cached repositories or revisions.';F:'Liste les dépôts ou les révisions présents dans le cache.'),
-  (G:'cache';N:'rm';D:'Remove cached repositories or revisions.';F:'Supprime des dépôts ou des révisions du cache.'),
-  (G:'cache';N:'prune';D:'Remove detached revisions from the cache.';F:'Supprime les révisions détachées (non référencées) du cache.'),
-  (G:'cache';N:'verify';D:'Verify checksums for a single repo revision from cache or a local directory.';F:'Vérifie les sommes de contrôle d''une révision de dépôt, depuis le cache ou un répertoire local.'),
-  (G:'models';N:'ls';D:'List models on the Hub.';F:'Liste les modèles du Hub.'),
-  (G:'models';N:'info';D:'Get info about a model on the Hub.';F:'Affiche les informations d''un modèle du Hub.'),
-  (G:'datasets';N:'ls';D:'List datasets on the Hub.';F:'Liste les jeux de données du Hub.'),
-  (G:'datasets';N:'info';D:'Get info about a dataset on the Hub.';F:'Affiche les informations d''un jeu de données du Hub.'),
+  (G:'auth';N:'login';D:'Login using a token from huggingface.co/settings/tokens.';F:'Se connecte '+
+    'avec un jeton obtenu sur huggingface.co/settings/tokens.'),
+  (G:'auth';N:'logout';D:'Logout from a specific token.';F:'Se d'+#130+'connecte d''un jeton pr'+
+    #130+'cis.'),
+  (G:'auth';N:'switch';D:'Switch between access tokens.';F:'Bascule entre les jetons d''acc'+#138+
+    's.'),
+  (G:'auth';N:'list';D:'List all stored access tokens.';F:'Liste tous les jetons d''acc'+#138+
+    's enregistr'+#130+'s.'),
+  (G:'auth';N:'whoami';D:'Find out which huggingface.co account you are logged in as.';F:'Indique '+
+    'avec quel compte huggingface.co vous '+#136+'tes connect'+#130+'.'),
+  (G:'cache';N:'ls';D:'List cached repositories or revisions.';F:'Liste les d'+#130+'p'+#147+
+    'ts ou les r'+#130+'visions pr'+#130+'sents dans le cache.'),
+  (G:'cache';N:'rm';D:'Remove cached repositories or revisions.';F:'Supprime des d'+#130+'p'+#147+
+    'ts ou des r'+#130+'visions du cache.'),
+  (G:'cache';N:'prune';D:'Remove detached revisions from the cache.';F:'Supprime les r'+#130+
+    'visions d'+#130+'tach'+#130+'es (non r'+#130+'f'+#130+'renc'+#130+'es) du cache.'),
+  (G:'cache';N:'verify';D:'Verify checksums for a single repo revision from cache or a local direc'+
+    'tory.';F:'V'+#130+'rifie les sommes de contr'+#147+'le d''une r'+#130+'vision de d'+#130+'p'+
+    #147+'t, depuis le cache ou un r'+#130+'pertoire local.'),
+  (G:'models';N:'ls';D:'List models on the Hub.';F:'Liste les mod'+#138+'les du Hub.'),
+  (G:'models';N:'info';D:'Get info about a model on the Hub.';F:'Affiche les informations d''un mo'+
+    'd'+#138+'le du Hub.'),
+  (G:'datasets';N:'ls';D:'List datasets on the Hub.';F:'Liste les jeux de donn'+#130+'es du Hub.'),
+  (G:'datasets';N:'info';D:'Get info about a dataset on the Hub.';F:'Affiche les informations d''u'+
+    'n jeu de donn'+#130+'es du Hub.'),
   (G:'spaces';N:'ls';D:'List spaces on the Hub.';F:'Liste les Spaces du Hub.'),
-  (G:'spaces';N:'info';D:'Get info about a space on the Hub.';F:'Affiche les informations d''un Space du Hub.'),
-  (G:'repos';N:'create';D:'Create a new repo on the Hub.';F:'Crée un nouveau dépôt sur le Hub.'),
-  (G:'repos';N:'delete';D:'Delete a repo from the Hub. This is an irreversible operation.';F:'Supprime un dépôt du Hub. Opération irréversible.'),
-  (G:'repos';N:'move';D:'Move a repository from a namespace to another namespace.';F:'Déplace un dépôt d''un espace de noms vers un autre.'),
-  (G:'repos';N:'settings';D:'Update the settings of a repository.';F:'Modifie les paramètres d''un dépôt.'),
-  (G:'repos';N:'branch';D:'Manage branches for a repo on the Hub.';F:'G'+#138+'re les branches d''un dépôt du Hub.'),
-  (G:'repos';N:'tag';D:'Manage tags for a repo on the Hub.';F:'G'+#138+'re les étiquettes (tags) d''un dépôt du Hub.'),
-  (G:'repos';N:'delete-files';D:'Delete files from a repo on the Hub.';F:'Supprime des fichiers d''un dépôt du Hub.'),
-  (G:'repos branch';N:'create';D:'Create a new branch for a repo on the Hub.';F:'Crée une nouvelle branche pour un dépôt du Hub.'),
-  (G:'repos branch';N:'delete';D:'Delete a branch from a repo on the Hub.';F:'Supprime une branche d''un dépôt du Hub.'),
-  (G:'repos tag';N:'create';D:'Create a tag for a repo.';F:'Crée une étiquette (tag) pour un dépôt.'),
-  (G:'repos tag';N:'delete';D:'Delete a tag from a repo.';F:'Supprime une étiquette (tag) d''un dépôt.'),
-  (G:'repos tag';N:'list';D:'List tags for a repo.';F:'Liste les étiquettes (tags) d''un dépôt.'),
+  (G:'spaces';N:'info';D:'Get info about a space on the Hub.';F:'Affiche les informations d''un Sp'+
+    'ace du Hub.'),
+  (G:'repos';N:'create';D:'Create a new repo on the Hub.';F:'Cr'+#130+'e un nouveau d'+#130+'p'+
+    #147+'t sur le Hub.'),
+  (G:'repos';N:'delete';D:'Delete a repo from the Hub. This is an irreversible operation.';F:'Supp'+
+    'rime un d'+#130+'p'+#147+'t du Hub. Op'+#130+'ration irr'+#130+'versible.'),
+  (G:'repos';N:'move';D:'Move a repository from a namespace to another namespace.';F:'D'+#130+
+    'place un d'+#130+'p'+#147+'t d''un espace de noms vers un autre.'),
+  (G:'repos';N:'settings';D:'Update the settings of a repository.';F:'Modifie les param'+#138+
+    'tres d''un d'+#130+'p'+#147+'t.'),
+  (G:'repos';N:'branch';D:'Manage branches for a repo on the Hub.';F:'G'+#138+
+    're les branches d''un d'+#130+'p'+#147+'t du Hub.'),
+  (G:'repos';N:'tag';D:'Manage tags for a repo on the Hub.';F:'G'+#138+'re les '+#130+
+    'tiquettes (tags) d''un d'+#130+'p'+#147+'t du Hub.'),
+  (G:'repos';N:'delete-files';D:'Delete files from a repo on the Hub.';F:'Supprime des fichiers '+
+    'd''un d'+#130+'p'+#147+'t du Hub.'),
+  (G:'repos branch';N:'create';D:'Create a new branch for a repo on the Hub.';F:'Cr'+#130+
+    'e une nouvelle branche pour un d'+#130+'p'+#147+'t du Hub.'),
+  (G:'repos branch';N:'delete';D:'Delete a branch from a repo on the Hub.';F:'Supprime une branche'+
+    ' d''un d'+#130+'p'+#147+'t du Hub.'),
+  (G:'repos tag';N:'create';D:'Create a tag for a repo.';F:'Cr'+#130+'e une '+#130+
+    'tiquette (tag) pour un d'+#130+'p'+#147+'t.'),
+  (G:'repos tag';N:'delete';D:'Delete a tag from a repo.';F:'Supprime une '+#130+
+    'tiquette (tag) d''un d'+#130+'p'+#147+'t.'),
+  (G:'repos tag';N:'list';D:'List tags for a repo.';F:'Liste les '+#130+'tiquettes (tags) d''un d'+
+    #130+'p'+#147+'t.'),
   (G:'collections';N:'ls';D:'List collections on the Hub.';F:'Liste les collections du Hub.'),
-  (G:'collections';N:'info';D:'Get info about a collection on the Hub.';F:'Affiche les informations d''une collection du Hub.'),
-  (G:'collections';N:'create';D:'Create a new collection on the Hub.';F:'Crée une nouvelle collection sur le Hub.'),
-  (G:'collections';N:'delete';D:'Delete a collection from the Hub.';F:'Supprime une collection du Hub.'),
-  (G:'collections';N:'add-item';D:'Add an item to a collection.';F:'Ajoute un élément à une collection.'),
-  (G:'collections';N:'delete-item';D:'Delete an item from a collection.';F:'Supprime un élément d''une collection.'),
-  (G:'papers';N:'ls';D:'List daily papers on the Hub.';F:'Liste les articles du jour (daily papers) du Hub.'),
-  (G:'papers';N:'search';D:'Search papers on the Hub.';F:'Recherche des articles scientifiques sur le Hub.'),
-  (G:'papers';N:'info';D:'Get info about a paper on the Hub.';F:'Affiche les informations d''un article du Hub.'),
-  (G:'discussions';N:'ls';D:'List discussions and pull requests on a repo.';F:'Liste les discussions et les pull requests d''un dépôt.'),
-  (G:'discussions';N:'info';D:'Get info about a discussion or pull request.';F:'Affiche les informations d''une discussion ou d''une pull request.'),
-  (G:'discussions';N:'create';D:'Create a new discussion or pull request on a repo.';F:'Crée une discussion ou une pull request sur un dépôt.'),
-  (G:'discussions';N:'comment';D:'Comment on a discussion or pull request.';F:'Commente une discussion ou une pull request.'),
-  (G:'discussions';N:'close';D:'Close a discussion or pull request.';F:'Ferme une discussion ou une pull request.'),
-  (G:'discussions';N:'reopen';D:'Reopen a closed discussion or pull request.';F:'Rouvre une discussion ou une pull request fermée.'),
+  (G:'collections';N:'info';D:'Get info about a collection on the Hub.';F:'Affiche les information'+
+    's d''une collection du Hub.'),
+  (G:'collections';N:'create';D:'Create a new collection on the Hub.';F:'Cr'+#130+
+    'e une nouvelle collection sur le Hub.'),
+  (G:'collections';N:'delete';D:'Delete a collection from the Hub.';F:'Supprime une collection du '+
+    'Hub.'),
+  (G:'collections';N:'add-item';D:'Add an item to a collection.';F:'Ajoute un '+#130+'l'+#130+
+    'ment '+#133+' une collection.'),
+  (G:'collections';N:'delete-item';D:'Delete an item from a collection.';F:'Supprime un '+#130+'l'+
+    #130+'ment d''une collection.'),
+  (G:'papers';N:'ls';D:'List daily papers on the Hub.';F:'Liste les articles du jour (daily papers'+
+    ') du Hub.'),
+  (G:'papers';N:'search';D:'Search papers on the Hub.';F:'Recherche des articles scientifiques sur'+
+    ' le Hub.'),
+  (G:'papers';N:'info';D:'Get info about a paper on the Hub.';F:'Affiche les informations d''un ar'+
+    'ticle du Hub.'),
+  (G:'discussions';N:'ls';D:'List discussions and pull requests on a repo.';F:'Liste les discussio'+
+    'ns et les pull requests d''un d'+#130+'p'+#147+'t.'),
+  (G:'discussions';N:'info';D:'Get info about a discussion or pull request.';F:'Affiche les inform'+
+    'ations d''une discussion ou d''une pull request.'),
+  (G:'discussions';N:'create';D:'Create a new discussion or pull request on a repo.';F:'Cr'+#130+
+    'e une discussion ou une pull request sur un d'+#130+'p'+#147+'t.'),
+  (G:'discussions';N:'comment';D:'Comment on a discussion or pull request.';F:'Commente une discus'+
+    'sion ou une pull request.'),
+  (G:'discussions';N:'close';D:'Close a discussion or pull request.';F:'Ferme une discussion ou un'+
+    'e pull request.'),
+  (G:'discussions';N:'reopen';D:'Reopen a closed discussion or pull request.';F:'Rouvre une discus'+
+    'sion ou une pull request ferm'+#130+'e.'),
   (G:'discussions';N:'merge';D:'Merge a pull request.';F:'Fusionne une pull request.'),
-  (G:'endpoints';N:'ls';D:'Lists all Inference Endpoints for the given namespace.';F:'Liste les Inference Endpoints de l''espace de noms indiqué.'),
-  (G:'endpoints';N:'describe';D:'Get information about an existing endpoint.';F:'Affiche les informations d''un endpoint existant.'),
-  (G:'endpoints';N:'pause';D:'Pause an Inference Endpoint.';F:'Met en pause un Inference Endpoint.'),
+  (G:'endpoints';N:'ls';D:'Lists all Inference Endpoints for the given namespace.';F:'Liste les In'+
+    'ference Endpoints de l''espace de noms indiqu'+#130+'.'),
+  (G:'endpoints';N:'describe';D:'Get information about an existing endpoint.';F:'Affiche les infor'+
+    'mations d''un endpoint existant.'),
+  (G:'endpoints';N:'pause';D:'Pause an Inference Endpoint.';F:'Met en pause un Inference Endpoint'+
+    '.'),
   (G:'endpoints';N:'resume';D:'Resume an Inference Endpoint.';F:'Reprend un Inference Endpoint.'),
-  (G:'endpoints';N:'scale-to-zero';D:'Scale an Inference Endpoint to zero.';F:'Ramène un Inference Endpoint à zéro réplique.'),
-  (G:'endpoints';N:'delete';D:'Delete an Inference Endpoint permanently.';F:'Supprime définitivement un Inference Endpoint.'),
-  (G:'jobs';N:'run';D:'Run a Job.';F:'Exécute un Job.'),
+  (G:'endpoints';N:'scale-to-zero';D:'Scale an Inference Endpoint to zero.';F:'Ram'+#138+
+    'ne un Inference Endpoint '+#133+' z'+#130+'ro r'+#130+'plique.'),
+  (G:'endpoints';N:'delete';D:'Delete an Inference Endpoint permanently.';F:'Supprime d'+#130+
+    'finitivement un Inference Endpoint.'),
+  (G:'jobs';N:'run';D:'Run a Job.';F:'Ex'+#130+'cute un Job.'),
   (G:'jobs';N:'ps';D:'List Jobs.';F:'Liste les Jobs.'),
-  (G:'jobs';N:'inspect';D:'Display detailed information on one or more Jobs.';F:'Affiche les informations détaillées d''un ou plusieurs Jobs.'),
-  (G:'jobs';N:'logs';D:'Fetch the logs of a Job.';F:'Récupère les journaux d''un Job.'),
+  (G:'jobs';N:'inspect';D:'Display detailed information on one or more Jobs.';F:'Affiche les infor'+
+    'mations d'+#130+'taill'+#130+'es d''un ou plusieurs Jobs.'),
+  (G:'jobs';N:'logs';D:'Fetch the logs of a Job.';F:'R'+#130+'cup'+#138+
+    're les journaux d''un Job.'),
   (G:'jobs';N:'cancel';D:'Cancel a Job.';F:'Annule un Job.'),
-  (G:'buckets';N:'create';D:'Create a bucket (not supported by this clone).';F:'Crée un bucket (non pris en charge par ce clone).'),
-  (G:'buckets';N:'list';D:'List buckets (not supported by this clone).';F:'Liste les buckets (non pris en charge par ce clone).'),
-  (G:'buckets';N:'info';D:'Get info about a bucket (not supported by this clone).';F:'Affiche les informations d''un bucket (non pris en charge par ce clone).'),
-  (G:'buckets';N:'delete';D:'Delete a bucket (not supported by this clone).';F:'Supprime un bucket (non pris en charge par ce clone).'),
-  (G:'buckets';N:'cp';D:'Copy files to or from a bucket (not supported by this clone).';F:'Copie des fichiers vers ou depuis un bucket (non pris en charge par ce clone).'),
-  (G:'buckets';N:'sync';D:'Sync a directory with a bucket (not supported by this clone).';F:'Synchronise un répertoire avec un bucket (non pris en charge par ce clone).'),
-  (G:'extensions';N:'list';D:'List installed extensions.';F:'Liste les extensions installées.'),
+  (G:'buckets';N:'create';D:'Create a bucket (not supported by this clone).';F:'Cr'+#130+
+    'e un bucket (non pris en charge par ce clone).'),
+  (G:'buckets';N:'list';D:'List buckets (not supported by this clone).';F:'Liste les buckets (non '+
+    'pris en charge par ce clone).'),
+  (G:'buckets';N:'info';D:'Get info about a bucket (not supported by this clone).';F:'Affiche les '+
+    'informations d''un bucket (non pris en charge par ce clone).'),
+  (G:'buckets';N:'delete';D:'Delete a bucket (not supported by this clone).';F:'Supprime un bucket'+
+    ' (non pris en charge par ce clone).'),
+  (G:'buckets';N:'cp';D:'Copy files to or from a bucket (not supported by this clone).';F:'Copie d'+
+    'es fichiers vers ou depuis un bucket (non pris en charge par ce clone).'),
+  (G:'buckets';N:'sync';D:'Sync a directory with a bucket (not supported by this clone).';F:'Synch'+
+    'ronise un r'+#130+'pertoire avec un bucket (non pris en charge par ce clone).'),
+  (G:'extensions';N:'list';D:'List installed extensions.';F:'Liste les extensions install'+#130+
+    'es.'),
   (G:'extensions';N:'install';D:'Install an extension.';F:'Installe une extension.'),
-  (G:'extensions';N:'remove';D:'Remove an installed extension.';F:'Supprime une extension installée.'),
-  (G:'extensions';N:'exec';D:'Run an extension.';F:'Exécute une extension.'),
-  (G:'skills';N:'add';D:'Install the hf-cli skill for AI assistants.';F:'Installe la compétence (skill) hf-cli pour les assistants IA.'),
-  (G:'skills';N:'preview';D:'Print the generated SKILL.md to stdout.';F:'Affiche le fichier SKILL.md généré sur la sortie standard.'));
+  (G:'extensions';N:'remove';D:'Remove an installed extension.';F:'Supprime une extension install'+
+    #130+'e.'),
+  (G:'extensions';N:'exec';D:'Run an extension.';F:'Ex'+#130+'cute une extension.'),
+  (G:'skills';N:'add';D:'Install the hf-cli skill for AI assistants.';F:'Installe la comp'+#130+
+    'tence (skill) hf-cli pour les assistants IA.'),
+  (G:'skills';N:'preview';D:'Print the generated SKILL.md to stdout.';F:'Affiche le fichier SKILL.'+
+    'md g'+#130+'n'+#130+'r'+#130+' sur la sortie standard.'));
 
  NTop=21;
  Tops:Array[0..NTop-1]of TSub=(
-  (G:'main';N:'auth';D:'Manage authentication (login, logout, etc.).';F:'G'+#138+'re l''authentification (connexion, déconnexion, etc.).'),
-  (G:'main';N:'buckets';D:'Commands to interact with buckets.';F:'Commandes pour interagir avec les buckets.'),
-  (G:'main';N:'cache';D:'Manage local cache directory.';F:'G'+#138+'re le répertoire de cache local.'),
-  (G:'main';N:'collections';D:'Interact with collections on the Hub.';F:'Interagit avec les collections du Hub.'),
-  (G:'main';N:'cp';D:'Copy files between local paths and Hub repositories.';F:'Copie des fichiers entre des chemins locaux et des dépôts du Hub.'),
-  (G:'main';N:'datasets';D:'Interact with datasets on the Hub.';F:'Interagit avec les jeux de données du Hub.'),
-  (G:'main';N:'discussions';D:'Manage discussions and pull requests on the Hub.';F:'G'+#138+'re les discussions et les pull requests du Hub.'),
-  (G:'main';N:'download';D:'Download files from the Hub.';F:'Télécharge des fichiers depuis le Hub.'),
-  (G:'main';N:'endpoints';D:'Manage Hugging Face Inference Endpoints.';F:'G'+#138+'re les Inference Endpoints de Hugging Face.'),
-  (G:'help';N:'env';D:'Print information about the environment.';F:'Affiche des informations sur l''environnement.'),
-  (G:'main';N:'extensions';D:'Manage hf CLI extensions.';F:'G'+#138+'re les extensions de la CLI hf.'),
-  (G:'main';N:'jobs';D:'Run and manage Jobs on the Hub.';F:'Exécute et g'+#138+'re des Jobs sur le Hub.'),
-  (G:'main';N:'models';D:'Interact with models on the Hub.';F:'Interagit avec les modèles du Hub.'),
-  (G:'main';N:'papers';D:'Interact with papers on the Hub.';F:'Interagit avec les articles scientifiques du Hub.'),
-  (G:'main';N:'repos';D:'Manage repos on the Hub.';F:'G'+#138+'re les dépôts du Hub.'),
-  (G:'main';N:'skills';D:'Manage skills for AI assistants.';F:'G'+#138+'re les compétences (skills) des assistants IA.'),
+  (G:'main';N:'auth';D:'Manage authentication (login, logout, etc.).';F:'G'+#138+
+    're l''authentification (connexion, d'+#130+'connexion, etc.).'),
+  (G:'main';N:'buckets';D:'Commands to interact with buckets.';F:'Commandes pour interagir avec le'+
+    's buckets.'),
+  (G:'main';N:'cache';D:'Manage local cache directory.';F:'G'+#138+'re le r'+#130+
+    'pertoire de cache local.'),
+  (G:'main';N:'collections';D:'Interact with collections on the Hub.';F:'Interagit avec les collec'+
+    'tions du Hub.'),
+  (G:'main';N:'cp';D:'Copy files between local paths and Hub repositories.';F:'Copie des fichiers '+
+    'entre des chemins locaux et des d'+#130+'p'+#147+'ts du Hub.'),
+  (G:'main';N:'datasets';D:'Interact with datasets on the Hub.';F:'Interagit avec les jeux de donn'+
+    #130+'es du Hub.'),
+  (G:'main';N:'discussions';D:'Manage discussions and pull requests on the Hub.';F:'G'+#138+
+    're les discussions et les pull requests du Hub.'),
+  (G:'main';N:'download';D:'Download files from the Hub.';F:'T'+#130+'l'+#130+
+    'charge des fichiers depuis le Hub.'),
+  (G:'main';N:'endpoints';D:'Manage Hugging Face Inference Endpoints.';F:'G'+#138+
+    're les Inference Endpoints de Hugging Face.'),
+  (G:'help';N:'env';D:'Print information about the environment.';F:'Affiche des informations sur '+
+    'l''environnement.'),
+  (G:'main';N:'extensions';D:'Manage hf CLI extensions.';F:'G'+#138+
+    're les extensions de la CLI hf.'),
+  (G:'main';N:'jobs';D:'Run and manage Jobs on the Hub.';F:'Ex'+#130+'cute et g'+#138+
+    're des Jobs sur le Hub.'),
+  (G:'main';N:'models';D:'Interact with models on the Hub.';F:'Interagit avec les mod'+#138+
+    'les du Hub.'),
+  (G:'main';N:'papers';D:'Interact with papers on the Hub.';F:'Interagit avec les articles scienti'+
+    'fiques du Hub.'),
+  (G:'main';N:'repos';D:'Manage repos on the Hub.';F:'G'+#138+'re les d'+#130+'p'+#147+
+    'ts du Hub.'),
+  (G:'main';N:'skills';D:'Manage skills for AI assistants.';F:'G'+#138+'re les comp'+#130+
+    'tences (skills) des assistants IA.'),
   (G:'main';N:'spaces';D:'Interact with spaces on the Hub.';F:'Interagit avec les Spaces du Hub.'),
-  (G:'main';N:'sync';D:'Sync files between two local directories.';F:'Synchronise les fichiers entre deux répertoires locaux.'),
-  (G:'help';N:'update';D:'Check for a newer version of the hf CLI.';F:'Vérifie l''existence d''une version plus récente de la CLI hf.'),
-  (G:'main';N:'upload';D:'Upload a file or a folder to the Hub.';F:'Envoie un fichier ou un dossier vers le Hub.'),
-  (G:'help';N:'version';D:'Print information about the hf version.';F:'Affiche des informations sur la version de hf.'));
+  (G:'main';N:'sync';D:'Sync files between two local directories.';F:'Synchronise les fichiers ent'+
+    're deux r'+#130+'pertoires locaux.'),
+  (G:'help';N:'update';D:'Check for a newer version of the hf CLI.';F:'V'+#130+
+    'rifie l''existence d''une version plus r'+#130+'cente de la CLI hf.'),
+  (G:'main';N:'upload';D:'Upload a file or a folder to the Hub.';F:'Envoie un fichier ou un dossie'+
+    'r vers le Hub.'),
+  (G:'help';N:'version';D:'Print information about the hf version.';F:'Affiche des informations su'+
+    'r la version de hf.'));
 
 Procedure PrintMainHelp;
 Var
@@ -5408,7 +5810,7 @@ Begin
  WriteLn(L('  Read the documentation at ','  Consultez la documentation sur ')+
    'https://huggingface.co/docs/huggingface_hub/en/guides/cli');
  WriteLn(L('  Set LANGUAGE=EN to display this help in English.',
-   '  Définissez LANGUAGE=EN pour afficher cette aide en anglais.'));
+   '  D'+#130+'finissez LANGUAGE=EN pour afficher cette aide en anglais.'));
 End;
 
 Function TopDesc(Const Name:AnsiString):AnsiString;
@@ -5435,13 +5837,16 @@ Begin
  WriteLn(L('Commands:','Commandes :'));
  W:=0;
  For I:=0 to NSubs-1 do If(Subs[I].G=G)and(Length(Subs[I].N)>W)Then W:=Length(Subs[I].N);
- For I:=0 to NSubs-1 do If Subs[I].G=G Then WriteLn('  ',PadR(Subs[I].N,W),'  ',L(Subs[I].D,Subs[I].F));
+ For I:=0 to NSubs-1 do If Subs[I].G=G Then WriteLn('  ',PadR(Subs[I].N,W),'  ',L(Subs[I].D,
+   Subs[I].F));
 End;
 
 Procedure NoSuchCommand(Const Path,Name:AnsiString);
 Begin
- WriteLn(StdErr,L('Usage: ','Utilisation : '),Path,' [OPTIONS] ',L('COMMAND','COMMANDE'),' [ARGS]...');
- WriteLn(StdErr,L('Try ''','Essayez ''') ,Path,L(' -h'' for help.',' -h'' pour obtenir de l''aide.'));
+ WriteLn(StdErr,L('Usage: ','Utilisation : '),Path,' [OPTIONS] ',L('COMMAND','COMMANDE'),
+   ' [ARGS]...');
+ WriteLn(StdErr,L('Try ''','Essayez ''') ,Path,L(' -h'' for help.',
+   ' -h'' pour obtenir de l''aide.'));
  WriteLn(StdErr);
  WriteLn(StdErr,L('Error: No such command ''','Erreur : Commande inconnue '''),Name,'''.');
  Halt(2);
@@ -5546,7 +5951,8 @@ Begin
  End
  Else WriteLn('Could not query PyPI: ',ErrText(R));
  WriteLn('This build is not installed through pip, so it cannot update itself.');
- WriteLn('To update, download the latest HF.PAS from https://github.com/gladir/VIE and recompile it.');
+ WriteLn('To update, download the latest HF.PAS from https://github.com/gladir/VIE and recompile i'+
+   't.');
 End;
 
 Function SkillText:AnsiString;
@@ -5558,7 +5964,8 @@ Begin
  BufClear(B);
  BufAdd(B,'---'#10'name: hf-cli'#10+
    'description: "Hugging Face Hub CLI (`hf`): download and upload models, datasets and spaces, '+
-   'manage repos, cache, collections, discussions, jobs and inference endpoints from the terminal."'#10+
+   'manage repos, cache, collections, discussions, jobs and inference endpoints from the terminal.'+
+     '"'#10+
    '---'#10#10'# Hugging Face Hub CLI (`hf`)'#10#10+
    'Use the `hf` command to interact with the Hugging Face Hub. Authenticate with `hf auth login` '+
    '(or set `HF_TOKEN`), then run `hf <command> --help` for the options of each command.'#10#10+
@@ -5707,16 +6114,21 @@ Begin
  Else If Key='discussions info' Then CmdDiscInfo
  Else If Key='discussions create' Then CmdDiscCreate
  Else If Key='discussions comment' Then CmdDiscComment
- Else If Key='discussions close' Then DiscStatus('close','closed','Close a discussion or pull request.')
- Else If Key='discussions reopen' Then DiscStatus('reopen','open','Reopen a closed discussion or pull request.')
+ Else If Key='discussions close' Then DiscStatus('close','closed',
+   'Close a discussion or pull request.')
+ Else If Key='discussions reopen' Then DiscStatus('reopen','open',
+   'Reopen a closed discussion or pull request.')
  Else If Key='discussions merge' Then CmdDiscMerge
  Else If Key='endpoints ls' Then CmdEpLs
- Else If Key='endpoints describe' Then EpSimple('describe','GET','','Get information about an existing endpoint.')
+ Else If Key='endpoints describe' Then EpSimple('describe','GET','',
+   'Get information about an existing endpoint.')
  Else If Key='endpoints pause' Then EpSimple('pause','POST','/pause','Pause an Inference Endpoint.')
- Else If Key='endpoints resume' Then EpSimple('resume','POST','/resume','Resume an Inference Endpoint.')
+ Else If Key='endpoints resume' Then EpSimple('resume','POST','/resume',
+   'Resume an Inference Endpoint.')
  Else If Key='endpoints scale-to-zero' Then EpSimple('scale-to-zero','POST','/scale-to-zero',
    'Scale an Inference Endpoint to zero.')
- Else If Key='endpoints delete' Then EpSimple('delete','DELETE','','Delete an Inference Endpoint permanently.')
+ Else If Key='endpoints delete' Then EpSimple('delete','DELETE','',
+   'Delete an Inference Endpoint permanently.')
  Else If Key='jobs run' Then CmdJobsRun
  Else If Key='jobs ps' Then CmdJobsPs
  Else If Key='jobs inspect' Then CmdJobsInspect
@@ -5770,5 +6182,6 @@ Begin
  OldExit:=ExitProc;
  ExitProc:=@RestoreConsole;
  {$ENDIF}
+ InstallUtf8Output;
  Run;
 End.
