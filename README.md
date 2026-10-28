@@ -55,6 +55,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande permet de générer un labyrinthe.</td>
   </tr>
   <tr>
+     <td><b>OPTIMUM-CLI.PAS</b></td>
+     <td>Cette commande permet de convertir un modèle LLaMA (config.json + safetensors) au format OpenVINO IR et de compresser ses poids (<code>export openvino --weight-format fp32|fp16|int8|int4|nf4</code>), à la manière de <code>optimum-cli export openvino</code>.</td>
+  </tr>
+  <tr>
      <td><b>SKILLS.PAS</b></td>
     <td>Cette commande permet de rechercher les compétences contenu dans un CV de format texte.</td>
   </tr>
