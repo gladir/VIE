@@ -7283,8 +7283,10 @@ Var
  Cg,Cs:Int64;
  Mc:LongInt;
  SkinBase,MannequinFit:Boolean;
- YshRow:Single;
- Fx0,Fy0,Fx1,Fy1,Ysh:LongInt;
+ YshRow,NeckX0,NeckX1,NeckY1:Single;
+ RemoveOld,NeckHas:Boolean;
+ Rm,Kn2,Fl2:PSingle;
+ Fx0,Fy0,Fx1,Fy1,Ysh,Cnt1,Cnt2:LongInt;
  Wg:Single;
 
  Procedure FillSkin(Wt:PSingle);
@@ -7406,7 +7408,7 @@ Begin
  { vetement photographie sur un mannequin : l'echelle vient de la tete de la personne
    (largeur des epaules d'environ 2,55 fois la largeur du visage), le corps n'est pas ecrase
    pour tenir dans l'ancienne zone ; ce qui depasse du cadre est simplement coupe }
- MannequinFit:=False;YshRow:=0;
+ MannequinFit:=False;YshRow:=0;RemoveOld:=False;NeckHas:=False;
  If(G.Skin<>Nil)and(Kind in[gkTop,gkDress,gkFull])and CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Begin
   Wg:=0;
   For Y:=(G.H*5)div 100 to(G.H*13)div 100 do If GRr[Y]-GL[Y]>Wg Then Wg:=GRr[Y]-GL[Y];
@@ -7421,6 +7423,18 @@ Begin
    Lam:=0;
    MannequinFit:=True;
    YshRow:=Ysh;
+   { cou de la personne : conserve s'il est visible (le mannequin garde sinon le sien) }
+   NeckX0:=Cx-0.60*(Fx1-Fx0+1);NeckX1:=Cx+0.60*(Fx1-Fx0+1);NeckY1:=Fy1+1+0.30*(Fy1-Fy0+1);
+   Cnt1:=0;Cnt2:=0;
+   For Y:=Fy1+1 to Trunc(NeckY1)do
+    For X:=Trunc(NeckX0)to Trunc(NeckX1)do
+     If(X>=0)and(X<W)and(Y>=0)and(Y<H)Then Begin
+      Inc(Cnt2);
+      If(S.Cat[cArms][Int64(Y)*W+X]+S.Cat[cSkin][Int64(Y)*W+X]+S.Cat[cFace][Int64(Y)*W+X])>=128 Then Inc(Cnt1);
+     End;
+   NeckHas:=(Cnt2>0)and(Cnt1*4>=Cnt2);
+   If not NeckHas Then YshRow:=0;
+   RemoveOld:=Kind in[gkDress,gkFull];
    Detail('mannequin : '#130'chelle d'#130'duite de la t'#136'te (x'+FStr(Sc,2)+'), le corps garde ses proportions');
   End;
  End;
@@ -7571,9 +7585,34 @@ Begin
   FreeMem(ArmMask);
  End;
  { composition }
+ { mannequin : tout ce qui est sous la tete de la personne (corps, bras, ancien vetement) est supprime
+   et remplace par le fond ; le corps du mannequin le remplace }
+ If MannequinFit and RemoveOld Then Begin
+  Rm:=AllocF(N);Kn2:=AllocF(N);Fl2:=AllocF(N*3);
+  For K:=0 to N-1 do Begin
+   Rm[K]:=(1-S.Cat[cBg][K]/255.0)*(1-SmoothStep(0.15,0.85,Prot_[K]));
+   If NeckHas Then Begin
+    Y:=K div W;X:=K mod W;
+    If(X>=NeckX0)and(X<=NeckX1)and(Y<=NeckY1)Then Rm[K]:=0;
+   End;
+   If(S.Cat[cBg][K]>=250)and(Prot_[K]<0.05)Then Kn2[K]:=1;
+  End;
+  Move(S.Pix^,Fl2^,N*12);
+  PushPullFill(Fl2,Kn2,W,H);
+  For K:=0 to N-1 do If Rm[K]>0.02 Then Begin
+   For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Rm[K])+Fl2[K*3+C]*Rm[K];
+   If Rm[K]>0.5 Then Begin
+    For C:=0 to NumCat-1 do S.Cat[C][K]:=0;
+    S.Cat[cBg][K]:=255;
+   End;
+  End;
+  FreeMem(Rm);FreeMem(Kn2);FreeMem(Fl2);
+  FillChar(Ro^,N*4,0);
+  Detail('ancien corps supprim'#130' sous la t'#136'te : le corps du mannequin le remplace');
+ End;
  { robe, tenue, bas : l'ancien vetement est d'abord remplace par de la peau (le tissu leger ou fendu la laisse voir) }
  SkinBase:=False;
- If Have and(Kind in[gkDress,gkFull,gkBottom,gkSkirt])and SkinColor(S,False,SkR,SkG,SkB)Then Begin
+ If Have and not(MannequinFit and RemoveOld)and(Kind in[gkDress,gkFull,gkBottom,gkSkirt])and SkinColor(S,False,SkR,SkG,SkB)Then Begin
   Fb:=AllocF(N);
   For K:=0 to N-1 do If Ro[K]>0.02 Then Fb[K]:=Ro[K]*(1-SmoothStep(0.15,0.85,Prot_[K]));
   FillSkin(Fb);
