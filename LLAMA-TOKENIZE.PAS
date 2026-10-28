@@ -2103,12 +2103,13 @@ End;
 
 Procedure ShowHelp;
 Begin
- Say('usage : llama-tokenize [options]'#10#10);
- Say('Tokenise un texte avec le vocabulaire d''un mod'+#138+'le GGUF et affiche les'#10);
+ Say('LLAMA-TOKENIZE : Cette commande permet de tokeniser un texte avec le vocabulaire '+
+     'd''un mod'+#138+'le GGUF et affiche les'#10);
  Say('jetons (tokens) obtenus sur la sortie standard.'#10#10);
  Say('Il faut un fichier mod'+#138+'le, un texte et, au besoin, des options qui'#10);
  Say('modifient le comportement du tokeniseur.'#10#10);
- Say('Options :'#10#10);
+ Say('Syntaxe : llama-tokenize [options]'#10#10);
+  Say('Options :'#10#10);
  Say('  -h, --help                    affiche cette aide et quitte'#10);
  Say('  -m, --model CHEMIN            chemin du mod'+#138+'le GGUF utilis'+#130+' pour la'#10);
  Say('                                tokenisation (obligatoire)'#10);

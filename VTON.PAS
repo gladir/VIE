@@ -14496,11 +14496,11 @@ End;
 
 Procedure PrintHelp;
 Begin
- WriteLn('VTON '+VersionStr);
- WriteLn;
- WriteLn('Essayage virtuel de v'#136'tements par intelligence artificielle.');
+ WriteLn('VTON : Cette commande permet d''effectuer un essayage virtuel ',
+         'de v'#136'tements par intelligence artificielle.');
  WriteLn;
  WriteLn('Syntaxe :');
+ WriteLn;
  WriteLn('  VTON personne.jpg vetement.jpg -o resultat.png -type haut');
  WriteLn('  VTON personne.jpg -prompt "Change le chandail rouge en bleu" -o '+
    'resultat.png');
