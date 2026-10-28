@@ -7733,6 +7733,7 @@ Var
  Mc:LongInt;
  SkinBase,MannequinFit:Boolean;
  YshRow,NeckX0,NeckX1,NeckY1:Single;
+ ChinY:LongInt;
  RemoveOld,NeckHas:Boolean;
  Rm,Kn2,Fl2:PSingle;
  Mk2:PByte;
@@ -7870,7 +7871,7 @@ Begin
      n'est pas ecrase
    pour tenir dans l'ancienne zone ; ce qui depasse du cadre est simplement
      coupe }
- MannequinFit:=False;YshRow:=0;RemoveOld:=False;NeckHas:=False;
+ MannequinFit:=False;YshRow:=0;RemoveOld:=False;NeckHas:=False;ChinY:=0;
  If(G.Skin<>Nil)and(Kind in[gkTop,gkDress,gkFull])and CatBBox(S,msFace,Fx0,
    Fy0,Fx1,Fy1)Then Begin
   FaceMetrics(S,Fx0,Fy0,Fx1,Fy1);
@@ -7888,6 +7889,7 @@ Begin
    Lam:=0;
    MannequinFit:=True;
    YshRow:=Ysh;
+   ChinY:=Fy1;
    { cou de la personne : conserve s'il est visible (le mannequin garde sinon le
      sien) }
    NeckX0:=Cx-0.60*(Fx1-Fx0+1);NeckX1:=Cx+0.60*(Fx1-Fx0+1);NeckY1:=Fy1+1+
@@ -8039,6 +8041,15 @@ Begin
  { objets au premier plan qui ne doivent pas etre recouverts }
  Prot_:=AllocF(N);
  CatMask(S,Prot,Prot_);
+ { mannequin : sous le menton, le collier et les bijoux du mannequin passent
+   devant le cou de la
+   personne (seuls les cheveux, chapeau et lunettes restent proteges) }
+ If MannequinFit Then Begin
+  Fb:=AllocF(N);
+  CatMask(S,Prot and not msFace,Fb);
+  For K:=0 to N-1 do If(K div W)>ChinY+1 Then Prot_[K]:=Fb[K];
+  FreeMem(Fb);
+ End;
  If Kind=gkTop Then Begin
   ArmMask:=AllocF(N);
   CatMask(S,msArms,ArmMask);
@@ -8101,8 +8112,8 @@ Begin
  If SkE<>Nil Then Begin
   CatMask(S,msSkin,SkE);
   If MannequinFit and(YshRow>0)Then
-   For K:=0 to N-1 do If(GA[K]>0)and(GS[K]>0.3)and(((K div W)+0.5-Ty0)
-     /Sy<YshRow)and(SkE[K]>=0.5)Then GA[K]:=0;
+   For K:=0 to N-1 do If(GA[K]>0)and(GS[K]>0.3)and(SkE[K]>=0.5)Then
+    GA[K]:=GA[K]*SmoothStep(0.80*YshRow,1.12*YshRow,((K div W)+0.5-Ty0)/Sy);
  End;
  { robe, tenue, bas : l'ancien vetement est d'abord remplace par de la peau (le
    tissu leger ou fendu la laisse voir) }
