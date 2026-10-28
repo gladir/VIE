@@ -64,7 +64,7 @@ Voici la liste des différents fichiers proposés dans VIE :
    </tr>
   <tr>
      <td><b>VTON.PAS</b></td>
-     <td>Cette commande est un clone de VTON (Virtual Try-ON) : elle change ou essaie des vêtements sur une photo à l'aide d'un réseau de neurones SegFormer (fichier .safetensors), avec une demande en langage naturel, à instructions multiples (<code>-prompt "Change le chandail rouge en bleu, ajouter un foulard"</code>) : couleurs et motifs, ajout d'accessoires, de bijoux et de bas du corps (l'image est prolongée si le corps est coupé), coiffures, styles BD / croquis. Calcul CPU multifil, GPU Direct3D 11 optionnel sous Windows, compilable en 32 bits (Free Pascal requis).</td>
+     <td>Cette commande est un clone de VTON (Virtual Try-ON) : elle change ou essaie des vêtements sur une photo à l'aide d'un réseau de neurones SegFormer (fichier .safetensors), avec une demande en langage naturel, à instructions multiples (<code>-prompt "Change le chandail rouge en bleu, ajouter un foulard"</code>) : couleurs et motifs, ajout d'accessoires, de bijoux et de bas du corps (l'image est prolongée si le corps est coupé), coiffures, couleur des yeux, sourire, bras le long du corps, styles BD / croquis. Calcul CPU multifil, GPU Direct3D 11 optionnel sous Windows, compilable en 32 bits (Free Pascal requis).</td>
   </tr>
 </table>
 

@@ -5352,23 +5352,26 @@ End;
 Const
  { genres de vetement }
  gkNone=0;gkTop=1;gkBottom=2;gkDress=3;gkFull=4;gkShoes=5;gkHat=6;gkGlasses=7;
- gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;gkHair=13;
+ gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;gkHair=13;gkEyes=14;gkArms=15;
  { natures de mots du lexique }
  lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
  lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;lkVAdd=14;
- lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;
+ lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;lkExpr=19;
  { modificateurs }
  mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
  { motifs }
  pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
  { actions }
- eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;
  { coiffures }
  hsNone=0;hsLonger=1;hsShorter=2;hsCurly=3;hsBald=4;hsStraight=5;
  { bijoux (indicateurs) }
  jwNecklace=1;jwEarrings=2;jwBracelet=4;jwWatch=8;jwRing=16;
  { styles d'image }
  stNone=0;stComic=1;stCartoon=2;stSketch=3;stReal=4;
+
+Const
+ msEyes=LongWord(1)shl 30;
 
 Type
  TLex=Record
@@ -5391,7 +5394,8 @@ Type
   Color2Name:AnsiString;
   DstGarment:LongInt;       { genre de vetement cite comme resultat }
   Noun:AnsiString;          { mot designant le vetement vise }
-  HairStyle,Jewel,Style:LongInt;
+  HairStyle,Jewel,Style,Expr:LongInt;
+  Pose:Boolean;
   Diamond,Apple:Boolean;
   Put:Boolean;              { ? mets un chapeau ? : ajout si l'objet est absent }
   Text:AnsiString;
@@ -5454,6 +5458,10 @@ Begin
  AddLex('ceinture belt',lkGarment,gkBelt,msBelt);
  AddLex('vetement habit tenue outfit clothes clothing ensemble costume',lkGarment,gkAll,msClothes);
  AddLex('tout tous toute toutes everything all',lkAll,0,0);
+ { yeux, bras, expressions }
+ AddLex('oeil yeux eye eyes iris',lkGarment,gkEyes,msEyes);
+ AddLex('bras arm arms',lkGarment,gkArms,msArms);
+ AddLex('sourit sourire sourires souriant souriante souriants souriantes smile smiling smiley',lkExpr,1,0);
  { cheveux et coiffures }
  AddLex('cheveu cheveux chevelure coiffure hair hairstyle',lkGarment,gkHair,msHair);
  AddLex('allonge allonger allongez rallonge rallonger long longs longue longues lengthen longer',lkHairStyle,hsLonger,0);
@@ -5559,7 +5567,7 @@ Begin
  AddLex('essaie essaye essayer essayez porte porter habille habiller try wear',lkVTryOn,0,0);
  AddLex('ajoute ajouter ajoutez rajoute rajouter add append equipe equiper give donne donner voir montre montrer montrez show see display',lkVAdd,0,0);
  { prepositions de destination }
- AddLex('en in into to par by as vers',lkPrepDst,0,0);
+ AddLex('en in into to par by as vers pour for',lkPrepDst,0,0);
  AddLex('de from',lkSrcPrep,0,0);
  AddLex('et and puis then ensuite afterwards also aussi',lkSplit,0,0);
 End;
@@ -5773,7 +5781,8 @@ Var
  Gx:LongInt;
  HasPat:Boolean;
  HStyle,Jw,Sty:LongInt;
- HStrong,HairNoun,Dia,App:Boolean;
+ HStrong,HairNoun,Dia,App,PoseWord:Boolean;
+ Expr:LongInt;
 Begin
  ParseClause:=False;
  ClearEdit(E);
@@ -5784,7 +5793,11 @@ Begin
  FirstPrep:=-1;
  HasPat:=False;
  HStyle:=0;Jw:=0;Sty:=0;HStrong:=False;Dia:=False;App:=False;
- HairNoun:=False;
+ HairNoun:=False;PoseWord:=False;Expr:=0;
+ For I:=A to B do If(T[I]='aligne')or(T[I]='aligner')or(T[I]='alignes')or(T[I]='alignee')or(T[I]='alignees')or
+   (T[I]='alignez')or(T[I]='baisse')or(T[I]='baisser')or(T[I]='baissez')or(T[I]='cote')or(T[I]='cotes')or
+   (T[I]='long')or(T[I]='droit')or(T[I]='droits')or(T[I]='droite')or(T[I]='droites')or(T[I]='descend')or
+   (T[I]='descendre')or(T[I]='straight')or(T[I]='down')Then PoseWord:=True;
  For I:=A to B do If LexFind(T[I],lkGarment)>=0 Then
   If Lex[LexFind(T[I],lkGarment)].V1=gkHair Then HairNoun:=True;
  For I:=A to B do Begin
@@ -5816,6 +5829,8 @@ Begin
   If K>=0 Then Begin If Lex[K].V1=1 Then Dia:=True Else App:=True;Continue;End;
   K:=LexFind(T[I],lkStyle);
   If K>=0 Then Begin Sty:=Lex[K].V1;Continue;End;
+  K:=LexFind(T[I],lkExpr);
+  If K>=0 Then Begin Expr:=Lex[K].V1;Continue;End;
   If HairNoun and(T[I]='short')Then Begin HStyle:=hsShorter;Continue;End;
   K:=LexFind(T[I],lkHairStyle);
   If K>=0 Then Begin
@@ -5918,17 +5933,21 @@ Begin
   E.HairStyle:=HStyle;E.Target:=E.Target or msHair;E.Kind:=gkHair;
  End;
  If Sty<>0 Then E.Style:=Sty;
+ E.Expr:=Expr;
+ If((E.Target and msArms)<>0)and PoseWord and not E.HasDst Then E.Pose:=True;
  If Dia and(Jw=0)and(NG=0)Then Jw:=jwNecklace+jwEarrings+jwBracelet;
  E.Jewel:=Jw;E.Diamond:=Dia;E.Apple:=App;
  If App and(Jw=0)Then E.Jewel:=jwWatch;
  If Remove Then E.Action:=eaRemove
  Else If(E.Jewel<>0)and(AddV or Result_ or TryOn)Then E.Action:=eaAdd
+ Else If E.Pose Then E.Action:=eaPose
  Else If E.HairStyle<>0 Then E.Action:=eaHair
+ Else If E.Expr<>0 Then E.Action:=eaFace
  Else If E.Style<>0 Then E.Action:=eaStyle
  Else If AddV Then E.Action:=eaAdd
  Else If E.HasDst or(E.Pattern<>pkNone)or(Abs(E.LGain-1)>0.01)or(Abs(E.CGain-1)>0.01)Then E.Action:=eaRecolor
  Else If TryOn Then E.Action:=eaTryOn;
- HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle];
+ HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose];
  ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0)or(E.Jewel<>0);
 End;
 
@@ -5965,7 +5984,7 @@ Begin
    For J:=I+1 to High(T)do Begin
     If(T[J]=',')or(T[J]=';')or(T[J]='.')or(LexFind(T[J],lkSplit)>=0)Then Break;
     If(LexFind(T[J],lkGarment)>=0)or(LexFind(T[J],lkVRemove)>=0)or(LexFind(T[J],lkVRecolor)>=0)or
-      (LexFind(T[J],lkVResult)>=0)Then HasG:=True;
+      (LexFind(T[J],lkVResult)>=0)or(LexFind(T[J],lkExpr)>=0)or(LexFind(T[J],lkStyle)>=0)Then HasG:=True;
    End;
    Cut:=HasG;
   End;
@@ -6072,6 +6091,8 @@ Begin
   eaRemove:R:='retirer';
   eaAdd:R:='ajouter';
   eaHair:R:='coiffure';
+  eaFace:R:='expression du visage';
+  eaPose:R:='bras le long du corps';
   eaStyle:R:='style de l''image';
   eaTryOn:R:='essayer';
   Else R:='?';
@@ -6090,6 +6111,7 @@ Begin
  If E.HairStyle<>0 Then R:=R+', coiffure '+IStr(E.HairStyle);
  If E.Jewel<>0 Then R:=R+', bijoux '+IStr(E.Jewel);
  If E.Style<>0 Then R:=R+', style '+IStr(E.Style);
+ If E.Expr<>0 Then R:=R+', sourire';
  If Abs(E.LGain-1)>0.01 Then R:=R+', luminosit'#130' x'+FStr(E.LGain,2);
  If Abs(E.CGain-1)>0.01 Then R:=R+', saturation x'+FStr(E.CGain,2);
  DescribeEdit:=R;
@@ -6361,6 +6383,7 @@ Begin
 End;
 
 Function ApplyHair(Var S:TScene;Style:LongInt;Const E:TEdit;Var Msg:AnsiString):Boolean;forward;
+Function ApplyEyes(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;forward;
 
 { applique une retouche de recoloration / de retrait sur la scene }
 Function ApplyEdit(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
@@ -6379,6 +6402,10 @@ Begin
  ApplyEdit:=False;
  Msg:='';
  Mask:=E.Target;
+ If(Mask and msEyes)<>0 Then Begin
+  ApplyEdit:=ApplyEyes(S,E,Msg);
+  Exit;
+ End;
  If Mask=0 Then Begin
   If E.HasSrc Then Begin
    Mask:=FindRegionByColor(S,E.SrcRGB,D);
@@ -8725,6 +8752,314 @@ Begin
 End;
 
 { ------------------------------------------------------------------ }
+{ Visage et posture : couleur des yeux, sourire, bras le long du corps }
+{ ------------------------------------------------------------------ }
+
+{ ---- couleur des yeux ---- }
+
+{ cherche l'iris d'un oeil dans une fenetre : disque sombre entoure d'un anneau plus clair }
+Function FindIris(Const S:TScene;Yl:PSingle;Ex,Ey,Wx,Wy,R:Single;Var Cx,Cy,Score:Single):Boolean;
+Var
+ X,Y,Dx,Dy,Ri:LongInt;
+ Sd,Sr,Dd,Rr:Double;
+ Nd,Nr:LongInt;
+ D2:Single;
+ Best:Single;
+Begin
+ FindIris:=False;
+ Best:=-1;
+ Ri:=Trunc(R*1.95)+1;
+ For Y:=Trunc(Ey-Wy)to Trunc(Ey+Wy)do
+  For X:=Trunc(Ex-Wx)to Trunc(Ex+Wx)do Begin
+   Sd:=0;Sr:=0;Nd:=0;Nr:=0;
+   For Dy:=-Ri to Ri do
+    For Dx:=-Ri to Ri do Begin
+     If(X+Dx<0)or(X+Dx>=S.W)or(Y+Dy<0)or(Y+Dy>=S.H)Then Continue;
+     D2:=Sqrt(Dx*Dx+Dy*Dy);
+     If D2<=R*0.9 Then Begin Sd:=Sd+Yl[Int64(Y+Dy)*S.W+X+Dx];Inc(Nd);End
+     Else If(D2>=R*1.3)and(D2<=R*1.95)Then Begin Sr:=Sr+Yl[Int64(Y+Dy)*S.W+X+Dx];Inc(Nr);End;
+    End;
+   If(Nd<4)or(Nr<8)Then Continue;
+   Dd:=Sd/Nd;Rr:=Sr/Nr;
+   If Rr-Dd>Best Then Begin Best:=Rr-Dd;Cx:=X+0.5;Cy:=Y+0.5;End;
+  End;
+ Score:=Best;
+ FindIris:=Best>0;
+End;
+
+Function ApplyEyes(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ N,K:Int64;
+ Yl,Al:PSingle;
+ Side,X,Y,Found:LongInt;
+ Ex,Ey,R,Cx,Cy,Sc,Lskin,Dd,W1,Lcur,Sum,Cnt:Single;
+ SkinSum:Double;
+ SkinCnt:Int64;
+ P:TRecolor;
+ Fm:PSingle;
+ L,A,B:Single;
+Begin
+ ApplyEyes:=False;
+ Msg:='';
+ If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de changer la couleur des yeux';Exit;End;
+ If H.Fw<40 Then Begin Msg:='le visage est trop petit pour modifier les yeux (40 pixels de large minimum)';Exit;End;
+ If(not E.HasDst)Then Begin Msg:='indiquez la couleur des yeux (par exemple : yeux verts)';Exit;End;
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ Yl:=AllocF(N);Al:=AllocF(N);Fm:=AllocF(N);
+ CatMask(S,msFace,Fm);
+ SkinSum:=0;SkinCnt:=0;
+ For K:=0 to N-1 do Begin
+  Yl[K]:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+  If Fm[K]>=0.9 Then Begin SkinSum:=SkinSum+Yl[K];Inc(SkinCnt);End;
+ End;
+ If SkinCnt=0 Then Lskin:=150 Else Lskin:=SkinSum/SkinCnt;
+ R:=FMax(2.5,0.046*H.Fw);
+ Found:=0;
+ For Side:=-1 to 1 do Begin
+  If Side=0 Then Continue;
+  Ex:=H.Cx+Side*0.225*H.Fw;
+  Ey:=H.Fy0+0.42*H.Fh;
+  If FindIris(S,Yl,Ex,Ey,0.12*H.Fw,0.17*H.Fh,R,Cx,Cy,Sc)and(Sc>=9)Then Begin
+   Inc(Found);
+   { poids : anneau de l'iris sans la pupille, sans paupiere ni reflet }
+   For Y:=Trunc(Cy-R*1.2)to Trunc(Cy+R*1.2)do
+    For X:=Trunc(Cx-R*1.2)to Trunc(Cx+R*1.2)do Begin
+     If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+     Dd:=Sqrt(Sqr(X+0.5-Cx)+Sqr(Y+0.5-Cy));
+     W1:=SmoothStep(0.26*R,0.40*R,Dd)*(1-SmoothStep(0.92*R,1.08*R,Dd));
+     K:=Int64(Y)*S.W+X;
+     { pixels clairs : paupiere, sclerotique ou reflet }
+     W1:=W1*(1-SmoothStep(0.78*Lskin,1.0*Lskin,Yl[K]));
+     If W1>Al[K]Then Al[K]:=W1;
+    End;
+  End;
+ End;
+ If Found=0 Then Begin
+  Msg:='yeux non d'#130'tect'#130's (photo trop petite, trop sombre ou yeux ferm'#130's)';
+  FreeMem(Yl);FreeMem(Al);FreeMem(Fm);Exit;
+ End;
+ BuildRecolor(E,P,0,0,1,1,False);
+ P.Pattern:=pkNone;P.LGain:=1;P.CGain:=0.8;
+ ApplyEyes:=RecolorRegion(S.Pix,S.W,S.H,Al,P);
+ If not ApplyEyes Then Msg:='les yeux sont trop petits pour '#136'tre recolor'#130's'
+ Else Info('  yeux recolor'#130's ('+IStr(Found)+' sur 2 d'#130'tect'#130's)');
+ FreeMem(Yl);FreeMem(Al);FreeMem(Fm);
+End;
+
+{ ---- sourire : les coins de la bouche remontent ---- }
+
+Function ApplySmile(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ H:THeadInfo;
+ N,K:Int64;
+ Orig:PSingle;
+ X,Y,X0,X1,Y0,Y1,Cnt,Rx0,Rx1:LongInt;
+ L,A,B,SumA,SumA2,Mean,Sd,Thr,Mx,My,Sx,Sy,Cn,Hw,Hy,U,V,D,Sy2,Amp:Single;
+ Reds:Array of Single;
+ Ex0,Ex1:Single;
+ Fm:PSingle;
+ C:LongInt;
+ Px:Array[0..2]of Single;
+Begin
+ ApplySmile:=False;
+ Msg:='';
+ If not HeadInfo(S,H)Then Begin Msg:='aucun visage d'#130'tect'#130' : impossible de faire sourire';Exit;End;
+ If H.Fw<40 Then Begin Msg:='le visage est trop petit pour modifier le sourire (40 pixels de large minimum)';Exit;End;
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ Fm:=AllocF(N);
+ CatMask(S,msFace,Fm);
+ { levres : pixels les plus rouges (a* de Lab) dans la zone attendue de la bouche }
+ X0:=Trunc(H.Cx-0.32*H.Fw);X1:=Trunc(H.Cx+0.32*H.Fw);
+ Y0:=Trunc(H.Fy0+0.60*H.Fh);Y1:=Trunc(H.Fy0+0.96*H.Fh);
+ SumA:=0;SumA2:=0;Cnt:=0;
+ For Y:=Y0 to Y1 do
+  For X:=X0 to X1 do Begin
+   If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   If Fm[K]<0.8 Then Continue;
+   RgbToLab(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2],L,A,B);
+   SumA:=SumA+A;SumA2:=SumA2+A*A;Inc(Cnt);
+  End;
+ If Cnt<30 Then Begin Msg:='bouche non d'#130'tect'#130'e';FreeMem(Fm);Exit;End;
+ Mean:=SumA/Cnt;Sd:=Sqrt(FMax(0,SumA2/Cnt-Mean*Mean));
+ Thr:=Mean+1.1*Sd;
+ Sx:=0;Sy:=0;Cn:=0;Rx0:=S.W;Rx1:=-1;
+ For Y:=Y0 to Y1 do
+  For X:=X0 to X1 do Begin
+   If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   If Fm[K]<0.8 Then Continue;
+   RgbToLab(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2],L,A,B);
+   If A>=Thr Then Begin
+    Sx:=Sx+X;Sy:=Sy+Y;Cn:=Cn+1;
+    If X<Rx0 Then Rx0:=X;
+    If X>Rx1 Then Rx1:=X;
+   End;
+  End;
+ If(Cn>=12)and(Rx1-Rx0>=0.15*H.Fw)Then Begin
+  Mx:=Sx/Cn+0.5;My:=Sy/Cn+0.5;Hw:=(Rx1-Rx0+1)/2;
+  Mx:=(Rx0+Rx1+1)/2;
+ End
+  Else Begin
+   Mx:=H.Cx;My:=H.Fy0+0.78*H.Fh;Hw:=0.19*H.Fw;
+   Detail('bouche estim'#130'e (l'#138'vres non distingu'#130'es)');
+  End;
+ If Hw<0.12*H.Fw Then Hw:=0.12*H.Fw;
+ If Hw>0.28*H.Fw Then Hw:=0.28*H.Fw;
+ Hy:=0.11*H.Fh;
+ Amp:=0.065*H.Fh;
+ { deplacement : le contenu des coins monte, le centre reste en place }
+ Orig:=AllocF(N*3);
+ Move(S.Pix^,Orig^,N*12);
+ For Y:=Trunc(My-0.5*H.Fh)to Trunc(My+0.5*H.Fh)do
+  For X:=Trunc(Mx-2.2*Hw)to Trunc(Mx+2.2*Hw)do Begin
+   If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+   K:=Int64(Y)*S.W+X;
+   If Fm[K]<0.5 Then Continue;
+   U:=(X+0.5-Mx)/Hw;V:=(Y+0.5-My)/Hy;
+   D:=Amp*U*U*Exp(-U*U/2.4)*Exp(-V*V/2.0);
+   If D<0.05 Then Continue;
+   SampleBilinear(Orig,S.W,S.H,3,X+0.5,Y+0.5+D,@Px[0]);
+   For C:=0 to 2 do S.Pix[K*3+C]:=Px[C];
+  End;
+ FreeMem(Orig);FreeMem(Fm);
+ ApplySmile:=True;
+ Info('  sourire ajout'#130);
+End;
+
+{ ---- bras le long du corps ---- }
+
+Function ArmsDown(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ Tx0,Ty0,Tx1,Ty1,Side,X,Y,Done,Skipped,Ix,Iy,C,Mv,Tl,Tr:LongInt;
+ Tp,Ppx,Ppy,Ext:Double;
+ Cnt:Int64;
+ Cx,Mx,My,Sxx,Sxy,Syy,Th,Ax,Ay,Pj,Pmin,Pmax,L,Hw,Uc,Pvx,Pvy,Delta,Cd,Sd,Rx,Ry,Sx,Sy,TorsoHalf:Double;
+ Cap,Known:PSingle;
+ Orig:PSingle;
+ Mk,CapCat:PByte;
+ Wc:Single;
+ Px:Array[0..2]of Single;
+Begin
+ ArmsDown:=False;
+ Msg:='';
+ N:=Int64(S.W)*S.H;
+ If not CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)Then Begin Msg:='aucun haut d'#130'tect'#130' : impossible de situer le corps';Exit;End;
+ Cx:=(Tx0+Tx1+1)/2;
+ TorsoHalf:=(Tx1-Tx0+1)/2;
+ { largeur du torse mesuree en bas (sous les manches) }
+ Y:=Ty0+((Ty1-Ty0)*80)div 100;
+ Tl:=S.W;Tr:=-1;
+ For X:=0 to S.W-1 do If(S.Cat[cTop][Int64(Y)*S.W+X]+S.Cat[cDress][Int64(Y)*S.W+X])>=128 Then Begin
+  If X<Tl Then Tl:=X;
+  If X>Tr Then Tr:=X;
+ End;
+ If Tr>Tl Then Begin Cx:=(Tl+Tr+1)/2;TorsoHalf:=(Tr-Tl+1)/2;End;
+ Orig:=AllocF(N*3);
+ Mk:=PByte(AllocBytes(N));CapCat:=PByte(AllocBytes(N));
+ Cap:=AllocF(N);
+ Done:=0;Skipped:=0;
+ For Side:=0 to 1 do Begin
+  Mx:=0;My:=0;Cnt:=0;
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cArms][K]>=128)and((X<Cx)=(Side=0))Then Begin Mx:=Mx+X;My:=My+Y;Inc(Cnt);End;
+  End;
+  If Cnt<N div 9000 Then Continue;
+  Mx:=Mx/Cnt;My:=My/Cnt;
+  Sxx:=0;Sxy:=0;Syy:=0;
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cArms][K]>=128)and((X<Cx)=(Side=0))Then Begin
+    Sxx:=Sxx+(X-Mx)*(X-Mx);Sxy:=Sxy+(X-Mx)*(Y-My);Syy:=Syy+(Y-My)*(Y-My);
+   End;
+  End;
+  Th:=0.5*ATan2F(2*Sxy,Sxx-Syy);
+  Ax:=Cos(Th);Ay:=Sin(Th);
+  If Ay<0 Then Begin Ax:=-Ax;Ay:=-Ay;End;
+  If Abs(ATan2F(Ax,Ay))*180/Pi<5 Then Begin Detail('bras d'#130'j'#133' align'#130's');Continue;End;
+  If Abs(Mx-Cx)<0.45*TorsoHalf Then Begin Inc(Skipped);Continue;End;
+  Pmin:=1.0e9;Pmax:=-1.0e9;Hw:=0;
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If(S.Cat[cArms][K]>=128)and((X<Cx)=(Side=0))Then Begin
+    Pj:=(X-Mx)*Ax+(Y-My)*Ay;
+    Uc:=Abs(-(X-Mx)*Ay+(Y-My)*Ax);
+    If Pj<Pmin Then Pmin:=Pj;
+    If Pj>Pmax Then Pmax:=Pj;
+    If Uc>Hw Then Hw:=Uc;
+   End;
+  End;
+  L:=Pmax-Pmin;
+  If L<10 Then Continue;
+  { epaule : point de l'axe, en amont, ou il entre dans la colonne du torse }
+  Ext:=0.30*L;
+  Tp:=0;
+  While Tp<=2.5*L do Begin
+   Ppx:=Mx+Ax*(Pmin-Tp);Ppy:=My+Ay*(Pmin-Tp);
+   If Abs(Ppx-Cx)<=TorsoHalf*1.02 Then Begin Ext:=Tp;Break;End;
+   Tp:=Tp+1;
+  End;
+  Pvx:=Mx+Ax*(Pmin-Ext);Pvy:=My+Ay*(Pmin-Ext);
+  { capsule du bras : peau visible et manche attenante }
+  FillChar(Mk^,N,0);FillChar(Cap^,N*4,0);FillChar(CapCat^,N,0);
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   Pj:=(X+0.5-Mx)*Ax+(Y+0.5-My)*Ay;
+   Uc:=Abs(-(X+0.5-Mx)*Ay+(Y+0.5-My)*Ax);
+   If(Pj<Pmin-Ext-2)or(Pj>Pmax+2)or(Uc>Hw*2.4+4)Then Continue;
+   If(S.Cat[cArms][K]>=128)and(Uc<=Hw*1.3+2)Then Begin Mk[K]:=255;Cap[K]:=1;CapCat[K]:=cArms;End
+   Else If(S.Cat[cTop][K]>=128)and(Pj<Pmin+0.10*L)and(Abs(X+0.5-Cx)>TorsoHalf*0.98)Then Begin Mk[K]:=255;Cap[K]:=1;CapCat[K]:=cTop;End;
+  End;
+  BoxBlur(Cap,Cap,S.W,S.H,1);
+  Move(S.Pix^,Orig^,N*12);
+  { zone liberee : remplie par propagation depuis ce qui l'entoure }
+  MorphMask(Mk,S.W,S.H,2,False);
+  Known:=AllocF(N);
+  For K:=0 to N-1 do If Mk[K]=0 Then Known[K]:=1;
+  PushPullFill(S.Pix,Known,S.W,S.H);
+  FreeMem(Known);
+  For K:=0 to N-1 do If Mk[K]<>0 Then Begin
+   For C:=0 to NumCat-1 do S.Cat[C][K]:=0;
+   S.Cat[cBg][K]:=255;
+  End;
+  { rotation autour de l'epaule : le bras pend a la verticale }
+  Delta:=Pi/2-ATan2F(Ay,Ax);
+  Cd:=Cos(-Delta);Sd:=Sin(-Delta);
+  For Y:=0 to S.H-1 do For X:=0 to S.W-1 do Begin
+   Rx:=X+0.5-Pvx;Ry:=Y+0.5-Pvy;
+   Sx:=Pvx+Rx*Cd-Ry*Sd;Sy:=Pvy+Rx*Sd+Ry*Cd;
+   If(Sx<0)or(Sy<0)or(Sx>=S.W)or(Sy>=S.H)Then Continue;
+   Ix:=Trunc(Sx);Iy:=Trunc(Sy);
+   Wc:=Cap[Int64(Iy)*S.W+Ix];
+   If Wc<=0.02 Then Continue;
+   K:=Int64(Y)*S.W+X;
+   SampleBilinear(Orig,S.W,S.H,3,Sx,Sy,@Px[0]);
+   For C:=0 to 2 do S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Wc)+Px[C]*Wc;
+   For C:=0 to NumCat-1 do S.Cat[C][K]:=Trunc(S.Cat[C][K]*(1-Wc)+0.5);
+   C:=CapCat[Int64(Iy)*S.W+Ix];
+   If C=0 Then C:=cArms;
+   Mv:=S.Cat[C][K]+Trunc(Wc*255+0.5);
+   If Mv>255 Then Mv:=255;
+   S.Cat[C][K]:=Mv;
+  End;
+  Inc(Done);
+ End;
+ FreeMem(Orig);FreeMem(Mk);FreeMem(CapCat);FreeMem(Cap);
+ If Skipped>0 Then Warn('bras crois'#130's devant le corps : non modifi'#130's');
+ If Done=0 Then Begin
+  Msg:='aucun bras '#133' redresser (d'#130'j'#133' le long du corps, non visibles ou crois'#130's)';
+  Exit;
+ End;
+ ArmsDown:=True;
+ Info('  bras redress'#130's ('+IStr(Done)+')');
+End;
+
+{ ------------------------------------------------------------------ }
 { Couche systeme : console, repertoires, telechargement (Windows)      }
 { ------------------------------------------------------------------ }
 
@@ -9137,6 +9472,8 @@ Begin
  WriteLn('  "Change le chandail rouge en bleu, ajouter un foulard"   "mettre un chapeau de paille"');
  WriteLn('  "cheveux longs et blonds"  "cheveux fris'#130's"  "cheveux plus courts"  "enl'#138've les cheveux"');
  WriteLn('  "ajoute un collier en or"  "ajoute des diamants"  "ajoute une montre apple"  "ajoute un bracelet"');
+ WriteLn('  "changer la couleur des yeux pour vert" (rouge, blanc, noir, bleu, marron...)  "souriante"');
+ WriteLn('  "bras bien aligner de chaque c'#147't'#130' du corps"');
  WriteLn('  "transforme cette personne en BD" (ou dessin anim'#130', croquis)');
  WriteLn('  "transforme ce personnage de BD en r'#130'el" (approximatif : ce n''est pas une photo)');
  WriteLn('  (plusieurs instructions possibles, s'#130'par'#130'es par des virgules ou "et" ;');
@@ -9537,6 +9874,15 @@ Begin
    Continue;
   End;
   If Edits[I].Action=eaStyle Then Continue;
+  { sourire demande (seul ou avec d'autres retouches dans la meme clause) }
+  If Edits[I].Expr<>0 Then Begin
+   If ApplySmile(Scene,Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+   If Edits[I].Action=eaFace Then Continue;
+  End;
+  If Edits[I].Action=eaPose Then Begin
+   If ArmsDown(Scene,Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+   Continue;
+  End;
   If Edits[I].Action=eaHair Then Begin
    If ApplyHair(Scene,Edits[I].HairStyle,Edits[I],Msg)Then Begin Info('  coiffure modifi'#130'e');Inc(NOk);End
    Else Begin Warn(Msg);Inc(NFail);End;
