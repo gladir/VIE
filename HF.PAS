@@ -1945,7 +1945,7 @@ Begin
  SClear(L);
  W:=0;
  For I:=0 to ONum do Begin
-  If I=ONum Then S:='-h, --help'
+  If I=ONum Then S:='-h, --help, /?'
   Else Begin
    If ODef[I].Short<>'' Then S:='-'+ODef[I].Short+', ' Else S:='    ';
    S:=S+'--'+ODef[I].Long;
@@ -1992,7 +1992,7 @@ Begin
   A:=ParamStr(I);
   If Rest or((StopAfter>0)and(PosArgs.N>=StopAfter))Then SAdd(PosArgs,A)
   Else If A='--' Then Rest:=True
-  Else If(A='-h')or(A='--help')Then Begin PrintCmdHelp;Halt(0);End
+  Else If(A='-h')or(A='--help')or(A='/?')Then Begin PrintCmdHelp;Halt(0);End
   Else If StartsWith(A,'--')Then Begin
    Nm:=Copy(A,3,Length(A));V:='';
    P:=Pos('=',Nm);
@@ -5102,7 +5102,7 @@ Begin
  WriteLn('  Hugging Face Hub CLI (Pascal clone)');
  WriteLn;
  WriteLn('Options:');
- WriteLn('  -h, --help  Show this message and exit.');
+ WriteLn('  -h, --help, /?  Show this message and exit.');
  WriteLn;
  WriteLn('Main commands:');
  For I:=0 to NTop-1 do If Tops[I].G='main' Then
@@ -5136,7 +5136,7 @@ Begin
  WriteLn('  ',Desc);
  WriteLn;
  WriteLn('Options:');
- WriteLn('  -h, --help  Show this message and exit.');
+ WriteLn('  -h, --help, /?  Show this message and exit.');
  WriteLn;
  WriteLn('Commands:');
  W:=0;
@@ -5352,7 +5352,7 @@ Procedure RunNested(Const Grp:AnsiString;Idx:LongInt);
 Var
  Sub,Key:AnsiString;
 Begin
- If(Idx>ParamCount)or(ParamStr(Idx)='-h')or(ParamStr(Idx)='--help')Then Begin
+ If(Idx>ParamCount)or(ParamStr(Idx)='-h')or(ParamStr(Idx)='--help')or(ParamStr(Idx)='/?')Then Begin
   PrintGroupHelp('hf '+Grp,TopDesc('repos'));
   Halt(0);
  End;
@@ -5371,7 +5371,7 @@ Procedure RunGroup(Const Grp:AnsiString);
 Var
  Sub,Key:AnsiString;
 Begin
- If(ParamCount<2)or(ParamStr(2)='-h')or(ParamStr(2)='--help')Then Begin
+ If(ParamCount<2)or(ParamStr(2)='-h')or(ParamStr(2)='--help')or(ParamStr(2)='/?')Then Begin
   PrintGroupHelp('hf '+Grp,TopDesc(Grp));
   Halt(0);
  End;
@@ -5445,7 +5445,7 @@ Begin
  If ParamCount=0 Then Begin PrintMainHelp;Halt(0);End;
  C:=ParamStr(1);
  ArgStart:=2;
- If(C='-h')or(C='--help')or(C='help')Then Begin PrintMainHelp;Halt(0);End;
+ If(C='-h')or(C='--help')or(C='/?')or(C='help')Then Begin PrintMainHelp;Halt(0);End;
  If C='download' Then CmdDownload
  Else If C='upload' Then CmdUpload
  Else If C='env' Then CmdEnv
