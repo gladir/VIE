@@ -27,7 +27,7 @@
    --task           Type de tache a exporter (text-generation-with-past ...).
    --weight-format  Precision des poids : fp32, fp16, int8, int4, nf4.
    --device         Peripherique (accepte pour compatibilite, sans effet).
-   -h, --help       Affiche l'aide detaillee.
+   -h, --help, /?   Affiche l'aide detaillee.
 
   Graphe produit (comme optimum-intel, mode "stateful" par defaut) :
    entrees  input_ids, attention_mask, position_ids, beam_idx;
@@ -937,7 +937,7 @@ Begin
  WriteLn('  export openvino   Exporte un modele vers le format OpenVINO.');
  WriteLn;
  WriteLn('options :');
- WriteLn('  -h, --help        Affiche cette aide');
+ WriteLn('  -h, --help, /?    Affiche cette aide');
  WriteLn('  --version         Affiche la version');
  WriteLn;
  WriteLn('Exemple :');
@@ -967,7 +967,7 @@ Begin
  WriteLn('  output                Dossier ou le modele OpenVINO est enregistre.');
  WriteLn;
  WriteLn('options :');
- WriteLn('  -h, --help            Affiche cette aide.');
+ WriteLn('  -h, --help, /?        Affiche cette aide.');
  WriteLn('  -m MODEL, --model MODEL');
  WriteLn('                        Identifiant du modele ou chemin local (dossier contenant');
  WriteLn('                        config.json et les fichiers .safetensors). Un identifiant');
@@ -1042,6 +1042,11 @@ Begin
  If O='--output'Then OptOutput:=V;
 End;
 
+Function IsHelp(Const A:AnsiString):Boolean;
+Begin
+ IsHelp:=(A='-h')or(A='--help')or(A='/?')or(A='-?');
+End;
+
 Procedure ParseArgs;
 Var
  I,P:LongInt;
@@ -1064,7 +1069,7 @@ Begin
  End;
  { Sous-commandes }
  A:=ParamStr(1);
- If(A='-h')or(A='--help')Then Begin
+ If IsHelp(A)Then Begin
   ShowMainHelp;
   Halt(0);
  End;
@@ -1082,7 +1087,7 @@ Begin
   Halt(2);
  End;
  A:=ParamStr(2);
- If(A='-h')or(A='--help')Then Begin
+ If IsHelp(A)Then Begin
   WriteLn('usage: optimum-cli export [-h] {openvino} ...');
   WriteLn;
   WriteLn('  openvino    Exporte un modele vers le format OpenVINO.');
@@ -1096,7 +1101,7 @@ Begin
  I:=3;
  While I<=ParamCount do Begin
   A:=ParamStr(I);
-  If(A='-h')or(A='--help')Then Begin
+  If IsHelp(A)Then Begin
    ShowExportHelp;
    Halt(0);
   End;
