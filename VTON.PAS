@@ -5352,17 +5352,20 @@ End;
 Const
  { genres de vetement }
  gkNone=0;gkTop=1;gkBottom=2;gkDress=3;gkFull=4;gkShoes=5;gkHat=6;gkGlasses=7;
- gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;gkHair=13;gkEyes=14;gkArms=15;
+ gkBag=8;gkScarf=9;gkBelt=10;gkSkirt=11;gkAll=12;gkHair=13;gkEyes=14;gkArms=15;gkBody=16;
  { natures de mots du lexique }
  lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
  lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;lkVAdd=14;
- lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;lkExpr=19;
+ lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;lkExpr=19;lkMaterial=20;lkScene=21;
  { modificateurs }
  mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
  { motifs }
  pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
  { actions }
- eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;eaMaterial=9;eaScene=10;
+ { matieres et scenes }
+ mtNone=0;mtMetal=1;mtRobot=2;mtStatue=3;mtChain=4;
+ scNone=0;scCarousel=1;
  { coiffures }
  hsNone=0;hsLonger=1;hsShorter=2;hsCurly=3;hsBald=4;hsStraight=5;
  { bijoux (indicateurs) }
@@ -5396,6 +5399,7 @@ Type
   Noun:AnsiString;          { mot designant le vetement vise }
   HairStyle,Jewel,Style,Expr:LongInt;
   Pose:Boolean;
+  Material,Scene:LongInt;
   Diamond,Apple:Boolean;
   Put:Boolean;              { ? mets un chapeau ? : ajout si l'objet est absent }
   Text:AnsiString;
@@ -5458,6 +5462,15 @@ Begin
  AddLex('ceinture belt',lkGarment,gkBelt,msBelt);
  AddLex('vetement habit tenue outfit clothes clothing ensemble costume',lkGarment,gkAll,msClothes);
  AddLex('tout tous toute toutes everything all',lkAll,0,0);
+ { corps, matieres, scenes }
+ AddLex('corps body',lkGarment,gkBody,msSkin);
+ AddLex('metallique metallic metal chrome chromee chromes',lkMaterial,mtMetal,0);
+ AddLex('robot robots robotique robotiques robotic cyborg android',lkMaterial,mtRobot,0);
+ AddLex('statue statues marbre marble pierre stone',lkMaterial,mtStatue,0);
+ AddLex('maille mailles chainmail',lkMaterial,mtChain,0);
+ AddLex('carrousel carroussel carousel manege merry',lkScene,scCarousel,0);
+ AddLex('bronze',lkColor,0,RgbOf(176,112,52));
+ AddLex('cuivre copper',lkColor,0,RgbOf(184,115,51));
  { yeux, bras, expressions }
  AddLex('oeil yeux eye eyes iris',lkGarment,gkEyes,msEyes);
  AddLex('bras arm arms',lkGarment,gkArms,msArms);
@@ -5781,8 +5794,8 @@ Var
  Gx:LongInt;
  HasPat:Boolean;
  HStyle,Jw,Sty:LongInt;
- HStrong,HairNoun,Dia,App,PoseWord:Boolean;
- Expr:LongInt;
+ HStrong,HairNoun,Dia,App,PoseWord,ChainCtx,MetalCol:Boolean;
+ Expr,Mat,Scn:LongInt;
 Begin
  ParseClause:=False;
  ClearEdit(E);
@@ -5793,7 +5806,10 @@ Begin
  FirstPrep:=-1;
  HasPat:=False;
  HStyle:=0;Jw:=0;Sty:=0;HStrong:=False;Dia:=False;App:=False;
- HairNoun:=False;PoseWord:=False;Expr:=0;
+ HairNoun:=False;PoseWord:=False;Expr:=0;Mat:=0;Scn:=0;ChainCtx:=False;MetalCol:=False;
+ { ? vetement de chaine d'or ? : chaine + vetement = cotte de mailles, pas un collier }
+ For I:=A to B do If LexFind(T[I],lkGarment)>=0 Then
+  If Lex[LexFind(T[I],lkGarment)].V1 in[gkTop,gkBottom,gkDress,gkSkirt,gkAll,gkFull]Then ChainCtx:=True;
  For I:=A to B do If(T[I]='aligne')or(T[I]='aligner')or(T[I]='alignes')or(T[I]='alignee')or(T[I]='alignees')or
    (T[I]='alignez')or(T[I]='baisse')or(T[I]='baisser')or(T[I]='baissez')or(T[I]='cote')or(T[I]='cotes')or
    (T[I]='long')or(T[I]='droit')or(T[I]='droits')or(T[I]='droite')or(T[I]='droites')or(T[I]='descend')or
@@ -5823,8 +5839,16 @@ Begin
    Continue;
   End;
   { bijoux, styles d'image, coiffures }
+  K:=LexFind(T[I],lkMaterial);
+  If K>=0 Then Begin Mat:=Lex[K].V1;Continue;End;
+  K:=LexFind(T[I],lkScene);
+  If K>=0 Then Begin Scn:=Lex[K].V1;Continue;End;
   K:=LexFind(T[I],lkJewel);
-  If K>=0 Then Begin Jw:=Jw or Lex[K].V1;Continue;End;
+  If K>=0 Then Begin
+   If ChainCtx and((T[I]='chaine')or(T[I]='chaines')or(T[I]='chain'))Then Mat:=mtChain
+   Else Jw:=Jw or Lex[K].V1;
+   Continue;
+  End;
   K:=LexFind(T[I],lkJewelMod);
   If K>=0 Then Begin If Lex[K].V1=1 Then Dia:=True Else App:=True;Continue;End;
   K:=LexFind(T[I],lkStyle);
@@ -5933,6 +5957,7 @@ Begin
   E.HairStyle:=HStyle;E.Target:=E.Target or msHair;E.Kind:=gkHair;
  End;
  If Sty<>0 Then E.Style:=Sty;
+ E.Material:=Mat;E.Scene:=Scn;
  E.Expr:=Expr;
  If((E.Target and msArms)<>0)and PoseWord and not E.HasDst Then E.Pose:=True;
  If Dia and(Jw=0)and(NG=0)Then Jw:=jwNecklace+jwEarrings+jwBracelet;
@@ -5941,13 +5966,23 @@ Begin
  If Remove Then E.Action:=eaRemove
  Else If(E.Jewel<>0)and(AddV or Result_ or TryOn)Then E.Action:=eaAdd
  Else If E.Pose Then E.Action:=eaPose
+ Else If E.Scene<>0 Then E.Action:=eaScene
+ Else If E.Material<>0 Then E.Action:=eaMaterial
  Else If E.HairStyle<>0 Then E.Action:=eaHair
  Else If E.Expr<>0 Then E.Action:=eaFace
  Else If E.Style<>0 Then E.Action:=eaStyle
  Else If AddV Then E.Action:=eaAdd
  Else If E.HasDst or(E.Pattern<>pkNone)or(Abs(E.LGain-1)>0.01)or(Abs(E.CGain-1)>0.01)Then E.Action:=eaRecolor
  Else If TryOn Then E.Action:=eaTryOn;
- HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose];
+ { couleur metallique (or, argent, bronze, cuivre) sur un vetement ou le corps : rendu metal }
+ If(E.Action=eaRecolor)and E.HasDst and(E.Target<>0)and(E.Jewel=0)and((E.Target and(msHair or msEyes))=0)Then Begin
+  Nm:=LoStr(E.DstName);
+  If(Pos('or',Nm)=1)and((Length(Nm)=2)or(Pos(' ',Nm)=3))or(Pos('dore',Nm)>0)or(Pos('gold',Nm)>0)or(Pos('argent',Nm)>0)or
+    (Pos('silver',Nm)>0)or(Pos('bronze',Nm)>0)or(Pos('cuivre',Nm)>0)or(Pos('copper',Nm)>0)or(Pos('platine',Nm)>0)Then Begin
+   E.Material:=mtMetal;E.Action:=eaMaterial;
+  End;
+ End;
+ HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose,eaMaterial,eaScene];
  ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0)or(E.Jewel<>0);
 End;
 
@@ -6092,6 +6127,8 @@ Begin
   eaAdd:R:='ajouter';
   eaHair:R:='coiffure';
   eaFace:R:='expression du visage';
+  eaMaterial:R:='mati'#138're '+IStr(E.Material);
+  eaScene:R:='sc'#138'ne';
   eaPose:R:='bras le long du corps';
   eaStyle:R:='style de l''image';
   eaTryOn:R:='essayer';
@@ -9060,6 +9097,508 @@ Begin
 End;
 
 { ------------------------------------------------------------------ }
+{ Matieres : metal (or, argent, bronze...), cotte de mailles, robot,    }
+{ statue. L'ombrage de la photo est conserve pour garder le volume.    }
+{ ------------------------------------------------------------------ }
+
+{ rampe de couleur d'un metal : V de 0 (ombre) a 1 (reflet eclatant) }
+Procedure MetalRamp(Base:LongWord;V:Single;Var R,G,B:Single);
+Var
+ Br,Bg,Bb,T:Single;
+ Function Lr(A,Bv,Tt:Single):Single;
+ Begin
+  Lr:=A+(Bv-A)*Tt;
+ End;
+Begin
+ Br:=(Base shr 16)and $FF;Bg:=(Base shr 8)and $FF;Bb:=Base and $FF;
+ If V<0 Then V:=0 Else If V>1 Then V:=1;
+ If V<0.30 Then Begin
+  T:=V/0.30;
+  R:=Lr(Br*0.12,Br*0.42,T);G:=Lr(Bg*0.12,Bg*0.42,T);B:=Lr(Bb*0.14,Bb*0.45,T);
+ End
+  Else If V<0.58 Then Begin
+   T:=(V-0.30)/0.28;
+   R:=Lr(Br*0.42,Br*0.95,T);G:=Lr(Bg*0.42,Bg*0.95,T);B:=Lr(Bb*0.45,Bb*0.92,T);
+  End
+   Else If V<0.84 Then Begin
+    T:=(V-0.58)/0.26;
+    R:=Lr(Br*0.95,Br+(255-Br)*0.62,T);G:=Lr(Bg*0.95,Bg+(255-Bg)*0.62,T);B:=Lr(Bb*0.92,Bb+(255-Bb)*0.62,T);
+   End
+    Else Begin
+     T:=(V-0.84)/0.16;
+     R:=Lr(Br+(255-Br)*0.62,255,T);G:=Lr(Bg+(255-Bg)*0.62,255,T);B:=Lr(Bb+(255-Bb)*0.62,252,T);
+    End;
+End;
+
+{ valeur de reflexion d'un metal a partir de l'ombrage de la photo }
+Function MetalValue(L,Lsm,Lbig:Single):Single;
+Var
+ V0,Bnd,V:Single;
+Begin
+ V0:=0.45*L+0.32*Lsm+0.23*Lbig;
+ Bnd:=0.5+0.5*Cos(2*Pi*(V0*2.1+0.05));
+ V:=0.30*V0+0.70*Bnd;
+ If V0>0.82 Then V:=V+0.30*(V0-0.82)/0.18;
+ If V0<0.12 Then V:=V*(0.5+4*V0);
+ MetalValue:=Clamp(V,0,1);
+End;
+
+{ bruit cellulaire : distance aux deux points les plus proches, indice du plus proche }
+Procedure Worley(X,Y,Cs:Single;Var D1,D2:Single;Var Id:LongInt;Var Fx,Fy:Single);
+Var
+ Ix,Iy,Dx,Dy,Cx,Cy:LongInt;
+ Px,Py,D:Single;
+Begin
+ Ix:=FloorI(X/Cs);Iy:=FloorI(Y/Cs);
+ D1:=1.0e9;D2:=1.0e9;Id:=0;Fx:=0;Fy:=0;
+ For Dy:=-1 to 1 do
+  For Dx:=-1 to 1 do Begin
+   Cx:=Ix+Dx;Cy:=Iy+Dy;
+   Px:=(Cx+0.15+0.7*Hash2(Cx,Cy))*Cs;
+   Py:=(Cy+0.15+0.7*Hash2(Cx+57,Cy+91))*Cs;
+   D:=Sqrt(Sqr(X-Px)+Sqr(Y-Py));
+   If D<D1 Then Begin
+    D2:=D1;D1:=D;Id:=(Cx and $FFFF)*65536+(Cy and $FFFF);Fx:=Px;Fy:=Py;
+   End
+    Else If D<D2 Then D2:=D;
+  End;
+End;
+
+{ anneaux entrelaces de la cotte de mailles : hauteur 0..1 et eclairage }
+Procedure ChainRing(X,Y,P:Single;Var H,Light:Single);
+Var
+ Dx,Dy,Ro,Wd,Off,Cx,Cy,D,T,Hh,Ln:Single;
+ J0,J,I,I0:LongInt;
+Begin
+ Dx:=0.62*P;Dy:=0.45*P;
+ Ro:=0.50*P;Wd:=0.095*P;
+ H:=0;Light:=0.5;
+ J0:=FloorI(Y/Dy);
+ For J:=J0-2 to J0+2 do Begin
+  If Odd(J)Then Off:=0.5*Dx Else Off:=0;
+  I0:=FloorI((X-Off)/Dx+0.5);
+  For I:=I0-1 to I0+1 do Begin
+   Cx:=Off+I*Dx;Cy:=(J+0.5)*Dy;
+   D:=Sqrt(Sqr(X-Cx)+Sqr(Y-Cy));
+   T:=(D-Ro)/Wd;
+   If Abs(T)<1 Then Begin
+    Hh:=Sqrt(1-T*T);
+    If Hh>H Then Begin
+     H:=Hh;
+     If D>0.001 Then Ln:=((X-Cx)*(-0.55)+(Y-Cy)*(-0.83))/D Else Ln:=0;
+     Light:=0.5+0.5*Ln*T;
+    End;
+   End;
+  End;
+ End;
+End;
+
+{ lueur d'un disque (yeux de robot) }
+Procedure GlowDisc(Var S:TScene;Cx,Cy,R:Single;Cr,Cg,Cb:Single);
+Var
+ X,Y:LongInt;
+ D,Core,Halo,A:Single;
+ K:Int64;
+Begin
+ For Y:=Trunc(Cy-R*3.5)to Trunc(Cy+R*3.5)do
+  For X:=Trunc(Cx-R*3.5)to Trunc(Cx+R*3.5)do Begin
+   If(X<0)or(Y<0)or(X>=S.W)or(Y>=S.H)Then Continue;
+   D:=Sqrt(Sqr(X+0.5-Cx)+Sqr(Y+0.5-Cy));
+   Core:=1-SmoothStep(R*0.8,R*1.15,D);
+   Halo:=Exp(-Sqr(D/(R*1.9)))*0.7;
+   K:=Int64(Y)*S.W+X;
+   A:=FMax(Core,Halo*0.6);
+   S.Pix[K*3]:=S.Pix[K*3]*(1-A)+(Cr+(255-Cr)*Core*0.8)*A+Halo*0.15*Cr;
+   S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-A)+(Cg+(255-Cg)*Core*0.8)*A+Halo*0.15*Cg;
+   S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-A)+(Cb+(255-Cb)*Core*0.8)*A+Halo*0.15*Cb;
+  End;
+End;
+
+{ applique une matiere aux pixels d'opacite Al }
+Function ApplyMaterial(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ X,Y,Md,Side,Id,C:LongInt;
+ Mt:LongInt;
+ Mask:LongWord;
+ L01,Lsm,Lbig,Al,Yl:PSingle;
+ Base:LongWord;
+ R,G,B,V,Lm,Pp,Cs,D1,D2,Fx,Fy,Edge,Sw,Dk,Glow,H,Lg,Q,Sd,Vein:Single;
+ Cnt:Int64;
+ Hd:THeadInfo;
+ Ex,Ey,Rr,Cx,Cy,Sc,Lskin:Single;
+ SkinSum:Double;
+ SkinCnt:Int64;
+ Fm:PSingle;
+ Mn:Single;
+Begin
+ ApplyMaterial:=False;
+ Msg:='';
+ ColorInit;
+ Mt:=E.Material;
+ N:=Int64(S.W)*S.H;
+ Md:=IMin(S.W,S.H);
+ Al:=AllocF(N);
+ Case Mt of
+  mtStatue:For K:=0 to N-1 do Al[K]:=1-S.Cat[cBg][K]/255.0;
+  mtRobot:CatMask(S,msSkin or msHair,Al);
+  mtChain:Begin
+    Mask:=E.Target;
+    If(Mask=0)or((Mask and msClothes)=0)Then Mask:=msClothes;
+    CatMask(S,Mask,Al);
+   End;
+  Else Begin
+    Mask:=E.Target;
+    If Mask=0 Then Mask:=msSkin;
+    CatMask(S,Mask and(not msEyes),Al);
+   End;
+ End;
+ Cnt:=0;
+ For K:=0 to N-1 do If Al[K]>=0.5 Then Inc(Cnt);
+ If Cnt<N div 3000 Then Begin
+  Msg:='aucune zone '#133' transformer d'#130'tect'#130'e pour cette mati'#138're';
+  FreeMem(Al);Exit;
+ End;
+ SharpenAlpha(Al,N);
+ { couleur du metal }
+ If E.HasDst Then Base:=E.DstRGB
+ Else Case Mt of
+  mtChain:Base:=RgbOf(224,182,64);
+  mtRobot:Base:=RgbOf(168,176,190);
+  mtStatue:Base:=RgbOf(238,235,228);
+  Else Base:=RgbOf(204,209,220);
+ End;
+ L01:=AllocF(N);Lsm:=AllocF(N);Lbig:=AllocF(N);Yl:=AllocF(N);
+ For K:=0 to N-1 do Begin
+  L01[K]:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2])/255.0;
+  Yl[K]:=L01[K]*255;
+ End;
+ Move(L01^,Lsm^,N*4);Move(L01^,Lbig^,N*4);
+ BlurPlane(Lsm,S.W,S.H,FMax(1.5,Md/300.0));
+ BlurPlane(Lbig,S.W,S.H,FMax(4,Md/80.0));
+ { moyenne de luminosite de la region : normalise l'ombrage }
+ Lm:=0;
+ For K:=0 to N-1 do If Al[K]>=0.5 Then Lm:=Lm+Lsm[K];
+ Lm:=Lm/Cnt;
+ If Lm<0.05 Then Lm:=0.05;
+ Cs:=FMax(14,Md/15.0);
+ Pp:=Clamp(Md/30.0,12,26);
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   If Al[K]<=0.004 Then Continue;
+   { l'ombrage relatif : le visage sombre et la peau claire donnent le meme volume }
+   Q:=Clamp(0.5+(L01[K]-Lm)*2.1,0,1);
+   Mn:=Clamp(0.5+(Lsm[K]-Lm)*2.1,0,1);
+   Lg:=Clamp(0.5+(Lbig[K]-Lm)*2.1,0,1);
+   Case Mt of
+    mtChain:Begin
+      ChainRing(X+0.5,Y+0.5,Pp,H,Lg);
+      V:=0.04+0.96*Clamp(H*(0.10+1.05*Lg),0,1);
+      V:=V*(0.40+1.3*Mn)+0.10*(Q-Mn);
+      MetalRamp(Base,Clamp(V,0,1),R,G,B);
+     End;
+    mtRobot:Begin
+      V:=MetalValue(Q,Mn,Lg);
+      Worley(X+0.5,Y+0.5,Cs,D1,D2,Id,Fx,Fy);
+      Edge:=D2-D1;Sw:=0.05*Cs;
+      Dk:=1-SmoothStep(0,Sw,Edge);
+      V:=V*(1-0.82*Dk);
+      If(Edge>Sw)and(Edge<2.2*Sw)Then V:=V*1.10+0.04;
+      MetalRamp(Base,Clamp(V,0,1),R,G,B);
+      { rivets }
+      If D1<0.075*Cs Then Begin
+       Glow:=1-SmoothStep(0.04*Cs,0.075*Cs,D1);
+       R:=R*(1-Glow)+255*Glow*0.9;G:=G*(1-Glow)+255*Glow*0.9;B:=B*(1-Glow)+255*Glow*0.95;
+      End;
+      { quelques joints lumineux }
+      If(Hash2(Id and $FFFF,Id shr 16)<0.14)Then Begin
+       Glow:=Dk*0.9;
+       R:=R*(1-Glow)+30*Glow;G:=G*(1-Glow)+(215)*Glow;B:=B*(1-Glow)+255*Glow;
+      End;
+     End;
+    mtStatue:Begin
+      If E.HasDst Then Begin
+       V:=MetalValue(Q,Mn,Lg);
+       MetalRamp(Base,V,R,G,B);
+      End
+       Else Begin
+        V:=Clamp(0.56+1.7*(L01[K]-Lbig[K])+0.9*(Lbig[K]-Lm),0,1);
+        R:=108+(250-108)*V;G:=104+(248-104)*V;B:=100+(242-100)*V;
+        { veines du marbre }
+        Sd:=VNoise(X/(Md/9.0),Y/(Md/9.0))*2+VNoise(X/(Md/24.0)+5,Y/(Md/24.0)+3);
+        Vein:=1-SmoothStep(0.025,0.10,Abs(Sin(Sd*5.5)));
+        Vein:=Vein*(0.10+0.32*VNoise(X/(Md/40.0),Y/(Md/40.0)));
+        R:=R*(1-Vein)+96*Vein;G:=G*(1-Vein)+102*Vein;B:=B*(1-Vein)+114*Vein;
+        R:=R+RngGauss*1.2;G:=G+RngGauss*1.2;B:=B+RngGauss*1.2;
+       End;
+     End;
+    Else Begin
+      V:=MetalValue(Q,Mn,Lg);
+      MetalRamp(Base,V,R,G,B);
+     End;
+   End;
+   S.Pix[K*3]:=S.Pix[K*3]*(1-Al[K])+R*Al[K];
+   S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Al[K])+G*Al[K];
+   S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Al[K])+B*Al[K];
+  End;
+ { yeux : lumiere bleue pour le robot, orbites vides pour la statue }
+ If(Mt=mtRobot)or(Mt=mtStatue)Then Begin
+  If HeadInfo(S,Hd)and(Hd.Fw>=40)Then Begin
+   Rr:=FMax(2.5,0.046*Hd.Fw);
+   For Side:=-1 to 1 do Begin
+    If Side=0 Then Continue;
+    Ex:=Hd.Cx+Side*0.225*Hd.Fw;Ey:=Hd.Fy0+0.42*Hd.Fh;
+    If FindIris(S,Yl,Ex,Ey,0.12*Hd.Fw,0.17*Hd.Fh,Rr,Cx,Cy,Sc)and(Sc>=9)Then Begin
+     If Mt=mtRobot Then GlowDisc(S,Cx,Cy,Rr*0.85,40,215,255)
+     Else GlowDisc(S,Cx,Cy,Rr*0.85,225,222,215);
+    End;
+   End;
+  End;
+ End;
+ FreeMem(L01);FreeMem(Lsm);FreeMem(Lbig);FreeMem(Yl);FreeMem(Al);
+ ApplyMaterial:=True;
+ Case Mt of
+  mtChain:Info('  cotte de mailles appliqu'#130'e');
+  mtRobot:Info('  corps de robot appliqu'#130);
+  mtStatue:Info('  style statue appliqu'#130);
+  Else Info('  rendu m'#130'tallique appliqu'#130);
+ End;
+End;
+
+{ ------------------------------------------------------------------ }
+{ Scenes : decor genere autour de la personne (carrousel)            }
+{ ------------------------------------------------------------------ }
+
+{ agrandit l'image vers le bas (lignes d'arriere-plan) }
+Procedure GrowCanvas(Var S:TScene;Extra:LongInt);
+Var
+ H2,Y,X,C:LongInt;
+ P2:PSingle;
+ Cat2:Array[0..NumCat-1]of PByte;
+ N1,N2:Int64;
+Begin
+ H2:=S.H+Extra;
+ N1:=Int64(S.W)*S.H;N2:=Int64(S.W)*H2;
+ P2:=AllocF(N2*3);
+ Move(S.Pix^,P2^,N1*12);
+ For Y:=S.H to H2-1 do Move((S.Pix+Int64(S.H-1)*S.W*3)^,(P2+Int64(Y)*S.W*3)^,S.W*12);
+ For C:=0 to NumCat-1 do Begin
+  Cat2[C]:=PByte(AllocBytes(N2));
+  Move(S.Cat[C]^,Cat2[C]^,N1);
+  FreeMem(S.Cat[C]);
+  S.Cat[C]:=Cat2[C];
+ End;
+ FillChar((S.Cat[cBg]+N1)^,N2-N1,255);
+ FreeMem(S.Pix);
+ S.Pix:=P2;
+ S.H:=H2;
+End;
+
+Procedure PutBg(Bg:PSingle;W,H,X,Y:LongInt;Cov,R,G,B:Single);
+Var
+ K:Int64;
+Begin
+ If(X<0)or(Y<0)or(X>=W)or(Y>=H)Then Exit;
+ If Cov<=0.003 Then Exit;
+ If Cov>1 Then Cov:=1;
+ K:=Int64(Y)*W+X;
+ Bg[K*3]:=Bg[K*3]*(1-Cov)+R*Cov;
+ Bg[K*3+1]:=Bg[K*3+1]*(1-Cov)+G*Cov;
+ Bg[K*3+2]:=Bg[K*3+2]*(1-Cov)+B*Cov;
+End;
+
+{ poteau de laiton vertical }
+Procedure BrassPole(Bg:PSingle;W,H:LongInt;Px,Y0,Y1,Pw:Single);
+Var
+ X,Y:LongInt;
+ U,V,Cov:Single;
+ R,G,B:Single;
+Begin
+ For Y:=Trunc(Y0)to Trunc(Y1)do
+  For X:=Trunc(Px-Pw-2)to Trunc(Px+Pw+2)do Begin
+   U:=(X+0.5-Px)/Pw;
+   Cov:=CoverD(Abs(U)*Pw-Pw);
+   If Cov<=0 Then Continue;
+   V:=MetalV(Clamp(0.5+U*0.5,0,1));
+   MetalRamp(RgbOf(224,176,70),V*0.95,R,G,B);
+   PutBg(Bg,W,H,X,Y,Cov,R,G,B);
+  End;
+End;
+
+Procedure Bulb(Bg:PSingle;W,H:LongInt;Cx,Cy,R:Single);
+Var
+ X,Y:LongInt;
+ D,Core,Halo:Single;
+Begin
+ For Y:=Trunc(Cy-R*4)to Trunc(Cy+R*4)do
+  For X:=Trunc(Cx-R*4)to Trunc(Cx+R*4)do Begin
+   D:=Sqrt(Sqr(X+0.5-Cx)+Sqr(Y+0.5-Cy));
+   Core:=1-SmoothStep(R*0.7,R*1.1,D);
+   Halo:=Exp(-Sqr(D/(R*2.2)))*0.55;
+   If Core>0.01 Then PutBg(Bg,W,H,X,Y,Core,255,246,200);
+   If Halo>0.01 Then PutBg(Bg,W,H,X,Y,Halo*0.6,255,214,130);
+  End;
+End;
+
+Function ApplyCarousel(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ X,Y,I,X0,Y0,X1,Y1,Cnt,Rows,Side:LongInt;
+ Bg,Al,Sh:PSingle;
+ YFeet,Xc,BodyW,BodyH,Rx,Ry,Thick,Sw,Hc,YPl,E,U,Cov,V,R,G,B,Sx,Sy,Dd,T,Px,Rr:Single;
+ YLast:Array[0..0]of LongInt;
+ Fx0,Fx1,Fx2:LongInt;
+ Sumx:Double;
+ Nx:Int64;
+Begin
+ ApplyCarousel:=False;
+ Msg:='';
+ ColorInit;
+ { silhouette de la personne }
+ X0:=S.W;Y0:=S.H;X1:=-1;Y1:=-1;Cnt:=0;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do If S.Cat[cBg][Int64(Y)*S.W+X]<128 Then Begin
+   If X<X0 Then X0:=X;If X>X1 Then X1:=X;
+   If Y<Y0 Then Y0:=Y;If Y>Y1 Then Y1:=Y;
+   Inc(Cnt);
+  End;
+ If Cnt<Int64(S.W)*S.H div 100 Then Begin Msg:='aucune personne d'#130'tect'#130'e : impossible de la placer sur un carrousel';Exit;End;
+ YFeet:=Y1+1;BodyH:=Y1-Y0+1;BodyW:=X1-X0+1;
+ { centre horizontal des pieds : bas de la silhouette }
+ Sumx:=0;Nx:=0;
+ For Y:=IMax(Y0,Y1-IMax(3,Y1-Y0 div 12))to Y1 do
+  For X:=0 to S.W-1 do If S.Cat[cBg][Int64(Y)*S.W+X]<128 Then Begin Sumx:=Sumx+X;Inc(Nx);End;
+ If Nx>0 Then Xc:=Sumx/Nx+0.5 Else Xc:=(X0+X1+1)/2;
+ { place pour la plateforme sous les pieds }
+ Rows:=Trunc(0.11*FMax(0.55*S.W,1.55*BodyW)+0.055*S.H)-(S.H-Y1-1);
+ If Rows>0 Then GrowCanvas(S,Rows);
+ N:=Int64(S.W)*S.H;
+ Bg:=AllocF(N*3);
+ { ciel nocturne de fete }
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   T:=Y/S.H;
+   Dd:=Sqrt(Sqr(X/S.W-0.5)*1.2+Sqr(T-0.45)*0.9);
+   R:=(28+110*SmoothStep(0.0,0.9,T)+20*Exp(-Dd*4))*(1-0.35*Dd);
+   G:=(16+46*SmoothStep(0.0,0.9,T)+10*Exp(-Dd*4))*(1-0.35*Dd);
+   B:=(56+44*SmoothStep(0.0,0.7,T)-10*T)*(1-0.30*Dd);
+   Bg[K*3]:=R;Bg[K*3+1]:=G;Bg[K*3+2]:=B;
+  End;
+ { lumieres floues du fond }
+ For I:=1 to 46 do Begin
+  Sx:=RngF*S.W;Sy:=RngF*S.H*0.72+0.10*S.H;
+  Rr:=(0.012+0.03*RngF)*S.H;
+  T:=RngF;
+  If T<0.5 Then Begin R:=255;G:=190;B:=110;End
+  Else If T<0.8 Then Begin R:=255;G:=120;B:=150;End
+  Else Begin R:=140;G:=190;B:=255;End;
+  For Y:=Trunc(Sy-Rr)to Trunc(Sy+Rr)do
+   For X:=Trunc(Sx-Rr)to Trunc(Sx+Rr)do Begin
+    Dd:=Sqrt(Sqr(X+0.5-Sx)+Sqr(Y+0.5-Sy))/Rr;
+    PutBg(Bg,S.W,S.H,X,Y,(0.10+0.16*RngF*0)*(1-SmoothStep(0.78,1.0,Dd))+0.16*Exp(-Dd*Dd*2.5)*0.3,R,G,B);
+   End;
+ End;
+ { plateforme tournante : bois, rebord de laiton, flanc rouge }
+ Rx:=FMax(0.55*S.W,1.55*BodyW);
+ If Rx>0.92*S.W Then Rx:=0.92*S.W;
+ Ry:=0.11*Rx;
+ YPl:=YFeet-0.012*S.H;
+ Thick:=0.04*S.H;
+ Hc:=0.17*S.H;
+ { poteaux derriere la personne }
+ For I:=0 to 6 do Begin
+  Px:=S.W*(I+0.5)/7;
+  BrassPole(Bg,S.W,S.H,Px,Hc,YPl+Ry*Sqrt(FMax(0,1-Sqr((Px-Xc)/Rx))),0.0075*S.W);
+ End;
+ { dessus de la plateforme }
+ For Y:=Trunc(YPl-Ry-2)to Trunc(YPl+Ry+Thick+2)do
+  For X:=Trunc(Xc-Rx-2)to Trunc(Xc+Rx+2)do Begin
+   U:=(X+0.5-Xc)/Rx;
+   Dd:=(Y+0.5-YPl)/Ry;
+   E:=Sqrt(U*U+Dd*Dd);
+   { dessus }
+   Cov:=CoverD((E-1.0)*Ry*0.9);
+   If Cov>0 Then Begin
+    V:=0.55+0.30*Cos(E*Pi*5.0)*0.5+0.12*(0.5-Dd*0.5);
+    If Frac(E*7.0)<0.5 Then V:=V*0.86;
+    V:=V*(0.8+0.25*(1-E));
+    R:=176*V+RngGauss*1.2;G:=118*V+RngGauss*1.2;B:=68*V+RngGauss*1.2;
+    PutBg(Bg,S.W,S.H,X,Y,Cov,R,G,B);
+   End;
+   { rebord de laiton }
+   Cov:=CoverD(Abs(E-1.035)*Ry*0.9-0.018*Ry*3);
+   If Cov>0 Then Begin
+    MetalRamp(RgbOf(226,178,72),MetalV(Clamp(0.5+(Dd-U*0)*0.25,0,1))*0.95,R,G,B);
+    PutBg(Bg,S.W,S.H,X,Y,Cov,R,G,B);
+   End;
+   { flanc avant }
+   If(Dd>0)and(Abs(U)<1.0)Then Begin
+    Sy:=Ry*Sqrt(FMax(0,1-U*U));
+    Cov:=CoverD(FMax(YPl+Sy-(Y+0.5),(Y+0.5)-(YPl+Sy+Thick)));
+    If Cov>0 Then Begin
+     V:=0.55+0.45*Sqrt(FMax(0,1-U*U));
+     R:=128*V;G:=26*V;B:=38*V;
+     If Abs((Y+0.5)-(YPl+Sy+Thick*0.5))<0.04*Thick Then Begin R:=226*V;G:=178*V;B:=72*V;End;
+     PutBg(Bg,S.W,S.H,X,Y,Cov,R,G,B);
+    End;
+   End;
+  End;
+ { ampoules sur le rebord avant }
+ For I:=0 to 24 do Begin
+  U:=-0.96+I*0.08;
+  Bulb(Bg,S.W,S.H,Xc+U*Rx,YPl+Ry*Sqrt(FMax(0,1-U*U))+0.003*S.H,0.0045*S.H);
+ End;
+ { ombre portee aux pieds }
+ For Y:=Trunc(YFeet-0.05*BodyW)to Trunc(YFeet+0.07*BodyW)do
+  For X:=Trunc(Xc-0.7*BodyW)to Trunc(Xc+0.7*BodyW)do Begin
+   Dd:=Sqrt(Sqr((X+0.5-Xc)/(0.6*BodyW))+Sqr((Y+0.5-YFeet-0.01*BodyW)/(0.045*BodyW)));
+   PutBg(Bg,S.W,S.H,X,Y,0.55*Exp(-Dd*Dd*1.6),10,6,14);
+  End;
+ { dessous de la plateforme : sol sombre }
+ For Y:=Trunc(YPl+Ry+Thick)to S.H-1 do
+  For X:=0 to S.W-1 do PutBg(Bg,S.W,S.H,X,Y,1,16,10,22);
+ { toit raye a festons }
+ Sw:=S.W/12.0;
+ For Y:=0 to Trunc(Hc+Sw)do
+  For X:=0 to S.W-1 do Begin
+   Px:=Frac(X/Sw);
+   Dd:=Hc+Sqrt(FMax(0,Sqr(Sw/2)-Sqr((Px-0.5)*Sw)))*0.9;
+   Cov:=CoverD(Y+0.5-Dd);
+   If Cov<=0 Then Continue;
+   If Odd(Trunc(X/Sw))Then Begin R:=196;G:=32;B:=44;End Else Begin R:=242;G:=232;B:=212;End;
+   V:=0.55+0.30*Cos((Px-0.5)*Pi)+0.15*(1-Y/Hc*0.5);
+   V:=V*(0.75+0.25*(1-Y/(Hc+Sw)));
+   PutBg(Bg,S.W,S.H,X,Y,Cov,R*V,G*V,B*V);
+   { galon dore en bas des festons }
+   If Abs(Y+0.5-Dd)<0.006*S.H Then PutBg(Bg,S.W,S.H,X,Y,0.9,230,182,76);
+  End;
+ For I:=0 to 11 do Bulb(Bg,S.W,S.H,(I+0.5)*Sw,Hc+Sw*0.45*0.9+0.004*S.H,0.0055*S.H);
+ { poteaux de premier plan, aux bords }
+ BrassPole(Bg,S.W,S.H,0.035*S.W,Hc,YPl+Ry*0.3,0.012*S.W);
+ BrassPole(Bg,S.W,S.H,0.965*S.W,Hc,YPl+Ry*0.3,0.012*S.W);
+ { personne par-dessus le decor }
+ Al:=AllocF(N);
+ For K:=0 to N-1 do Begin
+  Al[K]:=1-S.Cat[cBg][K]/255.0;
+  Al[K]:=SmoothStep(0.30,0.85,Al[K]);
+ End;
+ For K:=0 to N-1 do Begin
+  { lumiere chaude du manege sur la personne }
+  For I:=0 to 2 do Begin
+   V:=S.Pix[K*3+I];
+   If I=0 Then V:=V*1.04 Else If I=2 Then V:=V*0.94;
+   Bg[K*3+I]:=Bg[K*3+I]*(1-Al[K])+V*Al[K];
+  End;
+ End;
+ Move(Bg^,S.Pix^,N*12);
+ FreeMem(Bg);FreeMem(Al);
+ ApplyCarousel:=True;
+ Info('  sc'#138'ne de carrousel g'#130'n'#130'r'#130'e');
+End;
+
+{ ------------------------------------------------------------------ }
 { Couche systeme : console, repertoires, telechargement (Windows)      }
 { ------------------------------------------------------------------ }
 
@@ -9474,6 +10013,8 @@ Begin
  WriteLn('  "ajoute un collier en or"  "ajoute des diamants"  "ajoute une montre apple"  "ajoute un bracelet"');
  WriteLn('  "changer la couleur des yeux pour vert" (rouge, blanc, noir, bleu, marron...)  "souriante"');
  WriteLn('  "bras bien aligner de chaque c'#147't'#130' du corps"');
+ WriteLn('  "corps d''or"  "corps m'#130'tallique"  "corps robot"  "style statue"  "v'#136'tement de cha'#140'ne d''or"');
+ WriteLn('  "debout sur un carrousel"');
  WriteLn('  "transforme cette personne en BD" (ou dessin anim'#130', croquis)');
  WriteLn('  "transforme ce personnage de BD en r'#130'el" (approximatif : ce n''est pas une photo)');
  WriteLn('  (plusieurs instructions possibles, s'#130'par'#130'es par des virgules ou "et" ;');
@@ -9658,6 +10199,7 @@ Var
  Used:Boolean;
  Dummy:LongWord;
  NeedFeet,NeedPants,NeedSkirt:Boolean;
+ Cnt0:LongInt;
 
 Procedure Die(Const S:AnsiString);
 Begin
@@ -9770,6 +10312,19 @@ Begin
   If not ImgSave(OptSaveParsing,Img,90)Then Warn('impossible d''enregistrer '+OptSaveParsing);
   ImgFree(Img);
  End;
+ { scene : le corps coupe doit montrer ses pieds pour se tenir sur la plateforme }
+ For I:=0 to High(Edits)do If Edits[I].Action=eaScene Then Begin
+  Cnt0:=0;
+  For J:=0 to Scene.W-1 do If Scene.Cat[cBg][Int64(Scene.H-1)*Scene.W+J]<128 Then Inc(Cnt0);
+  If(Cnt0>=Scene.W div 50)and(CatArea(Scene,msShoes)<Int64(Scene.W)*Scene.H div 2000)Then Begin
+   SetLength(Edits,Length(Edits)+1);
+   For J:=High(Edits)downto 1 do Edits[J]:=Edits[J-1];
+   ClearEdit(Edits[0]);
+   Edits[0].Action:=eaAdd;Edits[0].Target:=msShoes;Edits[0].Kind:=gkShoes;Edits[0].Noun:='souliers';
+   Info('corps coup'#130' : pantalon et souliers ajout'#130's pour poser la personne sur la plateforme');
+  End;
+  Break;
+ End;
  { bas du corps : prolongement de l'image si le corps est coupe par le cadre }
  NeedFeet:=False;NeedPants:=False;NeedSkirt:=False;
  For I:=0 to High(Edits)do Begin
@@ -9874,6 +10429,12 @@ Begin
    Continue;
   End;
   If Edits[I].Action=eaStyle Then Continue;
+  If Edits[I].Action=eaScene Then Continue;
+  If Edits[I].Action=eaMaterial Then Begin
+   Info('Mati'#138're : '+DescribeEdit(Edits[I]));
+   If ApplyMaterial(Scene,Edits[I],Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+   Continue;
+  End;
   { sourire demande (seul ou avec d'autres retouches dans la meme clause) }
   If Edits[I].Expr<>0 Then Begin
    If ApplySmile(Scene,Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
@@ -9894,6 +10455,12 @@ Begin
   Else If ApplyEdit(Scene,Edits[I],Msg)Then Inc(NOk)
   Else Begin Warn(Msg);Inc(NFail);End;
  End;
+ { scene : decor genere autour de la personne }
+ For I:=0 to High(Edits)do
+  If Edits[I].Action=eaScene Then Begin
+   Info('Sc'#138'ne : carrousel');
+   If ApplyCarousel(Scene,Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+  End;
  { le style de l'image s'applique en dernier, sur le resultat des autres retouches }
  For I:=0 to High(Edits)do
   If Edits[I].Action=eaStyle Then Begin
