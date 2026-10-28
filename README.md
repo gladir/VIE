@@ -44,6 +44,10 @@ Voici la liste des différents fichiers proposés dans VIE :
 	<td>Cette commande permet de générer une matrice de nombre de 9 x 9 pour une solution possible dans une grille de jeu Sodoku.</td>
   </tr>
   <tr>
+     <td><b>HF.PAS</b></td>
+     <td>Cette commande permet de gérer le Hugging Face Hub à la manière de la commande <code>hf</code> : authentification (<code>auth login|logout|whoami|list|switch</code>), téléchargement de modèles, jeux de données et Spaces avec cache et reprise (<code>download</code>), envoi de fichiers et dossiers avec LFS (<code>upload</code>), consultation (<code>models|datasets|spaces ls|info</code>), gestion des dépôts, du cache local, des collections, des discussions, des Jobs et des Inference Endpoints. Ce n'est pas un moteur d'exécution de modèles.</td>
+  </tr>
+  <tr>
      <td><b>LLAMA-CLI.PAS</b></td>
      <td>Cette commande permet de charger un modèle GGUF et génère du texte ou converse.</td>
   </tr>
