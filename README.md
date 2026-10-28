@@ -76,6 +76,13 @@ Voici la liste des différents fichiers proposés dans VIE :
   </tr>
 </table>
 
+<h2>Remarque</h2>
+
+<ul>
+	<li>ATTENTION ! Certaines commandes comme LLAMA-CLI peuvent nécessité du GPU très puissant pour des performances acceptables, car le CPU a lui seul ne fournit pas des resultats très rapide :</li>
+    <img width="1243" height="517" alt="image" src="https://github.com/user-attachments/assets/c28b8e9f-ce4a-449f-8c66-efe707521362" />
+</ul>
+
 <h2>Compilation</h2>
 	
 Les fichiers Pascal n'ont aucune dépendances, il suffit de télécharger le fichier désiré et de le compiler avec Free Pascal avec la syntaxe de commande  :
