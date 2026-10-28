@@ -3149,7 +3149,10 @@ Var
 
 Procedure ShowHelp;
 Begin
- WriteLn('usage: benchmark_app [-h] [-i PATHS_TO_INPUT [PATHS_TO_INPUT ...]] -m PATH_TO_MODEL');
+ WriteLn('BENCHMARK_APP : Cette commande permet de mesurer les performances d''inference ',
+         'd''un modele OpenVINO IR (.xml + .bin).');
+ WriteLn;
+ WriteLn('Syntaxe : benchmark_app [-h] [-i PATHS_TO_INPUT [PATHS_TO_INPUT ...]] -m PATH_TO_MODEL');
  WriteLn('                     [-d TARGET_DEVICE] [-hint {throughput,tput,cumulative_throughput,');
  WriteLn('                     ctput,latency,none}] [-niter NUMBER_ITERATIONS] [-t TIME]');
  WriteLn('                     [-b BATCH_SIZE] [-shape SHAPE] [-data_shape DATA_SHAPE]');
@@ -3162,9 +3165,7 @@ Begin
  WriteLn('                     [-report_folder REPORT_FOLDER] [-json_stats [JSON_STATS]]');
  WriteLn('                     [-pc [PERF_COUNTS]] [-pcsort {no_sort,sort,simple_sort}]');
  WriteLn('                     [-max_irate MAXIMUM_INFERENCE_RATE] [-dump_output DOSSIER]');
- WriteLn;
- WriteLn('Mesure les performances d''inference d''un modele OpenVINO IR (.xml + .bin).');
- WriteLn;
+ WriteLn; 
  WriteLn('Options :');
  WriteLn('  -h, --help, /?   Affiche cette aide et quitte.');
  WriteLn('  -m, --path_to_model PATH_TO_MODEL');
