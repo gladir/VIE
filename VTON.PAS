@@ -5906,7 +5906,7 @@ Var
  Pz:LongWord;
  SkinW:Boolean;
  SkOp,Yrs,Num,Spec,Nv:LongInt;
- ImgW,BgW,ImgOpPresent:Boolean;
+ ImgW,BgW,ImgOpPresent,Demo:Boolean;
  IOp,BOp:LongInt;
 Begin
  ParseClause:=False;
@@ -5920,11 +5920,13 @@ Begin
  HStyle:=0;Jw:=0;Sty:=0;HStrong:=False;Dia:=False;App:=False;
  HairNoun:=False;PoseWord:=False;Expr:=0;Mat:=0;Scn:=0;ChainCtx:=False;MetalCol:=False;Pz:=0;
  SkinW:=False;SkOp:=0;Yrs:=0;Num:=0;Spec:=0;
- ImgW:=False;BgW:=False;ImgOpPresent:=False;IOp:=0;BOp:=0;
+ ImgW:=False;BgW:=False;ImgOpPresent:=False;Demo:=False;IOp:=0;BOp:=0;
  For I:=A to B do Begin
   If LexFind(T[I],lkImgW)>=0 Then ImgW:=True;
   If LexFind(T[I],lkBgW)>=0 Then BgW:=True;
   If LexFind(T[I],lkImgOp)>=0 Then ImgOpPresent:=True;
+  { ? cette tenue ?, ? ce chandail ? : le vetement de l'image fournie }
+  If(T[I]='cette')or(T[I]='ce')or(T[I]='ces')or(T[I]='this')or(T[I]='these')or(T[I]='celle')or(T[I]='celui')or(T[I]='ceux')Then Demo:=True;
  End;
  For I:=A to B do If LexFind(T[I],lkSkinW)>=0 Then SkinW:=True;
  { ? vetement de chaine d'or ? : chaine + vetement = cotte de mailles, pas un collier }
@@ -6145,6 +6147,7 @@ Begin
  Else If E.Expr<>0 Then E.Action:=eaFace
  Else If E.Style<>0 Then E.Action:=eaStyle
  Else If AddV Then E.Action:=eaAdd
+ Else If Result_ and Demo and(NG>0)and not E.HasDst and(E.Pattern=pkNone)Then E.Action:=eaTryOn
  Else If E.HasDst or(E.Pattern<>pkNone)or(Abs(E.LGain-1)>0.01)or(Abs(E.CGain-1)>0.01)Then E.Action:=eaRecolor
  Else If TryOn Then E.Action:=eaTryOn;
  { couleur metallique (or, argent, bronze, cuivre) sur un vetement ou le corps : rendu metal }
@@ -6702,14 +6705,20 @@ Type
   W,H:LongInt;
   Rgb:PSingle;       { RVB 0..255, W x H }
   Mask:PSingle;      { opacite 0..1, W x H }
+  Skin:PSingle;      { peau d'un mannequin (0..1) ; Nil si aucun mannequin }
+  PlasticL:Single;   { luminosite moyenne de la peau du mannequin }
   Note:AnsiString;
  End;
+
+Var
+ NoMannequin:Boolean=False;
 
 Procedure GarmentFree(Var G:TGarment);
 Begin
  If G.Rgb<>Nil Then FreeMem(G.Rgb);
  If G.Mask<>Nil Then FreeMem(G.Mask);
- G.Rgb:=Nil;G.Mask:=Nil;
+ If G.Skin<>Nil Then FreeMem(G.Skin);
+ G.Rgb:=Nil;G.Mask:=Nil;G.Skin:=Nil;
 End;
 
 { seuil d'Otsu d'un histogramme de 256 classes }
@@ -6744,6 +6753,93 @@ Begin
  If Abs(Rgb[Int64(A)*3+1]-Rgb[Int64(B)*3+1])>D Then D:=Abs(Rgb[Int64(A)*3+1]-Rgb[Int64(B)*3+1]);
  If Abs(Rgb[Int64(A)*3+2]-Rgb[Int64(B)*3+2])>D Then D:=Abs(Rgb[Int64(A)*3+2]-Rgb[Int64(B)*3+2]);
  BgStep:=D<=7;
+End;
+
+{ vetement photographie sur un mannequin : la peau du mannequin (plastique clair, peu colore) est reperee
+  pour etre remplacee par la peau de la personne ; le tissu garde ses couleurs }
+Function DetectMannequin(Var G:TGarment):Boolean;
+Var
+ W,H,X,NC,J:LongInt;
+ N,K,Area,PArea:Int64;
+ Seed,Weak,M,Cand,Tmp:PByte;
+ Lab:PIntArr;
+ Areas:TIntArray;
+ HasSeed,Keep:Array of Boolean;
+ L,A,B,C,Cx,Wd:Single;
+ X0,X1:LongInt;
+ Sw:PSingle;
+ SumL:Double;
+Begin
+ DetectMannequin:=False;
+ G.Skin:=Nil;
+ W:=G.W;H:=G.H;N:=Int64(W)*H;
+ X0:=W;X1:=-1;Area:=0;
+ For K:=0 to N-1 do If G.Mask[K]>=0.5 Then Begin
+  X:=K mod W;
+  If X<X0 Then X0:=X;
+  If X>X1 Then X1:=X;
+  Inc(Area);
+ End;
+ If Area<500 Then Exit;
+ Cx:=(X0+X1+1)/2;Wd:=X1-X0+1;
+ Seed:=PByte(AllocBytes(N));Weak:=PByte(AllocBytes(N));
+ For K:=0 to N-1 do Begin
+  If G.Mask[K]<0.5 Then Continue;
+  X:=K mod W;
+  If Abs(X+0.5-Cx)>0.27*Wd Then Continue;
+  RgbToLab(G.Rgb[K*3],G.Rgb[K*3+1],G.Rgb[K*3+2],L,A,B);
+  C:=Sqrt(A*A+B*B);
+  If(L>70)and(C<10.5)Then Seed[K]:=255;
+  If(L>58)and(C<15)Then Weak[K]:=255;
+ End;
+ MorphMask(Seed,W,H,1,True);MorphMask(Seed,W,H,1,False);
+ Lab:=PIntArr(AllocBytes(N*4));
+ NC:=Components(Weak,W,H,Lab,Areas);
+ SetLength(HasSeed,NC+1);
+ For K:=0 to N-1 do If(Seed[K]<>0)and(Lab[K]>0)Then HasSeed[Lab[K]]:=True;
+ M:=PByte(AllocBytes(N));
+ For K:=0 to N-1 do If(Lab[K]>0)and HasSeed[Lab[K]]Then M[K]:=255;
+ FreeMem(Lab);FreeMem(Seed);FreeMem(Weak);
+ MorphMask(M,W,H,2,False);MorphMask(M,W,H,2,True);
+ MorphMask(M,W,H,1,True);MorphMask(M,W,H,1,False);
+ { la peau ombree ou en bordure : croissance de quelques pixels dans les zones claires peu colorees }
+ Cand:=PByte(AllocBytes(N));
+ For K:=0 to N-1 do Begin
+  If G.Mask[K]<0.5 Then Continue;
+  RgbToLab(G.Rgb[K*3],G.Rgb[K*3+1],G.Rgb[K*3+2],L,A,B);
+  If(L>50)and(Sqrt(A*A+B*B)<18)Then Cand[K]:=255;
+ End;
+ Tmp:=PByte(AllocBytes(N));
+ For J:=1 to 4 do Begin
+  Move(M^,Tmp^,N);
+  MorphMask(Tmp,W,H,1,False);
+  For K:=0 to N-1 do If(Tmp[K]<>0)and(Cand[K]<>0)Then M[K]:=255;
+ End;
+ FreeMem(Tmp);FreeMem(Cand);
+ Lab:=PIntArr(AllocBytes(N*4));
+ NC:=Components(M,W,H,Lab,Areas);
+ SetLength(Keep,NC+1);
+ For J:=1 to NC do Keep[J]:=Areas[J]>=IMax(60,Area div 400);
+ PArea:=0;
+ For K:=0 to N-1 do If(Lab[K]>0)and Keep[Lab[K]]Then Inc(PArea);
+ { trop peu : pas de mannequin ; trop : vetement blanc ou clair, qui n'est pas de la peau }
+ If(PArea<Area*12 div 1000)or(PArea>Area*45 div 100)Then Begin
+  FreeMem(Lab);FreeMem(M);
+  Exit;
+ End;
+ Sw:=AllocF(N);
+ SumL:=0;
+ For K:=0 to N-1 do If(Lab[K]>0)and Keep[Lab[K]]Then Begin
+  Sw[K]:=1;
+  SumL:=SumL+Luma(G.Rgb[K*3],G.Rgb[K*3+1],G.Rgb[K*3+2]);
+ End;
+ FreeMem(Lab);FreeMem(M);
+ BoxBlur(Sw,Sw,W,H,1);
+ For K:=0 to N-1 do Sw[K]:=Sw[K]*G.Mask[K];
+ G.Skin:=Sw;
+ G.PlasticL:=FMax(40,SumL/PArea);
+ G.Note:=G.Note+', mannequin d'#130'tect'#130' ('+FStr(100.0*PArea/Area,0)+' % du v'#136'tement) : sa peau est remplac'#130'e par celle de la personne';
+ DetectMannequin:=True;
 End;
 
 { extrait le vetement d'une photo (canal alpha, sinon suppression du fond uni) }
@@ -6923,6 +7019,7 @@ Begin
  PushPullFill(G.Rgb,M2,NW,NH);
  FreeMem(M2);FreeMem(Fg);
  GarmentFromImage:=True;
+ If not NoMannequin Then DetectMannequin(G);
 End;
 
 { extremites gauche/droite (premier/dernier pixel > 0,5) de chaque rangee ; -1 si vide }
@@ -7180,19 +7277,51 @@ Var
  LeftSkin:PSingle;
  Sum1,Sum2:Double;
  N1,N2:LongInt;
+ GS,GSh,SkE,Fb,Bl:PSingle;
+ Gw,Gain,Sig,Shd:Single;
+ LgSum,LsSum,Sd:Double;
+ Cg,Cs:Int64;
+ Mc:LongInt;
+ SkinBase,MannequinFit:Boolean;
+ YshRow:Single;
+ Fx0,Fy0,Fx1,Fy1,Ysh:LongInt;
+ Wg:Single;
 
  Procedure FillSkin(Wt:PSingle);
  Var
   Kk:Int64;
-  Cc:LongInt;
-  V:Single;
+  Cc,CntOld,RadS:LongInt;
+  Nn:Int64;
+  V,Sh2:Single;
+  MeanOld:Double;
+  Lb,Wb:PSingle;
  Begin
-  For Kk:=0 to Int64(S.W)*S.H-1 do If Wt[Kk]>0.02 Then
+  { seules les variations lentes de lumiere de l'ancien vetement (forme du bras, ombres) servent
+    de relief ; ses plis et ses bords ne sont pas repris }
+  Nn:=Int64(S.W)*S.H;
+  Lb:=AllocF(Nn);Wb:=AllocF(Nn);
+  MeanOld:=0;CntOld:=0;
+  For Kk:=0 to Nn-1 do If Wt[Kk]>0.02 Then Begin
+   Lb[Kk]:=Wt[Kk]*Luma(S.Pix[Kk*3],S.Pix[Kk*3+1],S.Pix[Kk*3+2]);Wb[Kk]:=Wt[Kk];
+   If Wt[Kk]>0.5 Then Begin MeanOld:=MeanOld+Luma(S.Pix[Kk*3],S.Pix[Kk*3+1],S.Pix[Kk*3+2]);Inc(CntOld);End;
+  End;
+  If CntOld>0 Then MeanOld:=MeanOld/CntOld;
+  If MeanOld<20 Then MeanOld:=20;
+  RadS:=IMax(3,S.W div 40);
+  BoxBlur(Lb,Lb,S.W,S.H,RadS);BoxBlur(Lb,Lb,S.W,S.H,RadS);
+  BoxBlur(Wb,Wb,S.W,S.H,RadS);BoxBlur(Wb,Wb,S.W,S.H,RadS);
+  For Kk:=0 to Nn-1 do If Wt[Kk]>0.02 Then Begin
+   If Wb[Kk]>0.001 Then Sh2:=Lb[Kk]/Wb[Kk]/MeanOld Else Sh2:=1;
+   Sh2:=Clamp(Exp(0.8*Ln(Clamp(Sh2,0.5,1.35))),0.72,1.18);
+   { bords de la zone plus sombres : volume arrondi d'un membre }
+   Sh2:=Sh2*(0.74+0.30*SmoothStep(0.30,0.95,Wb[Kk]));
    For Cc:=0 to 2 do Begin
     V:=SkR;
     If Cc=1 Then V:=SkG Else If Cc=2 Then V:=SkB;
-    S.Pix[Kk*3+Cc]:=S.Pix[Kk*3+Cc]*(1-Wt[Kk])+(V+RngGauss*1.6)*Wt[Kk];
+    S.Pix[Kk*3+Cc]:=S.Pix[Kk*3+Cc]*(1-Wt[Kk])+(V*Sh2+RngGauss*1.6)*Wt[Kk];
    End;
+  End;
+  FreeMem(Lb);FreeMem(Wb);
  End;
 
 Begin
@@ -7273,6 +7402,28 @@ Begin
    Detail('v'#136'tement sans manches d'#130'tect'#130);
   End;
  End;
+
+ { vetement photographie sur un mannequin : l'echelle vient de la tete de la personne
+   (largeur des epaules d'environ 2,55 fois la largeur du visage), le corps n'est pas ecrase
+   pour tenir dans l'ancienne zone ; ce qui depasse du cadre est simplement coupe }
+ MannequinFit:=False;YshRow:=0;
+ If(G.Skin<>Nil)and(Kind in[gkTop,gkDress,gkFull])and CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Begin
+  Wg:=0;
+  For Y:=(G.H*5)div 100 to(G.H*13)div 100 do If GRr[Y]-GL[Y]>Wg Then Wg:=GRr[Y]-GL[Y];
+  Ysh:=0;
+  For Y:=0 to G.H-1 do If GRr[Y]-GL[Y]>=0.75*Wg Then Begin Ysh:=Y;Break;End;
+  If Wg>=8 Then Begin
+   Sc:=2.55*(Fx1-Fx0+1)/Wg;
+   Sx:=Sc;Sy:=Sc;
+   Gcx:=(GL[Ysh]+GRr[Ysh])/2;
+   Cx:=(Fx0+Fx1+1)/2;
+   Ty0:=Fy1+1+0.25*(Fy1-Fy0+1)-Sc*Ysh;
+   Lam:=0;
+   MannequinFit:=True;
+   YshRow:=Ysh;
+   Detail('mannequin : '#130'chelle d'#130'duite de la t'#136'te (x'+FStr(Sc,2)+'), le corps garde ses proportions');
+  End;
+ End;
  SL:=AllocF(H);SR_:=AllocF(H);
  For Y:=0 to H-1 do Begin SL[Y]:=-1;SR_[Y]:=-1;End;
  If Lam>0 Then Begin
@@ -7283,6 +7434,7 @@ Begin
   FillSmoothExtents(SL,SR_,H,IMax(2,H div 120));
  End;
  GRgb:=AllocF(N*3);GA:=AllocF(N);
+ GS:=AllocF(N);GSh:=AllocF(N);
  RowL:=AllocF(H);RowR:=AllocF(H);
  For Y:=0 to H-1 do Begin RowL[Y]:=-1000;RowR[Y]:=-1000;End;
  RoArea:=0;
@@ -7313,6 +7465,10 @@ Begin
    K:=Int64(Y)*W+X;
    GA[K]:=Tmp[0];
    SampleBilinear(G.Rgb,G.W,G.H,3,Gxx,Gy,@GRgb[K*3]);
+   If G.Skin<>Nil Then SampleBilinear(G.Skin,G.W,G.H,1,Gxx,Gy,@GS[K]);
+   { cou du mannequin : la personne garde le sien }
+   If MannequinFit and(Gy<YshRow)and(GS[K]>0.3)Then GA[K]:=0;
+   GSh[K]:=Luma(GRgb[K*3],GRgb[K*3+1],GRgb[K*3+2]);
   End;
  End;
  FreeMem(GL);FreeMem(GRr);
@@ -7345,6 +7501,51 @@ Begin
   End;
   FreeMem(Lrw);FreeMem(Lr);
  End;
+
+ { mannequin : peau de la personne avec l'ombrage du plastique }
+ SkE:=Nil;
+ If G.Skin<>Nil Then Begin
+  If not SkinColor(S,True,SkR,SkG,SkB)Then Begin SkR:=214;SkG:=168;SkB:=140;End;
+  SkE:=AllocF(N);
+  CatMask(S,msSkin,SkE);
+  For K:=0 to N-1 do If(GA[K]>0)and(GS[K]>0.01)Then Begin
+   Shd:=Clamp(GSh[K]/G.PlasticL,0.55,1.25);
+   Shd:=Exp(1.15*Ln(Shd));
+   Gw:=GS[K];
+   GRgb[K*3]:=GRgb[K*3]*(1-Gw)+(SkR*Shd+RngGauss*1.5)*Gw;
+   GRgb[K*3+1]:=GRgb[K*3+1]*(1-Gw)+(SkG*Shd+RngGauss*1.5)*Gw;
+   GRgb[K*3+2]:=GRgb[K*3+2]*(1-Gw)+(SkB*Shd+RngGauss*1.5)*Gw;
+  End;
+  Detail('peau du mannequin remplac'#130'e par celle de la personne');
+ End;
+ { exposition et grain du tissu accordes a la photo }
+ LgSum:=0;LsSum:=0;Cg:=0;Cs:=0;
+ For K:=0 to N-1 do Begin
+  If(GA[K]>0.5)and(GS[K]<0.3)Then Begin LgSum:=LgSum+Luma(GRgb[K*3],GRgb[K*3+1],GRgb[K*3+2]);Inc(Cg);End;
+  If S.Cat[cBg][K]<128 Then Begin LsSum:=LsSum+Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);Inc(Cs);End;
+ End;
+ Gain:=1;Sig:=0;
+ If(Cg>0)and(Cs>0)and(LgSum>0)and(LsSum>0)Then Gain:=Clamp(Exp(0.35*Ln((LsSum/Cs)/(LgSum/Cg))),0.82,1.12);
+ If Cs>0 Then Begin
+  { bruit de la photo : ecart moyen a la version floue, sur les zones peu contrastees }
+  Bl:=AllocF(N);
+  For K:=0 to N-1 do Bl[K]:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+  Fb:=AllocF(N);
+  Move(Bl^,Fb^,N*4);
+  BoxBlur(Bl,Bl,W,H,2);
+  Sd:=0;Cg:=0;
+  For K:=0 to N-1 do If S.Cat[cBg][K]<128 Then Begin
+   Shd:=Abs(Fb[K]-Bl[K]);
+   If Shd<10 Then Begin Sd:=Sd+Shd;Inc(Cg);End;
+  End;
+  If Cg>0 Then Sig:=Clamp(1.25*Sd/Cg,0,2.5);
+  FreeMem(Bl);FreeMem(Fb);
+ End;
+ For K:=0 to N-1 do If(GA[K]>0)and(GS[K]<0.3)Then Begin
+  Gw:=RngGauss*Sig*0.7;
+  GRgb[K*3]:=GRgb[K*3]*Gain+Gw;GRgb[K*3+1]:=GRgb[K*3+1]*Gain+Gw;GRgb[K*3+2]:=GRgb[K*3+2]*Gain+Gw;
+ End;
+ If Abs(Gain-1)>0.02 Then Detail('exposition du v'#136'tement ajust'#130'e (x'+FStr(Gain,2)+'), grain '+FStr(Sig,1));
  { objets au premier plan qui ne doivent pas etre recouverts }
  Prot_:=AllocF(N);
  CatMask(S,Prot,Prot_);
@@ -7370,10 +7571,22 @@ Begin
   FreeMem(ArmMask);
  End;
  { composition }
+ { robe, tenue, bas : l'ancien vetement est d'abord remplace par de la peau (le tissu leger ou fendu la laisse voir) }
+ SkinBase:=False;
+ If Have and(Kind in[gkDress,gkFull,gkBottom,gkSkirt])and SkinColor(S,False,SkR,SkG,SkB)Then Begin
+  Fb:=AllocF(N);
+  For K:=0 to N-1 do If Ro[K]>0.02 Then Fb[K]:=Ro[K]*(1-SmoothStep(0.15,0.85,Prot_[K]));
+  FillSkin(Fb);
+  FreeMem(Fb);
+  SkinBase:=True;
+  Detail('ancien v'#136'tement remplac'#130' par de la peau avant la pose');
+ End;
  Cov:=AllocF(N);
  Cvg:=0;
  For K:=0 to N-1 do Begin
   Cov[K]:=GA[K]*(1-SmoothStep(0.15,0.85,Prot_[K]));
+  { la vraie peau de la personne est conservee la ou le mannequin montrait la sienne }
+  If(SkE<>Nil)and(GS[K]>0.02)Then Cov[K]:=Cov[K]*(1-GS[K]*SmoothStep(0.3,0.9,SkE[K]));
   Cvg:=Cvg+Cov[K];
  End;
  Left:=AllocF(N);
@@ -7388,17 +7601,24 @@ Begin
  For K:=0 to N-1 do If Cov[K]>0 Then
   For C:=0 to 2 do
    S.Pix[K*3+C]:=S.Pix[K*3+C]*(1-Cov[K])+GRgb[K*3+C]*Cov[K];
+ { ombre de contact du tissu sur la peau voisine }
+ If G.Skin<>Nil Then Begin
+  Fb:=AllocF(N);
+  For K:=0 to N-1 do Fb[K]:=Cov[K]*(1-GS[K]);
+  BoxBlur(Fb,Fb,W,H,IMax(2,Trunc(Bw*0.02)));
+  For K:=0 to N-1 do If(GS[K]>0.2)and(Cov[K]>0.3)Then Begin
+   Shd:=Clamp(Fb[K]*1.7-0.15,0,0.6)*0.30*GS[K];
+   S.Pix[K*3]:=S.Pix[K*3]*(1-Shd);S.Pix[K*3+1]:=S.Pix[K*3+1]*(1-Shd);S.Pix[K*3+2]:=S.Pix[K*3+2]*(1-Shd);
+  End;
+  FreeMem(Fb);
+ End;
  If Lef>0 Then Begin
   BoxBlur(Left,Left,W,H,1);
   For K:=0 to N-1 do If Left[K]>0.02 Then Begin
    Left[K]:=Left[K]*2;If Left[K]>1 Then Left[K]:=1;
    If Cov[K]>0.9 Then Left[K]:=0;
   End;
-  If(Kind in[gkDress,gkFull,gkBottom,gkSkirt])and SkinColor(S,False,SkR,SkG,SkB)Then Begin
-   { jambes nues sous une robe ou un short : couleur de la peau de la personne }
-   FillSkin(Left);
-   Detail('zone d'#130'couverte remplie avec la couleur de la peau');
-  End
+  If SkinBase Then Detail('zone d'#130'couverte d'#130'j'#133' remplie avec la peau')
    Else Begin
     If Sleeveless and SkinColor(S,True,SkR,SkG,SkB)Then Begin
      { bras nus : ce qui depasse sur les cotes du vetement sans manches }
@@ -7419,14 +7639,22 @@ Begin
  For K:=0 to N-1 do Begin
   If Cov[K]>0.004 Then Begin
    Mv:=Trunc(Cov[K]*255+0.5);
+   Mc:=MaxCat;
+   If GS[K]>0.5 Then Mc:=cSkin;
    For C:=0 to NumCat-1 do
     S.Cat[C][K]:=Trunc(S.Cat[C][K]*(1-Cov[K])+0.5);
-   Mv:=Mv+S.Cat[MaxCat][K];
+   Mv:=Mv+S.Cat[Mc][K];
    If Mv>255 Then Mv:=255;
-   S.Cat[MaxCat][K]:=Mv;
+   S.Cat[Mc][K]:=Mv;
   End;
   If Left[K]>0.5 Then
-   For C:=0 to NumCat-1 do If(Repl and(LongWord(1)shl C))<>0 Then Begin
+   For C:=0 to NumCat-1 do If SkinBase and((Repl and(LongWord(1)shl C))<>0)Then Begin
+    Mv:=S.Cat[C][K]+S.Cat[cSkin][K];
+    If Mv>255 Then Mv:=255;
+    S.Cat[cSkin][K]:=Mv;
+    S.Cat[C][K]:=0;
+   End
+   Else If(Repl and(LongWord(1)shl C))<>0 Then Begin
     Mv:=S.Cat[C][K]+S.Cat[cBg][K];
     If Mv>255 Then Mv:=255;
     S.Cat[cBg][K]:=Mv;
@@ -7437,6 +7665,7 @@ Begin
  If RoArea>0 Then Msg:=Msg+' ('+FStr(100.0*FMin(1,Cvg/RoArea),0)+' % de l''ancienne zone couverts)';
  If Lef>N*0.0005 Then Msg:=Msg+', '+IStr(Trunc(Lef))+' pixels de l''ancien v'#136'tement remplis par interpolation';
  FreeMem(Ro);FreeMem(Prot_);FreeMem(Cov);FreeMem(Left);FreeMem(GRgb);FreeMem(GA);
+ FreeMem(GS);FreeMem(GSh);If SkE<>Nil Then FreeMem(SkE);
  FreeMem(SL);FreeMem(SR_);FreeMem(RowL);FreeMem(RowR);
  TryOnGarment:=True;
 End;
@@ -13351,6 +13580,7 @@ Begin
  WriteLn('  -parsing FICHIER  Image d''analyse fournie (gris 8 bits, valeur = classe) au lieu du mod'#138'le');
  WriteLn('  -save-parsing F   Enregistrer l''analyse du corps en fausses couleurs');
  WriteLn('  -maxsize N        Taille maximale du grand c'#147't'#130' (d'#130'faut 2048)');
+ WriteLn('  -nomannequin      Ne pas remplacer la peau d''un mannequin photographi'#130' avec le v'#136'tement');
  WriteLn('  -quiet            N''afficher que les erreurs');
  WriteLn('  -h, --help        Cette aide        --version   Num'#130'ro de version');
  WriteLn;
@@ -13369,6 +13599,7 @@ Begin
  WriteLn('  "teinte ses cheveux en noir" (brun, blond, roux, blanc, rose, bleu, vert, poivre et sel)');
  WriteLn('  "rend l''image plus lisse" (floue, nette, plus r'#130'elle)  "rend le fond noir" (blanc, bleu...)  "rend le fond transparent" (PNG)');
  WriteLn('  "rend le fond de l''image dans un ciel '#130'toil'#130'" (ciel ensoleill'#130', coucher de soleil, fond flou)');
+ WriteLn('  VTON personne.jpg tenue.jpg -prompt "Mets-lui cette tenue"  (tenue photographi'#130'e sur mannequin : taille d'#130'duite de la t'#136'te)');
  WriteLn('  "change le fond pour une for'#136't tropicale" (amazonienne, qu'#130'b'#130'coise, canadienne, de conif'#138'res)');
  WriteLn('  "bras crois'#130's"  "montre une main peace & love"  "pointe du doigt"  "t'#136'te droite"  "aur'#130'ole"');
  WriteLn('  "s'#130'rieuse"  "triste"  "regarde perdu"  "somnambule"  "saute"  "flotte"  "assis"  "appuy'#130' sur un meuble"');
@@ -13479,6 +13710,7 @@ Begin
    Else If Key='gpu' Then OptGpu:=True
    Else If(Key='verbose')or(Key='v')Then Verbose:=True
    Else If(Key='quiet')or(Key='q')Then Quiet:=True
+   Else If Key='nomannequin' Then NoMannequin:=True
    Else If Key='list-devices' Then OptList:=True
    Else If Key='o' Then Begin If not NeedVal Then Exit;OptOut:=Val_;End
    Else If Key='type' Then Begin If not NeedVal Then Exit;OptType:=Val_;End
@@ -13731,14 +13963,21 @@ Begin
   Kind:=GKind;
   If Kind=gkNone Then
    For I:=0 to High(Edits)do
-    If(Kind=gkNone)and(Edits[I].Kind in[gkTop,gkBottom,gkSkirt,gkDress,gkShoes,gkHat,gkGlasses,gkBag,gkScarf,gkBelt])Then Kind:=Edits[I].Kind;
-  If Kind=gkNone Then Begin
-   Kind:=gkTop;
-   Info('type de v'#136'tement non pr'#130'cis'#130' : "haut" suppos'#130' (utilisez -type)');
-  End;
+    If(Kind=gkNone)and(Edits[I].Kind in[gkTop,gkBottom,gkSkirt,gkDress,gkShoes,gkHat,gkGlasses,gkBag,gkScarf,gkBelt,gkFull])Then Kind:=Edits[I].Kind
+    Else If(Kind=gkNone)and(Edits[I].Kind=gkAll)Then Kind:=gkFull;
   If not ImgLoad(GarmentFile,GImg,Err)Then Die(Err);
   If not GarmentFromImage(GImg,G,Err)Then Die(Err);
   ImgFree(GImg);
+  If Kind=gkNone Then Begin
+   If G.H>1.25*G.W Then Begin
+    Kind:=gkFull;
+    Info('type de v'#136'tement d'#130'duit de la forme : tenue compl'#138'te (utilisez -type pour pr'#130'ciser)');
+   End
+    Else Begin
+     Kind:=gkTop;
+     Info('type de v'#136'tement non pr'#130'cis'#130' : "haut" suppos'#130' (utilisez -type)');
+    End;
+  End;
   Detail('v'#136'tement '+IStr(G.W)+'x'+IStr(G.H)+' : '+G.Note);
   { retouches de la demande qui concernent le vetement lui-meme }
   KindSets(Kind,KindMask,Dummy,Dummy);
