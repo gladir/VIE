@@ -1459,6 +1459,8 @@ Var
  ZLen,Pos:LongInt;
  Ad:LongWord;
  Hdr:Array[0..12]of Byte;
+ Bpp:LongInt;
+ Src,Rgba:PByte;
 
  Procedure Chunk(Const Kind:AnsiString;Data:PByte;Len:LongInt);
  Var
@@ -1480,21 +1482,31 @@ Var
 
 Begin
  PngEncode:=False;
- Stride:=Img.W*3;
+ Bpp:=3;Src:=Img.Px;Rgba:=Nil;
+ If Img.Alpha<>Nil Then Begin
+  { avec transparence : RVBA 8 bits }
+  Bpp:=4;
+  Rgba:=PByte(AllocBytes(Int64(Img.W)*Img.H*4));
+  For I:=0 to Img.W*Img.H-1 do Begin
+   Rgba[I*4]:=Img.Px[I*3];Rgba[I*4+1]:=Img.Px[I*3+1];Rgba[I*4+2]:=Img.Px[I*3+2];Rgba[I*4+3]:=Img.Alpha[I];
+  End;
+  Src:=Rgba;
+ End;
+ Stride:=Img.W*Bpp;
  Raw:=PByte(AllocBytes(Int64(Img.H)*(Stride+1)));
  For I:=0 to 4 do Cand[I]:=PByte(AllocBytes(Stride+1));
  FLo:=0;FHi:=4;
  If Level<=2 Then Begin FLo:=1;FHi:=1;End;
  For Y:=0 to Img.H-1 do Begin
-  Cur:=Img.Px+Int64(Y)*Stride;
-  If Y>0 Then Prv:=Img.Px+Int64(Y-1)*Stride Else Prv:=Nil;
+  Cur:=Src+Int64(Y)*Stride;
+  If Y>0 Then Prv:=Src+Int64(Y-1)*Stride Else Prv:=Nil;
   Best:=-1;BestF:=FLo;
   For F:=FLo to FHi do Begin
    Sum:=0;
    For X:=0 to Stride-1 do Begin
-    If X>=3 Then A:=Cur[X-3]Else A:=0;
+    If X>=Bpp Then A:=Cur[X-Bpp]Else A:=0;
     If Prv<>Nil Then B:=Prv[X]Else B:=0;
-    If(Prv<>Nil)and(X>=3)Then C:=Prv[X-3]Else C:=0;
+    If(Prv<>Nil)and(X>=Bpp)Then C:=Prv[X-Bpp]Else C:=0;
     Case F of
      0:P:=0;
      1:P:=A;
@@ -1515,12 +1527,13 @@ Begin
  Z:=DeflateRaw(Raw,Img.H*(Stride+1),Level,ZLen);
  Ad:=Adler32(Raw,Img.H*(Stride+1));
  FreeMem(Raw);
+ If Rgba<>Nil Then FreeMem(Rgba);
  Out_:=PByte(AllocBytes(Int64(ZLen)+1024));
  Out_[0]:=137;Out_[1]:=80;Out_[2]:=78;Out_[3]:=71;Out_[4]:=13;Out_[5]:=10;
  Out_[6]:=26;Out_[7]:=10;
  Pos:=8;
  PutBE32(@Hdr[0],Img.W);PutBE32(@Hdr[4],Img.H);
- Hdr[8]:=8;Hdr[9]:=2;Hdr[10]:=0;Hdr[11]:=0;Hdr[12]:=0;
+ Hdr[8]:=8;If Bpp=4 Then Hdr[9]:=6 Else Hdr[9]:=2;Hdr[10]:=0;Hdr[11]:=0;Hdr[12]:=0;
  Chunk('IHDR',@Hdr[0],13);
  { IDAT : en-tete zlib + flux deflate + Adler32 }
  Tmp:=PByte(AllocBytes(Int64(ZLen)+16));
@@ -5357,13 +5370,13 @@ Const
  lkGarment=1;lkColor=2;lkMod=3;lkPattern=4;lkVRecolor=5;lkVRemove=6;lkVTryOn=7;
  lkPrepDst=8;lkAll=9;lkVResult=10;lkSplit=11;lkVLight=12;lkSrcPrep=13;lkVAdd=14;
  lkHairStyle=15;lkJewel=16;lkJewelMod=17;lkStyle=18;lkExpr=19;lkMaterial=20;lkScene=21;lkPose2=22;
- lkSkin=23;lkYears=24;lkNumber=25;lkSpecial=26;lkSkinW=27;
+ lkSkin=23;lkYears=24;lkNumber=25;lkSpecial=26;lkSkinW=27;lkImgW=28;lkBgW=29;lkImgOp=30;lkBgKind=31;
  { modificateurs }
  mdDark=1;mdLight=2;mdVivid=3;mdPale=4;mdDull=5;
  { motifs }
  pkNone=0;pkStripes=1;pkChecks=2;pkDots=3;pkPlain=4;
  { actions }
- eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;eaMaterial=9;eaScene=10;eaPose2=11;eaSkin=12;
+ eaNone=0;eaRecolor=1;eaRemove=2;eaTryOn=3;eaAdd=4;eaHair=5;eaStyle=6;eaFace=7;eaPose=8;eaMaterial=9;eaScene=10;eaPose2=11;eaSkin=12;eaImage=13;eaBg=14;
  { poses et situations }
  pcCross=1;pcPeace=2;pcPoint=3;pcFloat=4;pcJump=5;pcArmsOut=6;pcLie=7;pcHeadStraight=8;pcLost=9;
  pcSerious=10;pcSad=11;pcHalo=12;pcSleep=13;pcSit=14;pcKneel=15;pcBike=16;pcLean=17;pcStairs=18;
@@ -5372,6 +5385,9 @@ Const
  FeetPoses=(1 shl pcFloat)or(1 shl pcJump)or(1 shl pcLie)or(1 shl pcBed)or(1 shl pcTightrope)or(1 shl pcDoghouse)or(1 shl pcStairs)or(1 shl pcSleep);
  { peau, age, teintes speciales }
  soSmooth=1;soGrain=2;soBaby=3;soSoft=4;soAge=5;soSalt=6;
+ { image entiere et arriere-plan }
+ ioSmooth=1;ioBlur=2;ioSharp=3;
+ boSolid=1;boTransparent=2;boStars=3;boSunny=4;boSunset=5;boBlur=6;
  { matieres et scenes }
  mtNone=0;mtMetal=1;mtRobot=2;mtStatue=3;mtChain=4;
  scNone=0;scCarousel=1;
@@ -5410,6 +5426,7 @@ Type
   Pose:Boolean;
   Material,Scene:LongInt;
   Poses:LongWord;
+  ImgOp,BgOp:LongInt;       { operation sur l'image entiere / sur l'arriere-plan }
   SkinOp,Years:LongInt;     { peau / age (annees, negatif = rajeunir) / teinte speciale }
   Diamond,Apple:Boolean;
   Put:Boolean;              { ? mets un chapeau ? : ajout si l'objet est absent }
@@ -5521,6 +5538,16 @@ Begin
  AddLex('vingt twenty',lkNumber,20,0);
  AddLex('trente thirty',lkNumber,30,0);
  AddLex('poivresel',lkSpecial,1,0);
+ { image entiere et arriere-plan }
+ AddLex('image images picture pictures photo photos photographie',lkImgW,0,0);
+ AddLex('fond arriere background backdrop decor',lkBgW,0,0);
+ AddLex('lisse lisses lisser smooth smoother',lkImgOp,ioSmooth,0);
+ AddLex('flou floue floues floux flouter floute blur blurry blurred blurrier',lkImgOp,ioBlur,0);
+ AddLex('net nette nets nettes nettete sharp sharper sharpen',lkImgOp,ioSharp,0);
+ AddLex('transparent transparente transparents transparentes transparence transparency',lkBgKind,boTransparent,0);
+ AddLex('etoile etoilee etoilees etoiles star stars starry',lkBgKind,boStars,0);
+ AddLex('ensoleille ensoleillee ensoleilles soleil sunny sun sunshine',lkBgKind,boSunny,0);
+ AddLex('sunset crepuscule',lkBgKind,boSunset,0);
  { cheveux et coiffures }
  AddLex('cheveu cheveux chevelure coiffure hair hairstyle',lkGarment,gkHair,msHair);
  AddLex('allonge allonger allongez rallonge rallonger long longs longue longues lengthen longer',lkHairStyle,hsLonger,0);
@@ -5718,6 +5745,9 @@ Begin
  R:=StrReplace(R,' sel poivre ',' poivresel ');
  R:=StrReplace(R,' salt and pepper ',' poivresel ');
  R:=StrReplace(R,' salt pepper ',' poivresel ');
+ R:=StrReplace(R,' coucher de soleil ',' sunset ');
+ R:=StrReplace(R,' coucher du soleil ',' sunset ');
+ R:=StrReplace(R,' coucher de soliel ',' sunset ');
  FoldText:=TrimS(R);
 End;
 
@@ -5868,6 +5898,8 @@ Var
  Pz:LongWord;
  SkinW:Boolean;
  SkOp,Yrs,Num,Spec,Nv:LongInt;
+ ImgW,BgW,ImgOpPresent:Boolean;
+ IOp,BOp:LongInt;
 Begin
  ParseClause:=False;
  ClearEdit(E);
@@ -5880,6 +5912,12 @@ Begin
  HStyle:=0;Jw:=0;Sty:=0;HStrong:=False;Dia:=False;App:=False;
  HairNoun:=False;PoseWord:=False;Expr:=0;Mat:=0;Scn:=0;ChainCtx:=False;MetalCol:=False;Pz:=0;
  SkinW:=False;SkOp:=0;Yrs:=0;Num:=0;Spec:=0;
+ ImgW:=False;BgW:=False;ImgOpPresent:=False;IOp:=0;BOp:=0;
+ For I:=A to B do Begin
+  If LexFind(T[I],lkImgW)>=0 Then ImgW:=True;
+  If LexFind(T[I],lkBgW)>=0 Then BgW:=True;
+  If LexFind(T[I],lkImgOp)>=0 Then ImgOpPresent:=True;
+ End;
  For I:=A to B do If LexFind(T[I],lkSkinW)>=0 Then SkinW:=True;
  { ? vetement de chaine d'or ? : chaine + vetement = cotte de mailles, pas un collier }
  For I:=A to B do If LexFind(T[I],lkGarment)>=0 Then
@@ -5911,6 +5949,18 @@ Begin
    End;
    For K:=1 to Used-1 do Consumed[I+K]:=True;
    Continue;
+  End;
+  { image entiere et arriere-plan }
+  If BgW Then Begin
+   K:=LexFind(T[I],lkBgKind);
+   If K>=0 Then Begin BOp:=Lex[K].V1;Continue;End;
+   K:=LexFind(T[I],lkImgOp);
+   If(K>=0)and(Lex[K].V1=ioBlur)Then Begin BOp:=boBlur;Continue;End;
+  End
+  Else If ImgW Then Begin
+   K:=LexFind(T[I],lkImgOp);
+   If K>=0 Then Begin IOp:=Lex[K].V1;Continue;End;
+   If ImgOpPresent and((T[I]='photo')or(T[I]='photos')or(T[I]='photographie'))Then Continue;
   End;
   { nombres (annees), peau, age, teintes speciales }
   If(T[I]<>'')and(T[I][1]in['0'..'9'])Then Begin
@@ -6070,6 +6120,11 @@ Begin
  If Remove Then E.Action:=eaRemove
  Else If E.Poses<>0 Then E.Action:=eaPose2
  Else If E.SkinOp<>0 Then E.Action:=eaSkin
+ Else If BgW and((BOp<>0)or E.HasDst)Then Begin
+  If BOp=0 Then BOp:=boSolid;
+  E.BgOp:=BOp;E.Action:=eaBg;
+ End
+ Else If IOp<>0 Then Begin E.ImgOp:=IOp;E.Action:=eaImage;End
  Else If(E.Jewel<>0)and(AddV or Result_ or TryOn)Then E.Action:=eaAdd
  Else If E.Pose Then E.Action:=eaPose
  Else If E.Scene<>0 Then E.Action:=eaScene
@@ -6088,7 +6143,7 @@ Begin
    E.Material:=mtMetal;E.Action:=eaMaterial;
   End;
  End;
- HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose,eaMaterial,eaScene,eaPose2,eaSkin];
+ HasChange:=E.Action in[eaRecolor,eaRemove,eaAdd,eaHair,eaStyle,eaFace,eaPose,eaMaterial,eaScene,eaPose2,eaSkin,eaImage,eaBg];
  ParseClause:=(E.Action<>eaNone)or(E.Target<>0)or(NG>0)or(E.Jewel<>0);
 End;
 
@@ -6125,7 +6180,7 @@ Begin
    For J:=I+1 to High(T)do Begin
     If(T[J]=',')or(T[J]=';')or(T[J]='.')or(LexFind(T[J],lkSplit)>=0)Then Break;
     If(LexFind(T[J],lkGarment)>=0)or(LexFind(T[J],lkVRemove)>=0)or(LexFind(T[J],lkVRecolor)>=0)or
-      (LexFind(T[J],lkVResult)>=0)or(LexFind(T[J],lkExpr)>=0)or(LexFind(T[J],lkStyle)>=0)or(LexFind(T[J],lkPose2)>=0)or(LexFind(T[J],lkYears)>=0)or(LexFind(T[J],lkSkinW)>=0)Then HasG:=True;
+      (LexFind(T[J],lkVResult)>=0)or(LexFind(T[J],lkExpr)>=0)or(LexFind(T[J],lkStyle)>=0)or(LexFind(T[J],lkPose2)>=0)or(LexFind(T[J],lkYears)>=0)or(LexFind(T[J],lkSkinW)>=0)or(LexFind(T[J],lkImgW)>=0)or(LexFind(T[J],lkBgW)>=0)Then HasG:=True;
    End;
    Cut:=HasG;
   End;
@@ -6255,6 +6310,8 @@ Begin
   eaMaterial:R:='mati'#138're '+IStr(E.Material);
   eaScene:R:='sc'#138'ne';
   eaPose2:R:='pose : '+PoseNames(E.Poses);
+  eaImage:R:='image enti'#138're '+IStr(E.ImgOp);
+  eaBg:R:='arri'#138're-plan '+IStr(E.BgOp)+' '+ColorHex(E.DstRGB);
   eaSkin:R:='peau/'#131'ge/teinte sp'#130'ciale '+IStr(E.SkinOp)+' ('+IStr(E.Years)+' ans)';
   eaPose:R:='bras le long du corps';
   eaStyle:R:='style de l''image';
@@ -6262,7 +6319,7 @@ Begin
   Else R:='?';
  End;
  If(E.Target<>0)and(E.Action<>eaPose2)Then R:=R+' '+MaskName(E.Target)
- Else If(E.Jewel=0)and(E.Style=0)and(E.Action<>eaPose2)and(E.Action<>eaSkin)Then R:=R+' (cible '#133' d'#130'terminer)';
+ Else If(E.Jewel=0)and(E.Style=0)and(E.Action<>eaPose2)and(E.Action<>eaSkin)and(E.Action<>eaImage)and(E.Action<>eaBg)Then R:=R+' (cible '#133' d'#130'terminer)';
  If E.HasSrc Then R:=R+', de '+E.SrcName;
  If E.HasDst Then R:=R+', vers '+E.DstName+' '+ColorHex(E.DstRGB);
  Case E.Pattern of
@@ -8653,6 +8710,62 @@ Begin
  AddJewelry:=Done;
  If Done Then Info('  bijoux ajout'#130's');
 End;
+{ ------------------------------------------------------------------ }
+{ ? Plus reel ? sur une vraie photo : amelioration legere            }
+{ ------------------------------------------------------------------ }
+
+{ une photo utilise beaucoup de couleurs differentes ; un dessin, tres peu }
+Function LooksLikePhoto(Const S:TScene):Boolean;
+Var
+ Seen:PByte;
+ N,K,Step,Cnt:Int64;
+ Idx:LongInt;
+Begin
+ N:=Int64(S.W)*S.H;
+ Seen:=PByte(AllocBytes(32768));
+ Step:=N div 400000;
+ If Step<1 Then Step:=1;
+ Cnt:=0;
+ K:=0;
+ While K<N do Begin
+  Idx:=(Trunc(S.Pix[K*3])shr 3)shl 10 or((Trunc(S.Pix[K*3+1])shr 3)shl 5)or(Trunc(S.Pix[K*3+2])shr 3);
+  If Seen[Idx]=0 Then Begin Seen[Idx]:=1;Inc(Cnt);End;
+  Inc(K,Step);
+ End;
+ FreeMem(Seen);
+ LooksLikePhoto:=Cnt>=2500;
+End;
+
+{ nettete locale, saturation, grain fin et vignettage leger }
+Procedure PhotoEnhance(Var S:TScene);
+Var
+ N,K:Int64;
+ P:Array[0..2]of PSingle;
+ X,Y,C,R:LongInt;
+ V,L,Vig,Nz:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ R:=IMax(1,IMax(S.W,S.H)div 500);
+ For C:=0 to 2 do Begin
+  P[C]:=AllocF(N);
+  For K:=0 to N-1 do P[C][K]:=S.Pix[K*3+C];
+  BoxBlur(P[C],P[C],S.W,S.H,R);
+ End;
+ For Y:=0 to S.H-1 do
+  For X:=0 to S.W-1 do Begin
+   K:=Int64(Y)*S.W+X;
+   L:=Luma(S.Pix[K*3],S.Pix[K*3+1],S.Pix[K*3+2]);
+   Vig:=1-0.10*Sqr(Sqrt(Sqr(X/S.W-0.5)+Sqr(Y/S.H-0.5))*1.4);
+   Nz:=RngGauss*1.6;
+   For C:=0 to 2 do Begin
+    V:=S.Pix[K*3+C]+(S.Pix[K*3+C]-P[C][K])*0.55;
+    V:=L+(V-L)*1.07;
+    S.Pix[K*3+C]:=(V*Vig)+Nz;
+   End;
+  End;
+ For C:=0 to 2 do FreeMem(P[C]);
+End;
+
 
 { ------------------------------------------------------------------ }
 { Styles d'image : photo -> BD / dessin anime / croquis,              }
@@ -8907,7 +9020,11 @@ Begin
   stComic:Begin StyleCartoon(S,True);Info('  style BD appliqu'#130);End;
   stCartoon:Begin StyleCartoon(S,False);Info('  style dessin anim'#130' appliqu'#130);End;
   stSketch:Begin StyleSketch(S);Info('  style croquis appliqu'#130);End;
-  stReal:Begin
+  stReal:If LooksLikePhoto(S)Then Begin
+    PhotoEnhance(S);
+    Info('  l''image est d'#130'j'#133' une photo : r'#130'alisme renforc'#130' l'#130'g'#138'rement (nettet'#130', saturation, grain, vignettage)');
+   End
+   Else Begin
     StyleReal(S);
     Info('  rendu r'#130'aliste approximatif appliqu'#130' (ce n''est pas une photo : un vrai passage dessin -> photo demande un mod'#138'le g'#130'n'#130'ratif)');
    End;
@@ -12110,6 +12227,282 @@ Begin
   soSalt:ApplySkin:=HairSalt(S,0.5,True,Msg);
  End;
 End;
+{ ------------------------------------------------------------------ }
+{ Image entiere (lisse, floue, nette) et arriere-plan (uni, ciel       }
+{ etoile, ciel ensoleille, coucher de soleil, flou, transparent)        }
+{ ------------------------------------------------------------------ }
+
+Var
+ OutAlpha:PByte=Nil;          { transparence a ecrire dans le PNG (fond transparent) }
+ OutAlphaN:Int64=0;
+
+{ flou gaussien approximatif de la photo entiere }
+Procedure BlurRgb(Pix:PSingle;W,H:LongInt;Sigma:Single);
+Var
+ P:PSingle;
+ N,K:Int64;
+ C:LongInt;
+Begin
+ N:=Int64(W)*H;
+ P:=AllocF(N);
+ For C:=0 to 2 do Begin
+  For K:=0 to N-1 do P[K]:=Pix[K*3+C];
+  BlurPlane(P,W,H,Sigma);
+  For K:=0 to N-1 do Pix[K*3+C]:=P[K];
+ End;
+ FreeMem(P);
+End;
+
+Function ImageSmooth(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ M,Base:PSingle;
+ N,K:Int64;
+ C,R:LongInt;
+ Dl,Keep:Single;
+Begin
+ Msg:='';
+ N:=Int64(S.W)*S.H;
+ M:=AllocF(N);
+ For K:=0 to N-1 do M[K]:=1;
+ Base:=AllocF(N*3);
+ R:=ClampI(Round(0.004*IMax(S.W,S.H)),2,7);
+ SkinBase(S,M,R,20,Base);
+ For K:=0 to N-1 do Begin
+  Dl:=(Abs(S.Pix[K*3]-Base[K*3])+Abs(S.Pix[K*3+1]-Base[K*3+1])+Abs(S.Pix[K*3+2]-Base[K*3+2]))*0.3333;
+  Keep:=0.22+0.78*SmoothStep(10,28,Dl);
+  For C:=0 to 2 do S.Pix[K*3+C]:=Base[K*3+C]+(S.Pix[K*3+C]-Base[K*3+C])*Keep;
+ End;
+ FreeMem(M);FreeMem(Base);
+ Info('  image liss'#130'e (grain et textures fines att'#130'nu'#130's, contours conserv'#130's)');
+ ImageSmooth:=True;
+End;
+
+Function ImageBlur(Var S:TScene;Var Msg:AnsiString):Boolean;
+Begin
+ Msg:='';
+ BlurRgb(S.Pix,S.W,S.H,FMax(1.5,0.008*IMax(S.W,S.H)));
+ Info('  image floue');
+ ImageBlur:=True;
+End;
+
+Function ImageSharpen(Var S:TScene;Var Msg:AnsiString):Boolean;
+Var
+ B:PSingle;
+ N,K:Int64;
+ Sg:Single;
+Begin
+ Msg:='';
+ N:=Int64(S.W)*S.H*3;
+ B:=AllocF(N);
+ Move(S.Pix^,B^,N*4);
+ Sg:=FMax(1.0,0.0025*IMax(S.W,S.H));
+ BlurRgb(B,S.W,S.H,Sg);
+ For K:=0 to N-1 do S.Pix[K]:=S.Pix[K]+(S.Pix[K]-B[K])*0.9;
+ FreeMem(B);
+ Info('  image plus nette');
+ ImageSharpen:=True;
+End;
+
+{ ---- arriere-plan ---- }
+
+{ opacite de la personne (0..1), bords adoucis }
+Procedure MatteAlpha(Const S:TScene;A:PSingle);
+Var
+ N,K:Int64;
+Begin
+ N:=Int64(S.W)*S.H;
+ For K:=0 to N-1 do A[K]:=SmoothStep(0.15,0.90,1-S.Cat[cBg][K]/255.0);
+End;
+
+{ retire la couleur de l'ancien fond sur les bords : la couleur de la personne y est propagee depuis l'interieur }
+Procedure Decontam(Var S:TScene;A:PSingle);
+Var
+ N,K:Int64;
+ C:LongInt;
+ Fg,Kn:PSingle;
+ Ap:Single;
+Begin
+ N:=Int64(S.W)*S.H;
+ Fg:=AllocF(N*3);Kn:=AllocF(N);
+ Move(S.Pix^,Fg^,N*12);
+ For K:=0 to N-1 do If A[K]>=0.92 Then Kn[K]:=1;
+ PushPullFill(Fg,Kn,S.W,S.H);
+ For K:=0 to N-1 do If(A[K]>0.003)and(A[K]<0.92)Then Begin
+  Ap:=SmoothStep(0.55,0.95,A[K]);
+  For C:=0 to 2 do S.Pix[K*3+C]:=Fg[K*3+C]*(1-Ap)+S.Pix[K*3+C]*Ap;
+ End;
+ FreeMem(Fg);FreeMem(Kn);
+End;
+
+{ ciel etoile : voie lactee en diagonale, etoiles de tailles et de teintes variees }
+Procedure SkyStars(Bg:PSingle;W,H:LongInt);
+Var
+ X,Y,Cs,Cx,Cy:LongInt;
+ K:Int64;
+ T,Dist,Haze,V,Px,Py,D2,B,Rr,Tint,Th:Single;
+ R,G,Bl:Single;
+Begin
+ Cs:=IMax(3,IMax(W,H)div 170);
+ For Y:=0 to H-1 do
+  For X:=0 to W-1 do Begin
+   K:=Int64(Y)*W+X;
+   T:=Y/H;
+   R:=3+22*T*T;G:=6+22*T*T;Bl:=22+46*T;
+   Dist:=(X/W+Y/H-1.0);
+   Haze:=Exp(-Sqr(Dist/0.17))*(0.30+0.70*FBm(X*8.0/IMax(W,H),Y*8.0/IMax(W,H)));
+   R:=R+Haze*70;G:=G+Haze*78;Bl:=Bl+Haze*128;
+   Haze:=Exp(-Sqr((Dist-0.05)/0.05))*FBm(X*22.0/IMax(W,H)+9,Y*22.0/IMax(W,H));
+   R:=R-Haze*14;G:=G-Haze*16;Bl:=Bl-Haze*20;
+   { etoile de la cellule }
+   Cx:=X div Cs;Cy:=Y div Cs;
+   Th:=0.80-0.10*Exp(-Sqr(Dist/0.2));
+   If Hash2(Cx,Cy)>Th Then Begin
+    Px:=(Cx+0.2+0.6*Hash2(Cx+7,Cy+3))*Cs;
+    Py:=(Cy+0.2+0.6*Hash2(Cx+13,Cy+9))*Cs;
+    B:=Hash2(Cx+3,Cy+29);B:=B*B*B;
+    Rr:=0.45+0.25*Cs*0.18*(1+2.2*B);
+    If Hash2(Cx+5,Cy+41)>0.97 Then Begin Rr:=Rr*2.0;B:=0.6+0.4*B;End;
+    D2:=Sqr(X+0.5-Px)+Sqr(Y+0.5-Py);
+    V:=(0.25+0.75*B)*Exp(-D2/(2*Rr*Rr))*1.5;
+    Tint:=Hash2(Cx+17,Cy+23);
+    R:=R+V*(205+50*Tint);G:=G+V*(215+20*Tint);Bl:=Bl+V*(255-45*Tint);
+   End;
+   Bg[K*3]:=R;Bg[K*3+1]:=G;Bg[K*3+2]:=Bl;
+  End;
+End;
+
+{ ciel ensoleille : degrade bleu, soleil et halo, nuages }
+Procedure SkyClear(Bg:PSingle;W,H:LongInt);
+Var
+ X,Y:LongInt;
+ K:Int64;
+ T,D,Rs,Sx,Sy,Gl,Hz:Single;
+Begin
+ Rs:=0.045*IMax(W,H);
+ Sx:=0.78*W;Sy:=0.17*H;
+ VGradient(Bg,W,H,0,H-1,44,112,214,168,212,248);
+ Clouds(Bg,W,H,0,H-1,0.9/FMax(40,0.16*W),0.95);
+ For Y:=0 to H-1 do
+  For X:=0 to W-1 do Begin
+   D:=Sqrt(Sqr(X+0.5-Sx)+Sqr(Y+0.5-Sy));
+   Gl:=0.55*Exp(-Sqr(D/(Rs*5.5)))+0.35*Exp(-Sqr(D/(Rs*1.9)));
+   PutBg(Bg,W,H,X,Y,Gl,255,248,214);
+   PutBg(Bg,W,H,X,Y,CoverD(D-Rs),255,252,236);
+  End;
+End;
+
+{ coucher de soleil : degrade violet - orange, soleil bas, nuages colores }
+Procedure SkySunset(Bg:PSingle;W,H:LongInt);
+Var
+ X,Y:LongInt;
+ K:Int64;
+ T,D,Rs,Sx,Sy,Gl,Cl:Single;
+ R,G,B:Single;
+Begin
+ Rs:=0.06*IMax(W,H);
+ Sx:=0.5*W;Sy:=0.78*H;
+ For Y:=0 to H-1 do Begin
+  T:=Y/H;
+  If T<0.45 Then Begin
+   R:=28+(120-28)*T/0.45;G:=36+(62-36)*T/0.45;B:=92+(120-92)*T/0.45;
+  End
+  Else If T<0.75 Then Begin
+   R:=120+(238-120)*(T-0.45)/0.30;G:=62+(112-62)*(T-0.45)/0.30;B:=120+(84-120)*(T-0.45)/0.30;
+  End
+  Else Begin
+   R:=238+(255-238)*(T-0.75)/0.25;G:=112+(196-112)*(T-0.75)/0.25;B:=84+(112-84)*(T-0.75)/0.25;
+  End;
+  For X:=0 to W-1 do Begin
+   K:=Int64(Y)*W+X;
+   Bg[K*3]:=R;Bg[K*3+1]:=G;Bg[K*3+2]:=B;
+  End;
+ End;
+ For Y:=0 to H-1 do
+  For X:=0 to W-1 do Begin
+   Cl:=SmoothStep(0.55,0.80,FBm(X*5.0/IMax(W,H),Y*11.0/IMax(W,H)+3))*0.55*(1-SmoothStep(0.55,0.9,Y/H));
+   PutBg(Bg,W,H,X,Y,Cl,250,150,130);
+   D:=Sqrt(Sqr(X+0.5-Sx)+Sqr(Y+0.5-Sy));
+   Gl:=0.60*Exp(-Sqr(D/(Rs*4.5)))+0.40*Exp(-Sqr(D/(Rs*1.6)));
+   PutBg(Bg,W,H,X,Y,Gl,255,214,140);
+   PutBg(Bg,W,H,X,Y,CoverD(D-Rs),255,240,200);
+  End;
+End;
+
+Function ApplyBackground(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Var
+ N,K:Int64;
+ A,Bg,Kn:PSingle;
+ C,Cnt:LongInt;
+ R,G,B:Single;
+ Rgb:LongWord;
+Begin
+ ApplyBackground:=False;
+ Msg:='';
+ ColorInit;
+ N:=Int64(S.W)*S.H;
+ A:=AllocF(N);
+ MatteAlpha(S,A);
+ Cnt:=0;
+ For K:=0 to N-1 do If A[K]>0.5 Then Inc(Cnt);
+ If Cnt<N div 100 Then Begin FreeMem(A);Msg:='aucune personne d'#130'tect'#130'e : impossible de s'#130'parer l''arri'#138're-plan';Exit;End;
+ Decontam(S,A);
+ If E.BgOp=boTransparent Then Begin
+  If OutAlpha<>Nil Then FreeMem(OutAlpha);
+  OutAlpha:=PByte(AllocBytes(N));OutAlphaN:=N;
+  For K:=0 to N-1 do OutAlpha[K]:=Trunc(A[K]*255+0.5);
+  FreeMem(A);
+  Info('  arri'#138're-plan transparent (fichier PNG avec canal alpha)');
+  ApplyBackground:=True;
+  Exit;
+ End;
+ Bg:=AllocF(N*3);
+ Case E.BgOp of
+  boSolid:Begin
+   Rgb:=E.DstRGB;
+   R:=(Rgb shr 16)and $FF;G:=(Rgb shr 8)and $FF;B:=Rgb and $FF;
+   { noir et blanc du lexique : noir et blanc purs }
+   If(R<=34)and(G<=34)and(B<=34)Then Begin R:=0;G:=0;B:=0;End;
+   If(R>=240)and(G>=240)and(B>=240)Then Begin R:=255;G:=255;B:=255;End;
+   For K:=0 to N-1 do Begin Bg[K*3]:=R;Bg[K*3+1]:=G;Bg[K*3+2]:=B;End;
+   Info('  arri'#138're-plan uni '+E.DstName);
+  End;
+  boStars:Begin SkyStars(Bg,S.W,S.H);Info('  arri'#138're-plan : ciel '#130'toil'#130);End;
+  boSunny:Begin SkyClear(Bg,S.W,S.H);Info('  arri'#138're-plan : ciel ensoleill'#130);End;
+  boSunset:Begin
+   SkySunset(Bg,S.W,S.H);
+   For K:=0 to N-1 do If A[K]>0 Then Begin S.Pix[K*3]:=S.Pix[K*3]*1.04;S.Pix[K*3+2]:=S.Pix[K*3+2]*0.92;End;
+   Info('  arri'#138're-plan : coucher de soleil');
+  End;
+  boBlur:Begin
+   { le fond est reconstitue sous la personne, puis floute }
+   Move(S.Pix^,Bg^,N*12);
+   Kn:=AllocF(N);
+   For K:=0 to N-1 do If A[K]<0.04 Then Kn[K]:=1;
+   PushPullFill(Bg,Kn,S.W,S.H);
+   FreeMem(Kn);
+   BlurRgb(Bg,S.W,S.H,FMax(2.0,0.016*IMax(S.W,S.H)));
+   Info('  arri'#138're-plan flou (effet portrait)');
+  End;
+  Else Begin FreeMem(A);FreeMem(Bg);Msg:='arri'#138're-plan non pris en charge';Exit;End;
+ End;
+ If E.BgOp=boSunny Then
+  For K:=0 to N-1 do If A[K]>0 Then Begin S.Pix[K*3]:=S.Pix[K*3]*1.02;S.Pix[K*3+2]:=S.Pix[K*3+2]*0.97;End;
+ For K:=0 to N-1 do
+  For C:=0 to 2 do S.Pix[K*3+C]:=Bg[K*3+C]*(1-A[K])+S.Pix[K*3+C]*A[K];
+ FreeMem(A);FreeMem(Bg);
+ ApplyBackground:=True;
+End;
+
+Function ApplyImageOp(Var S:TScene;Const E:TEdit;Var Msg:AnsiString):Boolean;
+Begin
+ Msg:='';
+ Case E.ImgOp of
+  ioSmooth:ApplyImageOp:=ImageSmooth(S,Msg);
+  ioBlur:ApplyImageOp:=ImageBlur(S,Msg);
+  ioSharp:ApplyImageOp:=ImageSharpen(S,Msg);
+  Else Begin Msg:='op'#130'ration sur l''image non reconnue';ApplyImageOp:=False;End;
+ End;
+End;
 
 { ------------------------------------------------------------------ }
 { Couche systeme : console, repertoires, telechargement (Windows)      }
@@ -12530,6 +12923,8 @@ Begin
  WriteLn('  "debout sur un carrousel"');
  WriteLn('  "rend la peau plus lisse" (granuleuse, douce, comme une peau de b'#130'b'#130')  "rajeunis-la de 10 ans"  "vieillis-la de 5 ans"');
  WriteLn('  "teinte ses cheveux en noir" (brun, blond, roux, blanc, rose, bleu, vert, poivre et sel)');
+ WriteLn('  "rend l''image plus lisse" (floue, nette, plus r'#130'elle)  "rend le fond noir" (blanc, bleu...)  "rend le fond transparent" (PNG)');
+ WriteLn('  "rend le fond de l''image dans un ciel '#130'toil'#130'" (ciel ensoleill'#130', coucher de soleil, fond flou)');
  WriteLn('  "bras crois'#130's"  "montre une main peace & love"  "pointe du doigt"  "t'#136'te droite"  "aur'#130'ole"');
  WriteLn('  "s'#130'rieuse"  "triste"  "regarde perdu"  "somnambule"  "saute"  "flotte"  "assis"  "appuy'#130' sur un meuble"');
  WriteLn('  "couch'#130'"  "couch'#130' dans un lit"  "monte les escaliers"  "sur le toit de la niche '#133' chien"');
@@ -12944,7 +13339,7 @@ Begin
   { ? mettre un chapeau ? alors qu'il n'y en a pas : on l'ajoute }
   If(Edits[I].Action=eaRecolor)and Edits[I].Put and((Edits[I].Target and(msHat or msScarf or msGlasses or msBelt))<>0)and
     (CatArea(Scene,Edits[I].Target)<Int64(Scene.W)*Scene.H div 2000)Then Edits[I].Action:=eaAdd;
-  If Edits[I].Action=eaPose2 Then Continue;
+  If(Edits[I].Action=eaPose2)or(Edits[I].Action=eaImage)or(Edits[I].Action=eaBg)Then Continue;
   Info('Retouche : '+DescribeEdit(Edits[I]));
   If(Edits[I].Action=eaRemove)and(Edits[I].Jewel<>0)Then Begin
    Warn('le retrait de bijoux n''est pas pris en charge');Inc(NFail);Continue;
@@ -12995,6 +13390,17 @@ Begin
    Info('Sc'#138'ne : carrousel');
    If ApplyCarousel(Scene,Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
   End;
+ { image entiere et arriere-plan, dans l'ordre de la demande }
+ For I:=0 to High(Edits)do Begin
+  If Edits[I].Action=eaBg Then Begin
+   Info('Arri'#138're-plan : '+DescribeEdit(Edits[I]));
+   If ApplyBackground(Scene,Edits[I],Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+  End
+  Else If Edits[I].Action=eaImage Then Begin
+   Info('Image : '+DescribeEdit(Edits[I]));
+   If ApplyImageOp(Scene,Edits[I],Msg)Then Inc(NOk)Else Begin Warn(Msg);Inc(NFail);End;
+  End;
+ End;
  { le style de l'image s'applique en dernier, sur le resultat des autres retouches }
  For I:=0 to High(Edits)do
   If Edits[I].Action=eaStyle Then Begin
@@ -13006,6 +13412,17 @@ Begin
   Halt(2);
  End;
  SceneToImage(Scene,Img);
+ If OutAlpha<>Nil Then Begin
+  If OutAlphaN=Int64(Scene.W)*Scene.H Then Begin
+   Img.Alpha:=PByte(AllocBytes(OutAlphaN));
+   Move(OutAlpha^,Img.Alpha^,OutAlphaN);
+   If PathExt(OutName)<>'.png' Then Begin
+    Warn('la transparence demande un fichier PNG : '+OutName+' devient '+PathNoExt(OutName)+'.png');
+    OutName:=PathNoExt(OutName)+'.png';
+   End;
+  End;
+  FreeMem(OutAlpha);OutAlpha:=Nil;
+ End;
  If not ImgSave(OutName,Img,JpegQ)Then Die('impossible d''enregistrer '+OutName);
  ImgFree(Img);
  Info('R'#130'sultat : '+OutName+' ('+IStr(Scene.W)+'x'+IStr(Scene.H)+', '+FStr((NowMsF-StartMs)/1000.0,1)+' s)');
