@@ -930,9 +930,10 @@ Var
 
 Procedure ShowMainHelp;
 Begin
- WriteLn('usage: optimum-cli <command> [<args>]');
+ WriteLn('OPTIMUM-CLI : Cette commande est une version clone Pascal ',
+         'de optimum-cli (Hugging Face Optimum). Commande prise en charge :');
  WriteLn;
- WriteLn('Clone Pascal de optimum-cli (Hugging Face Optimum). Commande prise en charge :');
+ WriteLn('Syntaxe: optimum-cli <command> [<args>]');
  WriteLn;
  WriteLn('  export openvino   Exporte un modele vers le format OpenVINO.');
  WriteLn;
@@ -946,7 +947,11 @@ End;
 
 Procedure ShowExportHelp;
 Begin
- WriteLn('usage: optimum-cli export openvino [-h] -m MODEL [--task TASK]');
+ WriteLn('OPTIMUM-CLI EXPORT : Cette commande permet d''exporter un modele LLaMA ',
+         '(config.json + *.safetensors) vers OpenVINO IR.');
+ WriteLn('(openvino_model.xml / openvino_model.bin) avec compression des poids.');
+ WriteLn;
+ WriteLn('Syntaxe : optimum-cli export openvino [-h] -m MODEL [--task TASK]');
  WriteLn('                                   [--framework {pt,tf}] [--trust-remote-code]');
  WriteLn('                                   [--weight-format {fp32,fp16,int8,int4,nf4}]');
  WriteLn('                                   [--quant-mode MODE] [--library LIBRARY]');
@@ -959,10 +964,7 @@ Begin
  WriteLn('                                   [--disable-stateful] [--disable-convert-tokenizer]');
  WriteLn('                                   [--device DEVICE]');
  WriteLn('                                   output');
- WriteLn;
- WriteLn('Exporte un modele LLaMA (config.json + *.safetensors) vers OpenVINO IR');
- WriteLn('(openvino_model.xml / openvino_model.bin) avec compression des poids.');
- WriteLn;
+ WriteLn; 
  WriteLn('arguments positionnels :');
  WriteLn('  output                Dossier ou le modele OpenVINO est enregistre.');
  WriteLn;
