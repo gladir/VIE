@@ -6713,6 +6713,9 @@ Type
 Var
  NoMannequin:Boolean=False;
 
+{ defini plus loin (poses) : agrandit l'image en prolongeant le fond }
+Procedure GrowEdges(Var S:TScene;L,T,R,B:LongInt);forward;
+
 Procedure GarmentFree(Var G:TGarment);
 Begin
  If G.Rgb<>Nil Then FreeMem(G.Rgb);
@@ -7238,6 +7241,31 @@ Begin
   End;
  End;
  FreeMem(M);
+End;
+
+{ lignes a ajouter sous l'image pour voir le mannequin en entier (jusqu'aux pieds) ; 0 si inutile }
+Function MannequinNeedRows(Const S:TScene;Const G:TGarment;Kind:LongInt):LongInt;
+Var
+ GL,GRr:PSingle;
+ Fx0,Fy0,Fx1,Fy1,Y,Ysh:LongInt;
+ Wg,Sc,Ty0,Bottom:Single;
+Begin
+ MannequinNeedRows:=0;
+ If(G.Skin=Nil)or not(Kind in[gkDress,gkFull])Then Exit;
+ If not CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Exit;
+ GL:=AllocF(G.H);GRr:=AllocF(G.H);
+ RowExtents(G.Mask,G.W,G.H,GL,GRr);
+ FillSmoothExtents(GL,GRr,G.H,IMax(1,G.H div 50));
+ Wg:=0;
+ For Y:=(G.H*5)div 100 to(G.H*13)div 100 do If GRr[Y]-GL[Y]>Wg Then Wg:=GRr[Y]-GL[Y];
+ Ysh:=0;
+ For Y:=0 to G.H-1 do If GRr[Y]-GL[Y]>=0.75*Wg Then Begin Ysh:=Y;Break;End;
+ FreeMem(GL);FreeMem(GRr);
+ If Wg<8 Then Exit;
+ Sc:=2.55*(Fx1-Fx0+1)/Wg;
+ Ty0:=Fy1+1+0.25*(Fy1-Fy0+1)-Sc*Ysh;
+ Bottom:=Ty0+Sc*G.H;
+ If Bottom>S.H Then MannequinNeedRows:=Trunc(Bottom-S.H)+2;
 End;
 
 { pose le vetement sur la personne }
@@ -14032,6 +14060,13 @@ Begin
     Else Warn('v'#136'tement trop petit pour '#136'tre recolor'#130);
     FreeMem(Tmp);
    End;
+  End;
+  { mannequin : l'image est prolongee vers le bas pour montrer le corps jusqu'aux pieds }
+  I:=MannequinNeedRows(Scene,G,Kind);
+  If I>0 Then Begin
+   If I>3*Scene.H Then I:=3*Scene.H;
+   GrowEdges(Scene,0,0,0,I);
+   Info('image prolong'#130'e de '+IStr(I)+' pixels vers le bas pour voir le mannequin en entier');
   End;
   Info('Pose du v'#136'tement ('+GarmentKindName(Kind)+') ...');
   If TryOnGarment(Scene,G,Kind,OptQuality,Msg)Then Begin
