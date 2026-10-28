@@ -39,6 +39,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande est un clone de llama-cli (llama.cpp) : elle charge un modèle GGUF et génère du texte ou converse (CPU seulement, Free Pascal requis, réseau Windows seulement).</td>
   </tr>
   <tr>
+     <td><b>LLAMA-TOKENIZE.PAS</b></td>
+     <td>Cette commande est un clone de llama-tokenize (llama.cpp) : elle tokenise un texte (<code>-p</code>, <code>-f</code> ou <code>--stdin</code>) avec le vocabulaire d'un modèle GGUF et affiche les jetons, leurs identifiants (<code>--ids</code>) ou leur nombre (<code>--show-count</code>). Seules les métadonnées du modèle sont lues (Free Pascal requis).</td>
+  </tr>
+  <tr>
      <td><b>LOREM.PAS</b></td>
      <td>Cette commande permet de générer du texte aléatoirement (Lorem Ipsum).</td>
   </tr>
