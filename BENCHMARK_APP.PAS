@@ -4732,6 +4732,16 @@ Begin
  InitClock;
  CurLI:=-1;
  ErrHook:=@LayerHook;
+ { l'aide s'affiche seule, avant toute etape }
+ If ParamCount=0 Then Begin
+  ShowHelp;
+  Halt(0);
+ End;
+ For I:=1 to ParamCount do
+  If IsHelpArg(ParamStr(I))Then Begin
+   ShowHelp;
+   Halt(0);
+  End;
  Step(1,'');
  Info('Parsing input parameters');
  ParseArgs;
