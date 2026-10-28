@@ -56,7 +56,7 @@ Program VTON;
 Uses DOS;
 
 Const
- VersionStr   = '1.0 (clone Pascal de VTON, essayage virtuel par IA)';
+ VersionStr   = '1.1 (clone Pascal de VTON, essayage virtuel par IA)';
  MaxLabels    = 64;
 
 Type
@@ -7734,6 +7734,7 @@ Var
  SkinBase,MannequinFit:Boolean;
  YshRow,NeckX0,NeckX1,NeckY1:Single;
  ChinY:LongInt;
+ YshAll,FaceH:Single;
  RemoveOld,NeckHas:Boolean;
  Rm,Kn2,Fl2:PSingle;
  Mk2:PByte;
@@ -7871,7 +7872,8 @@ Begin
      n'est pas ecrase
    pour tenir dans l'ancienne zone ; ce qui depasse du cadre est simplement
      coupe }
- MannequinFit:=False;YshRow:=0;RemoveOld:=False;NeckHas:=False;ChinY:=0;
+ MannequinFit:=False;YshAll:=0;YshRow:=0;RemoveOld:=False;NeckHas:=False;
+   ChinY:=0;
  If(G.Skin<>Nil)and(Kind in[gkTop,gkDress,gkFull])and CatBBox(S,msFace,Fx0,
    Fy0,Fx1,Fy1)Then Begin
   FaceMetrics(S,Fx0,Fy0,Fx1,Fy1);
@@ -7889,7 +7891,9 @@ Begin
    Lam:=0;
    MannequinFit:=True;
    YshRow:=Ysh;
+   YshAll:=Ysh;
    ChinY:=Fy1;
+   FaceH:=Fy1-Fy0+1;
    { cou de la personne : conserve s'il est visible (le mannequin garde sinon le
      sien) }
    NeckX0:=Cx-0.60*(Fx1-Fx0+1);NeckX1:=Cx+0.60*(Fx1-Fx0+1);NeckY1:=Fy1+1+
@@ -8046,8 +8050,11 @@ Begin
    personne (seuls les cheveux, chapeau et lunettes restent proteges) }
  If MannequinFit Then Begin
   Fb:=AllocF(N);
-  CatMask(S,Prot and not msFace,Fb);
-  For K:=0 to N-1 do If(K div W)>ChinY+1 Then Prot_[K]:=Fb[K];
+  CatMask(S,msHair or msHat or msGlasses,Fb);
+  For K:=0 to N-1 do Begin
+   Shd:=SmoothStep(ChinY-0.05*FaceH,ChinY+0.15*FaceH,(K div W)+0.5);
+   Prot_[K]:=Prot_[K]*(1-Shd)+Fb[K]*Shd;
+  End;
   FreeMem(Fb);
  End;
  If Kind=gkTop Then Begin
@@ -8114,6 +8121,11 @@ Begin
   If MannequinFit and(YshRow>0)Then
    For K:=0 to N-1 do If(GA[K]>0)and(GS[K]>0.3)and(SkE[K]>=0.5)Then
     GA[K]:=GA[K]*SmoothStep(0.80*YshRow,1.12*YshRow,((K div W)+0.5-Ty0)/Sy);
+  { sans cou de la personne : le haut du cou du mannequin s'estompe (pas de bord
+    net sous le menton) }
+  If MannequinFit and(YshRow=0)and(YshAll>0)Then
+   For K:=0 to N-1 do If(GA[K]>0)and(GS[K]>0.3)Then
+    GA[K]:=GA[K]*SmoothStep(0.40*YshAll,0.85*YshAll,((K div W)+0.5-Ty0)/Sy);
  End;
  { robe, tenue, bas : l'ancien vetement est d'abord remplace par de la peau (le
    tissu leger ou fendu la laisse voir) }
