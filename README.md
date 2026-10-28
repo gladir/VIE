@@ -13,7 +13,7 @@ Voici la liste des différents fichiers proposés dans VIE :
 </tr>
 		<tr>
 			<td><b>ARGOS-TRANSLATE.PAS</b></td>
-			<td>Cette commande permet de traduire une phrase entre l'anglais, le franÃ§ais, l'allemand, l'espagnol, l'albanais, le portugais, le suÃ©dois, le danois, l'italien, le latin, le gallois, l'afrikaans, le maltais, l'islandais, le nÃ©erlandais, le norvÃ©gien, le polonais, le roumain, le catalan et le japonais (romaji).</td>
+			<td>Cette commande permet de traduire une phrase entre l'anglais, le français, l'allemand, l'espagnol, l'albanais, le portugais, le suÃ©dois, le danois, l'italien, le latin, le gallois, l'afrikaans, le maltais, l'islandais, le néerlandais, le norvégien, le polonais, le roumain, le catalan et le japonais (romaji).</td>
 		</tr>  	
   <tr>
      <td><b>BENCHMARK_APP.PAS</b></td>
