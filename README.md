@@ -62,6 +62,10 @@ Voici la liste des différents fichiers proposés dans VIE :
       <td><b>TRANSLAT.PAS</b></td>
       <td>Cette commande permet de traduire du texte anglais en français.</td>
    </tr>
+  <tr>
+     <td><b>VTON.PAS</b></td>
+     <td>Cette commande est un clone de VTON (Virtual Try-ON) : elle change ou essaie des vêtements sur une photo à l'aide d'un réseau de neurones SegFormer (fichier .safetensors), avec une demande en langage naturel, à instructions multiples (<code>-prompt "Change le chandail rouge en bleu, ajouter un foulard"</code>) : couleurs et motifs, ajout d'accessoires, de bijoux et de bas du corps (l'image est prolongée si le corps est coupé), coiffures, couleur des yeux, sourire, bras le long du corps, matières (corps d'or, métal, robot, statue, vêtement de chaîne d'or), peau (plus lisse, granuleuse, plus douce, peau de bébé), rajeunir / vieillir de N ans (rides, cernes, taches, cheveux gris), teinture des cheveux dont poivre et sel, image entière (plus lisse, plus floue, plus nette, plus réelle), arrière-plan (uni, transparent en PNG, ciel étoilé, ciel ensoleillé, coucher de soleil, flou, forêts tropicale / amazonienne / québécoise / canadienne / de conifères), scène de carrousel, poses et situations dessinées par le programme (bras croisés, main en V, doigt pointé, tête droite, auréole, sérieuse / triste, regard perdu, somnambule, saute, flotte, assis à une table, couché ou couché dans un lit, escalier, toit de niche, fil de fer, appuyé sur un meuble ; « à genoux » et « vélo » signalés comme non pris en charge), styles BD / croquis. Essayage réaliste d'une tenue photographiée sur mannequin (« Mets-lui cette tenue ») : taille déduite de la tête, peau du mannequin remplacée par celle de la personne, exposition et grain accordés. Calcul CPU multifil, GPU Direct3D 11 optionnel sous Windows, compilable en 32 bits (Free Pascal requis).</td>
+  </tr>
 </table>
 
 <h2>Compilation</h2>
