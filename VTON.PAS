@@ -7595,6 +7595,32 @@ Begin
  FreeMem(M);
 End;
 
+{ ligne du menton : si le cou est classe dans le visage, la largeur du visage
+  devient presque
+  constante sous la machoire ; le menton est la ou elle tombe sous 62 % du
+    maximum }
+Function ChinRow(Const S:TScene;Fx0,Fy0,Fx1,Fy1:LongInt):LongInt;
+Var
+ X,Y,Wd,MaxW,YMax:LongInt;
+Begin
+ ChinRow:=Fy1;
+ MaxW:=0;YMax:=Fy0;
+ For Y:=Fy0 to Fy1 do Begin
+  Wd:=0;
+  For X:=Fx0 to Fx1 do If S.Cat[cFace][Int64(Y)*S.W+X]>=128 Then Inc(Wd);
+  If Wd>MaxW Then Begin MaxW:=Wd;YMax:=Y;End;
+ End;
+ If MaxW<8 Then Exit;
+ For Y:=YMax to Fy1 do Begin
+  Wd:=0;
+  For X:=Fx0 to Fx1 do If S.Cat[cFace][Int64(Y)*S.W+X]>=128 Then Inc(Wd);
+  If Wd<0.62*MaxW Then Begin
+   If Y<Fy1 Then ChinRow:=Y;
+   Exit;
+  End;
+ End;
+End;
+
 { marges a ajouter (gauche, droite, bas) pour voir la tenue sur mannequin en
   entier, jusqu'aux pieds ; 0 si inutile }
 Procedure MannequinNeed(Const S:TScene;Const G:TGarment;Kind:LongInt;Var NL,
@@ -7607,6 +7633,7 @@ Begin
  NL:=0;NR:=0;NB:=0;
  If(G.Skin=Nil)or not(Kind in[gkDress,gkFull])Then Exit;
  If not CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Exit;
+ Fy1:=ChinRow(S,Fx0,Fy0,Fx1,Fy1);
  GL:=AllocF(G.H);GRr:=AllocF(G.H);
  RowExtents(G.Mask,G.W,G.H,GL,GRr);
  FillSmoothExtents(GL,GRr,G.H,IMax(1,G.H div 50));
@@ -7676,6 +7703,7 @@ Var
  YshRow,NeckX0,NeckX1,NeckY1:Single;
  RemoveOld,NeckHas:Boolean;
  Rm,Kn2,Fl2:PSingle;
+ Mk2:PByte;
  Fx0,Fy0,Fx1,Fy1,Ysh,Cnt1,Cnt2:LongInt;
  Wg:Single;
 
@@ -7813,6 +7841,7 @@ Begin
  MannequinFit:=False;YshRow:=0;RemoveOld:=False;NeckHas:=False;
  If(G.Skin<>Nil)and(Kind in[gkTop,gkDress,gkFull])and CatBBox(S,msFace,Fx0,
    Fy0,Fx1,Fy1)Then Begin
+  Fy1:=ChinRow(S,Fx0,Fy0,Fx1,Fy1);
   Wg:=0;
   For Y:=(G.H*5)div 100 to(G.H*13)div 100 do If GRr[Y]-GL[Y]>Wg Then
     Wg:=GRr[Y]-GL[Y];
@@ -8012,8 +8041,14 @@ Begin
     If(X>=NeckX0)and(X<=NeckX1)and(Y<=NeckY1)and((S.Cat[cArms][K]+
       S.Cat[cSkin][K]+S.Cat[cFace][K])>=128)Then Rm[K]:=0;
    End;
-   If(S.Cat[cBg][K]>=250)and(Prot_[K]<0.05)Then Kn2[K]:=1;
   End;
+  { le fond connu exclut le bord de l'ancien corps (pixels melanges) }
+  Mk2:=PByte(AllocBytes(N));
+  For K:=0 to N-1 do If Rm[K]>0.02 Then Mk2[K]:=255;
+  MorphMask(Mk2,W,H,4,False);
+  For K:=0 to N-1 do If(S.Cat[cBg][K]>=250)and(Prot_[K]<0.05)and(Mk2[K]=0)
+    Then Kn2[K]:=1;
+  FreeMem(Mk2);
   Move(S.Pix^,Fl2^,N*12);
   PushPullFill(Fl2,Kn2,W,H);
   For K:=0 to N-1 do If Rm[K]>0.02 Then Begin
@@ -14461,7 +14496,7 @@ Begin
  WriteLn('  -nomannequin      Ne pas remplacer la peau d''un mannequin '+
    'photographi'#130' avec le v'#136'tement');
  WriteLn('  -quiet            N''afficher que les erreurs');
- WriteLn('  -h, --help        Cette aide        --version   Num'#130'ro de '+
+ WriteLn('  -h, --help, /?    Cette aide        --version   Num'#130'ro de '+
    'version');
  WriteLn;
  WriteLn('Exemples de demandes :');
@@ -14619,7 +14654,8 @@ Begin
  SetLength(Pos_,0);
  While I<=N do Begin
   A:=ArgStr(I);
-  If(Length(A)>1)and(A[1]='-')Then Begin
+  If(A='/?')or(LoStr(A)='/h')or(LoStr(A)='/help')Then OptHelp:=True
+  Else If(Length(A)>1)and(A[1]='-')Then Begin
    Key:=A;
    While(Key<>'')and(Key[1]='-')do Delete(Key,1,1);
    HasEq:=False;Val_:='';
