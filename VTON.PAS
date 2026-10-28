@@ -6818,6 +6818,16 @@ Begin
   MorphMask(Tmp,W,H,1,False);
   For K:=0 to N-1 do If(Tmp[K]<>0)and(Cand[K]<>0)Then M[K]:=255;
  End;
+ { fermeture : les zones ombrees ou sous la gaze, entourees de peau, sont ajoutees ; les pieces dorees
+   (bracelets, collier) restent du tissu car trop colorees }
+ Move(M^,Tmp^,N);
+ MorphMask(Tmp,W,H,7,False);MorphMask(Tmp,W,H,7,True);
+ For K:=0 to N-1 do Begin
+  If(Tmp[K]=0)or(M[K]<>0)or(G.Mask[K]<0.5)Then Continue;
+  If Abs((K mod W)+0.5-Cx)>0.36*Wd Then Continue;
+  RgbToLab(G.Rgb[K*3],G.Rgb[K*3+1],G.Rgb[K*3+2],L,A,B);
+  If(L>38)and(Sqrt(A*A+B*B)<17)and(B<16)Then M[K]:=255;
+ End;
  FreeMem(Tmp);FreeMem(Cand);
  Lab:=PIntArr(AllocBytes(N*4));
  NC:=Components(M,W,H,Lab,Areas);
@@ -7514,8 +7524,6 @@ Begin
    GA[K]:=Tmp[0];
    SampleBilinear(G.Rgb,G.W,G.H,3,Gxx,Gy,@GRgb[K*3]);
    If G.Skin<>Nil Then SampleBilinear(G.Skin,G.W,G.H,1,Gxx,Gy,@GS[K]);
-   { cou du mannequin : la personne garde le sien }
-   If MannequinFit and(Gy<YshRow)and(GS[K]>0.3)Then GA[K]:=0;
    GSh[K]:=Luma(GRgb[K*3],GRgb[K*3+1],GRgb[K*3+2]);
   End;
  End;
@@ -7627,7 +7635,7 @@ Begin
    Rm[K]:=(1-S.Cat[cBg][K]/255.0)*(1-SmoothStep(0.15,0.85,Prot_[K]));
    If NeckHas Then Begin
     Y:=K div W;X:=K mod W;
-    If(X>=NeckX0)and(X<=NeckX1)and(Y<=NeckY1)Then Rm[K]:=0;
+    If(X>=NeckX0)and(X<=NeckX1)and(Y<=NeckY1)and((S.Cat[cArms][K]+S.Cat[cSkin][K]+S.Cat[cFace][K])>=128)Then Rm[K]:=0;
    End;
    If(S.Cat[cBg][K]>=250)and(Prot_[K]<0.05)Then Kn2[K]:=1;
   End;
@@ -7643,6 +7651,12 @@ Begin
   FreeMem(Rm);FreeMem(Kn2);FreeMem(Fl2);
   FillChar(Ro^,N*4,0);
   Detail('ancien corps supprim'#130' sous la t'#136'te : le corps du mannequin le remplace');
+ End;
+ { peau encore visible apres la suppression : seule celle-la est conservee ; le cou du mannequin n'est retire que la }
+ If SkE<>Nil Then Begin
+  CatMask(S,msSkin,SkE);
+  If MannequinFit and(YshRow>0)Then
+   For K:=0 to N-1 do If(GA[K]>0)and(GS[K]>0.3)and(((K div W)+0.5-Ty0)/Sy<YshRow)and(SkE[K]>=0.5)Then GA[K]:=0;
  End;
  { robe, tenue, bas : l'ancien vetement est d'abord remplace par de la peau (le tissu leger ou fendu la laisse voir) }
  SkinBase:=False;
