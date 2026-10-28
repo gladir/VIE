@@ -11,6 +11,10 @@ Voici la liste des différents fichiers proposés dans VIE :
     <th>Description</th>
    </tr>
   <tr>
+     <td><b>BENCHMARK_APP.PAS</b></td>
+     <td>Cette commande permet de mesurer les performances d'inférence (latence et débit) d'un modèle OpenVINO IR (<code>.xml</code> + <code>.bin</code>, par exemple celui produit par <code>OPTIMUM-CLI.PAS</code>), à la manière de <code>benchmark_app -m modele.xml -d CPU -hint latency|throughput|none -niter -t -b -nthreads -nstreams -api -pc -report_folder</code>.</td>
+  </tr>
+  <tr>
      <td><b>CHATBOT.PAS</b></td>
      <td>Cette commande permet de lancer le Chatbot.</td>
   </tr>  
