@@ -2081,8 +2081,8 @@ Const
   (E:'The ID of the dataset (e.g. `username/repo-name`).';F:'Identifiant du jeu de données (ex. : `utilisateur/nom-du-depot`).'),
   (E:'The ID of the space (e.g. `username/repo-name`).';F:'Identifiant du Space (ex. : `utilisateur/nom-du-depot`).'),
   (E:'Move a repository from a namespace to another namespace.';F:'Déplace un dépôt d''un espace de noms vers un autre.'),
-  (E:'Manage branches for a repo on the Hub.';F:'Gère les branches d''un dépôt du Hub.'),
-  (E:'Manage tags for a repo on the Hub.';F:'Gère les étiquettes (tags) d''un dépôt du Hub.'),
+  (E:'Manage branches for a repo on the Hub.';F:'G'+#138+'re les branches d''un dépôt du Hub.'),
+  (E:'Manage tags for a repo on the Hub.';F:'G'+#138+'re les étiquettes (tags) d''un dépôt du Hub.'),
   (E:'Get info about a collection on the Hub.';F:'Affiche les informations d''une collection du Hub.'),
   (E:'Get info about a collection on the Hub. Output is in JSON format.';F:'Affiche les informations d''une collection du Hub, au format JSON.'),
   (E:'Delete an item from a collection.';F:'Supprime un élément d''une collection.'),
@@ -2104,19 +2104,19 @@ Const
   (E:'Sync a directory with a bucket (not supported by this clone).';F:'Synchronise un répertoire avec un bucket (non pris en charge par ce clone).'),
   (E:'Install an extension from a local executable named hf-NAME.';F:'Installe une extension à partir d''un exécutable local nommé hf-NOM.'),
   (E:'Install an extension.';F:'Installe une extension.'),
-  (E:'Manage authentication (login, logout, etc.).';F:'Gère l''authentification (connexion, déconnexion, etc.).'),
-  (E:'Manage local cache directory.';F:'Gère le répertoire de cache local.'),
+  (E:'Manage authentication (login, logout, etc.).';F:'G'+#138+'re l''authentification (connexion, déconnexion, etc.).'),
+  (E:'Manage local cache directory.';F:'G'+#138+'re le répertoire de cache local.'),
   (E:'Interact with collections on the Hub.';F:'Interagit avec les collections du Hub.'),
   (E:'Copy files between local paths and Hub repositories.';F:'Copie des fichiers entre des chemins locaux et des dépôts du Hub.'),
   (E:'Interact with datasets on the Hub.';F:'Interagit avec les jeux de données du Hub.'),
-  (E:'Manage discussions and pull requests on the Hub.';F:'Gère les discussions et les pull requests du Hub.'),
-  (E:'Manage Hugging Face Inference Endpoints.';F:'Gère les Inference Endpoints de Hugging Face.'),
-  (E:'Manage hf CLI extensions.';F:'Gère les extensions de la CLI hf.'),
-  (E:'Run and manage Jobs on the Hub.';F:'Exécute et gère des Jobs sur le Hub.'),
+  (E:'Manage discussions and pull requests on the Hub.';F:'G'+#138+'re les discussions et les pull requests du Hub.'),
+  (E:'Manage Hugging Face Inference Endpoints.';F:'G'+#138+'re les Inference Endpoints de Hugging Face.'),
+  (E:'Manage hf CLI extensions.';F:'G'+#138+'re les extensions de la CLI hf.'),
+  (E:'Run and manage Jobs on the Hub.';F:'Exécute et g'+#138+'re des Jobs sur le Hub.'),
   (E:'Interact with models on the Hub.';F:'Interagit avec les modèles du Hub.'),
   (E:'Interact with papers on the Hub.';F:'Interagit avec les articles scientifiques du Hub.'),
-  (E:'Manage repos on the Hub.';F:'Gère les dépôts du Hub.'),
-  (E:'Manage skills for AI assistants.';F:'Gère les compétences (skills) des assistants IA.'),
+  (E:'Manage repos on the Hub.';F:'G'+#138+'re les dépôts du Hub.'),
+  (E:'Manage skills for AI assistants.';F:'G'+#138+'re les compétences (skills) des assistants IA.'),
   (E:'Interact with spaces on the Hub.';F:'Interagit avec les Spaces du Hub.'),
   (E:'Upload a file or a folder to the Hub.';F:'Envoie un fichier ou un dossier vers le Hub.'),
   (E:'Upload a file or a folder to the Hub. Recommended for single-commit uploads.';F:'Envoie un fichier ou un dossier vers le Hub, en un seul commit.'),
@@ -2211,7 +2211,10 @@ Var
  Ls:TSList;
  S:AnsiString;
 Begin
- WriteLn(L('Usage: ','Utilisation : '),CmdPath,' [OPTIONS] ',CmdUsage);
+ WriteLn('HF : ',L('Clone Pascal de Hugging Face Optimum',
+         'Cette commande permet de lancer l''interface Hugging Face Optimum.'));
+ WriteLn;
+ WriteLn(L('Usage: ','Syntaxe : '),CmdPath,' [OPTIONS] ',CmdUsage);
  WriteLn;
  WriteLn('  ',Tr(CmdDesc));
  WriteLn;
@@ -2243,7 +2246,10 @@ End;
 
 Procedure UsageErr(Const Msg:AnsiString);
 Begin
- WriteLn(StdErr,L('Usage: ','Utilisation : '),CmdPath,' [OPTIONS] ',CmdUsage);
+ WriteLn('HF : ',L('Clone Pascal de Hugging Face Optimum',
+         'Cette commande permet de lancer l''interface Hugging Face Optimum.'));
+ WriteLn;
+ WriteLn(StdErr,L('Usage: ','Syntaxe : '),CmdPath,' [OPTIONS] ',CmdUsage);
  WriteLn(StdErr,L('Try ''','Essayez ''') ,CmdPath,L(' -h'' for help.',' -h'' pour obtenir de l''aide.'));
  WriteLn(StdErr);
  WriteLn(StdErr,L('Error: ','Erreur : '),Tr(Msg));
@@ -5302,8 +5308,8 @@ Const
   (G:'repos';N:'delete';D:'Delete a repo from the Hub. This is an irreversible operation.';F:'Supprime un dépôt du Hub. Opération irréversible.'),
   (G:'repos';N:'move';D:'Move a repository from a namespace to another namespace.';F:'Déplace un dépôt d''un espace de noms vers un autre.'),
   (G:'repos';N:'settings';D:'Update the settings of a repository.';F:'Modifie les paramètres d''un dépôt.'),
-  (G:'repos';N:'branch';D:'Manage branches for a repo on the Hub.';F:'Gère les branches d''un dépôt du Hub.'),
-  (G:'repos';N:'tag';D:'Manage tags for a repo on the Hub.';F:'Gère les étiquettes (tags) d''un dépôt du Hub.'),
+  (G:'repos';N:'branch';D:'Manage branches for a repo on the Hub.';F:'G'+#138+'re les branches d''un dépôt du Hub.'),
+  (G:'repos';N:'tag';D:'Manage tags for a repo on the Hub.';F:'G'+#138+'re les étiquettes (tags) d''un dépôt du Hub.'),
   (G:'repos';N:'delete-files';D:'Delete files from a repo on the Hub.';F:'Supprime des fichiers d''un dépôt du Hub.'),
   (G:'repos branch';N:'create';D:'Create a new branch for a repo on the Hub.';F:'Crée une nouvelle branche pour un dépôt du Hub.'),
   (G:'repos branch';N:'delete';D:'Delete a branch from a repo on the Hub.';F:'Supprime une branche d''un dépôt du Hub.'),
@@ -5352,22 +5358,22 @@ Const
 
  NTop=21;
  Tops:Array[0..NTop-1]of TSub=(
-  (G:'main';N:'auth';D:'Manage authentication (login, logout, etc.).';F:'Gère l''authentification (connexion, déconnexion, etc.).'),
+  (G:'main';N:'auth';D:'Manage authentication (login, logout, etc.).';F:'G'+#138+'re l''authentification (connexion, déconnexion, etc.).'),
   (G:'main';N:'buckets';D:'Commands to interact with buckets.';F:'Commandes pour interagir avec les buckets.'),
-  (G:'main';N:'cache';D:'Manage local cache directory.';F:'Gère le répertoire de cache local.'),
+  (G:'main';N:'cache';D:'Manage local cache directory.';F:'G'+#138+'re le répertoire de cache local.'),
   (G:'main';N:'collections';D:'Interact with collections on the Hub.';F:'Interagit avec les collections du Hub.'),
   (G:'main';N:'cp';D:'Copy files between local paths and Hub repositories.';F:'Copie des fichiers entre des chemins locaux et des dépôts du Hub.'),
   (G:'main';N:'datasets';D:'Interact with datasets on the Hub.';F:'Interagit avec les jeux de données du Hub.'),
-  (G:'main';N:'discussions';D:'Manage discussions and pull requests on the Hub.';F:'Gère les discussions et les pull requests du Hub.'),
+  (G:'main';N:'discussions';D:'Manage discussions and pull requests on the Hub.';F:'G'+#138+'re les discussions et les pull requests du Hub.'),
   (G:'main';N:'download';D:'Download files from the Hub.';F:'Télécharge des fichiers depuis le Hub.'),
-  (G:'main';N:'endpoints';D:'Manage Hugging Face Inference Endpoints.';F:'Gère les Inference Endpoints de Hugging Face.'),
+  (G:'main';N:'endpoints';D:'Manage Hugging Face Inference Endpoints.';F:'G'+#138+'re les Inference Endpoints de Hugging Face.'),
   (G:'help';N:'env';D:'Print information about the environment.';F:'Affiche des informations sur l''environnement.'),
-  (G:'main';N:'extensions';D:'Manage hf CLI extensions.';F:'Gère les extensions de la CLI hf.'),
-  (G:'main';N:'jobs';D:'Run and manage Jobs on the Hub.';F:'Exécute et gère des Jobs sur le Hub.'),
+  (G:'main';N:'extensions';D:'Manage hf CLI extensions.';F:'G'+#138+'re les extensions de la CLI hf.'),
+  (G:'main';N:'jobs';D:'Run and manage Jobs on the Hub.';F:'Exécute et g'+#138+'re des Jobs sur le Hub.'),
   (G:'main';N:'models';D:'Interact with models on the Hub.';F:'Interagit avec les modèles du Hub.'),
   (G:'main';N:'papers';D:'Interact with papers on the Hub.';F:'Interagit avec les articles scientifiques du Hub.'),
-  (G:'main';N:'repos';D:'Manage repos on the Hub.';F:'Gère les dépôts du Hub.'),
-  (G:'main';N:'skills';D:'Manage skills for AI assistants.';F:'Gère les compétences (skills) des assistants IA.'),
+  (G:'main';N:'repos';D:'Manage repos on the Hub.';F:'G'+#138+'re les dépôts du Hub.'),
+  (G:'main';N:'skills';D:'Manage skills for AI assistants.';F:'G'+#138+'re les compétences (skills) des assistants IA.'),
   (G:'main';N:'spaces';D:'Interact with spaces on the Hub.';F:'Interagit avec les Spaces du Hub.'),
   (G:'main';N:'sync';D:'Sync files between two local directories.';F:'Synchronise les fichiers entre deux répertoires locaux.'),
   (G:'help';N:'update';D:'Check for a newer version of the hf CLI.';F:'Vérifie l''existence d''une version plus récente de la CLI hf.'),
@@ -5378,7 +5384,10 @@ Procedure PrintMainHelp;
 Var
  I:LongInt;
 Begin
- WriteLn(L('Usage: ','Utilisation : '),'hf [OPTIONS] ',L('COMMAND','COMMANDE'),' [ARGS]...');
+ WriteLn('HF : ',L('Clone Pascal de Hugging Face Optimum',
+         'Cette commande permet de lancer l''interface Hugging Face Optimum.'));
+ WriteLn;
+ WriteLn(L('Usage: ','Syntaxe : '),'hf [OPTIONS] ',L('COMMAND','COMMANDE'),' [ARGS]...');
  WriteLn;
  WriteLn('  ',Tr('Hugging Face Hub CLI (Pascal clone)'));
  WriteLn;
