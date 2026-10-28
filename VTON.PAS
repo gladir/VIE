@@ -7595,30 +7595,62 @@ Begin
  FreeMem(M);
 End;
 
-{ ligne du menton : si le cou est classe dans le visage, la largeur du visage
-  devient presque
-  constante sous la machoire ; le menton est la ou elle tombe sous 62 % du
-    maximum }
-Function ChinRow(Const S:TScene;Fx0,Fy0,Fx1,Fy1:LongInt):LongInt;
+{ mesures robustes du visage : si le cou ou la poitrine sont classes dans le
+  visage, la boite
+  englobante est trop grande. La largeur du visage est celle de son premier
+    maximum (joues) ;
+  le menton est la premiere ligne dont la largeur tombe sous 62 % de ce maximum,
+    ou qui
+  s'elargit de nouveau (epaules) apres avoir diminue }
+Procedure FaceMetrics(Const S:TScene;Var Fx0,Fy0,Fx1,Fy1:LongInt);
 Var
- X,Y,Wd,MaxW,YMax:LongInt;
+ X,Y,A,B,Wd,MaxW,YMax,Xa,Xb,Y1,Chin,MinW:LongInt;
+ Function RowW(R:LongInt;Var Ra,Rb:LongInt):LongInt;
+ Var
+  Xx:LongInt;
+ Begin
+  Ra:=-1;Rb:=-1;
+  For Xx:=Fx0 to Fx1 do If S.Cat[cFace][Int64(R)*S.W+Xx]>=128 Then Begin
+   If Ra<0 Then Ra:=Xx;
+   Rb:=Xx;
+  End;
+  If Ra<0 Then RowW:=0 Else RowW:=Rb-Ra+1;
+ End;
 Begin
- ChinRow:=Fy1;
- MaxW:=0;YMax:=Fy0;
+ MaxW:=0;YMax:=Fy0;Xa:=Fx0;Xb:=Fx1;Y1:=Fy1;
  For Y:=Fy0 to Fy1 do Begin
-  Wd:=0;
-  For X:=Fx0 to Fx1 do If S.Cat[cFace][Int64(Y)*S.W+X]>=128 Then Inc(Wd);
-  If Wd>MaxW Then Begin MaxW:=Wd;YMax:=Y;End;
+  Wd:=RowW(Y,A,B);
+  If Wd>MaxW Then Begin MaxW:=Wd;YMax:=Y;Xa:=A;Xb:=B;End
+  Else If(MaxW>=8)and(Wd<0.80*MaxW)Then Begin Y1:=Y;Break;End;
  End;
  If MaxW<8 Then Exit;
- For Y:=YMax to Fy1 do Begin
-  Wd:=0;
-  For X:=Fx0 to Fx1 do If S.Cat[cFace][Int64(Y)*S.W+X]>=128 Then Inc(Wd);
-  If Wd<0.62*MaxW Then Begin
-   If Y<Fy1 Then ChinRow:=Y;
-   Exit;
+ Chin:=Fy1;
+ MinW:=MaxW;
+ For Y:=Y1 to Fy1 do Begin
+  Wd:=RowW(Y,A,B);
+  If Wd<MinW Then MinW:=Wd;
+  If(Wd<0.62*MaxW)or((MinW<0.90*MaxW)and(Wd>1.12*MinW+2))Then Begin
+   Chin:=Y;
+   Break;
   End;
  End;
+ Fx0:=Xa;Fx1:=Xb;Fy1:=Chin;
+ If Fy1<YMax Then Fy1:=YMax;
+End;
+
+{ ligne des epaules du mannequin : sous le menton, ou a la hauteur des epaules
+  de l'ancien haut
+  quand celui-ci est plus haut }
+Function ShoulderY(Const S:TScene;Fy0,Fy1:LongInt):Single;
+Var
+ Tx0,Ty0,Tx1,Ty1:LongInt;
+ Fh,V:Single;
+Begin
+ Fh:=Fy1-Fy0+1;
+ V:=Fy1+1+0.25*Fh;
+ If CatBBox(S,msTop or msDress,Tx0,Ty0,Tx1,Ty1)Then
+  If(Ty0>Fy0+0.5*Fh)and(Ty0+0.12*Fh<V)Then V:=Ty0+0.12*Fh;
+ ShoulderY:=V;
 End;
 
 { marges a ajouter (gauche, droite, bas) pour voir la tenue sur mannequin en
@@ -7633,7 +7665,7 @@ Begin
  NL:=0;NR:=0;NB:=0;
  If(G.Skin=Nil)or not(Kind in[gkDress,gkFull])Then Exit;
  If not CatBBox(S,msFace,Fx0,Fy0,Fx1,Fy1)Then Exit;
- Fy1:=ChinRow(S,Fx0,Fy0,Fx1,Fy1);
+ FaceMetrics(S,Fx0,Fy0,Fx1,Fy1);
  GL:=AllocF(G.H);GRr:=AllocF(G.H);
  RowExtents(G.Mask,G.W,G.H,GL,GRr);
  FillSmoothExtents(GL,GRr,G.H,IMax(1,G.H div 50));
@@ -7647,7 +7679,7 @@ Begin
  If Wg<8 Then Exit;
  Sc:=2.55*(Fx1-Fx0+1)/Wg;
  Cx:=(Fx0+Fx1+1)/2;
- Ty0:=Fy1+1+0.25*(Fy1-Fy0+1)-Sc*Ysh;
+ Ty0:=ShoulderY(S,Fy0,Fy1)-Sc*Ysh;
  Bottom:=Ty0+Sc*G.H;
  If Bottom>S.H Then NB:=Trunc(Bottom-S.H)+2;
  Le:=Cx+(0-Gcx)*Sc;
@@ -7841,7 +7873,7 @@ Begin
  MannequinFit:=False;YshRow:=0;RemoveOld:=False;NeckHas:=False;
  If(G.Skin<>Nil)and(Kind in[gkTop,gkDress,gkFull])and CatBBox(S,msFace,Fx0,
    Fy0,Fx1,Fy1)Then Begin
-  Fy1:=ChinRow(S,Fx0,Fy0,Fx1,Fy1);
+  FaceMetrics(S,Fx0,Fy0,Fx1,Fy1);
   Wg:=0;
   For Y:=(G.H*5)div 100 to(G.H*13)div 100 do If GRr[Y]-GL[Y]>Wg Then
     Wg:=GRr[Y]-GL[Y];
@@ -7852,7 +7884,7 @@ Begin
    Sx:=Sc;Sy:=Sc;
    Gcx:=(GL[Ysh]+GRr[Ysh])/2;
    Cx:=(Fx0+Fx1+1)/2;
-   Ty0:=Fy1+1+0.25*(Fy1-Fy0+1)-Sc*Ysh;
+   Ty0:=ShoulderY(S,Fy0,Fy1)-Sc*Ysh;
    Lam:=0;
    MannequinFit:=True;
    YshRow:=Ysh;
