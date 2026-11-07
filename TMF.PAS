@@ -11,7 +11,7 @@
      (image ou camera), apercu, mode direct (Live), enregistrement
    - Options : masque de la bouche, garder les FPS, garder les images,
      amelioration du visage, cartographie des visages, plusieurs visages
-   - Camera : API Video for Windows (Windows) ou Video4Linux2 (Linux),
+   - Camera : DirectShow (Windows) ou Video4Linux2 (Linux),
      directement, sans unite ni bibliotheque externe ; sous DOS une mire
      de test animee remplace la camera
    - Menus deroulants, boutons, interrupteurs, fenetres de dialogue
@@ -131,6 +131,7 @@ Const
  SRC_SYNTH = 0;
  SRC_VFW = 1;
  SRC_V4L2 = 2;
+ SRC_DSHOW = 3;
 
 Type
  {$IFDEF FPC}
@@ -1261,7 +1262,7 @@ Begin
 End;
 
 { ---------------------------------------------------------------------- }
-{ Decodeur JPEG integre (sequentiel 8 bits, Huffman, ITU-T T.81)           }
+{ Decodeur JPEG integre (sequentiel et progressif 8 bits, Huffman, T.81)   }
 { Free Pascal seulement ; sous Turbo Pascal : BMP et PPM uniquement.       }
 { ---------------------------------------------------------------------- }
 
@@ -1289,6 +1290,8 @@ Type
   Plane: PByteArr;
  End;
  TJBlk = Array[0..63] Of LongInt;
+ TSIArr = Array[0..134217727] Of SmallInt;
+ PSIArr = ^TSIArr;
 
 Var
  JD: PByteArr;
@@ -1306,6 +1309,10 @@ Var
  JCos: Array[0..7, 0..7] Of LongInt;
  JCosOk: Boolean;
  JFrame: Boolean;
+ JProg: Boolean;
+ JCoef: Array[0..3] Of PSIArr;
+ JSs, JSe, JAh, JAl: Integer;
+ JEobrun: LongInt;
 
 Procedure JInitCos;
 Var
@@ -1453,6 +1460,123 @@ Begin
  If Not JErr Then JIdct(Blk, Ci, Bx, By);
 End;
 
+{ Bloc d'un JPEG progressif : accumule les coefficients (ordre naturel) }
+Procedure JBlockP(Ci: Integer; Bx, By: LongInt);
+Var
+ Base, V: LongInt;
+ T, K, RS, R, S, Z, P1, M1: Integer;
+ Procedure RefineNZ(Z: Integer);
+ Begin
+  If JBit = 1 Then
+   If (JCoef[Ci]^[Z] And P1) = 0 Then
+    If JCoef[Ci]^[Z] >= 0 Then JCoef[Ci]^[Z] := JCoef[Ci]^[Z] + P1
+                          Else JCoef[Ci]^[Z] := JCoef[Ci]^[Z] + M1;
+ End;
+Begin
+ If (Bx >= JC[Ci].BW) Or (By >= JC[Ci].BH) Then Begin JErr := True; Exit; End;
+ Base := (By * JC[Ci].BW + Bx) * 64;
+ P1 := 1 Shl JAl;
+ M1 := -P1;
+ If JSs = 0 Then Begin
+  If JAh = 0 Then Begin
+   T := JDecodeHuff(JHf[0, JC[Ci].Td]);
+   If JErr Or (T > 11) Then Begin JErr := True; Exit; End;
+   JC[Ci].Pred := JC[Ci].Pred + JRecv(T);
+   JCoef[Ci]^[Base] := JC[Ci].Pred * P1;
+  End
+  Else If JBit = 1 Then JCoef[Ci]^[Base] := JCoef[Ci]^[Base] Or P1;
+  Exit;
+ End;
+ If JAh = 0 Then Begin
+  If JEobrun > 0 Then Begin Dec(JEobrun); Exit; End;
+  K := JSs;
+  While (K <= JSe) And Not JErr Do Begin
+   RS := JDecodeHuff(JHf[1, JC[Ci].Ta]);
+   If JErr Then Exit;
+   R := RS Shr 4;
+   S := RS And 15;
+   If S = 0 Then Begin
+    If R < 15 Then Begin
+     JEobrun := (LongInt(1) Shl R) - 1;
+     If R > 0 Then JEobrun := JEobrun + JBits(R);
+     Break;
+    End;
+    Inc(K, 16);
+   End
+   Else Begin
+    Inc(K, R);
+    If K > 63 Then Begin JErr := True; Exit; End;
+    JCoef[Ci]^[Base + JZig[K]] := JRecv(S) * P1;
+    Inc(K);
+   End;
+  End;
+ End
+ Else Begin
+  K := JSs;
+  If JEobrun <= 0 Then Begin
+   While (K <= JSe) And Not JErr Do Begin
+    RS := JDecodeHuff(JHf[1, JC[Ci].Ta]);
+    If JErr Then Exit;
+    R := RS Shr 4;
+    S := RS And 15;
+    V := 0;
+    If S = 0 Then Begin
+     If R < 15 Then Begin
+      JEobrun := LongInt(1) Shl R;
+      If R > 0 Then JEobrun := JEobrun + JBits(R);
+      Break;
+     End;
+    End
+    Else Begin
+     If JBit = 1 Then V := P1 Else V := M1;
+    End;
+    While K <= JSe Do Begin
+     Z := Base + JZig[K];
+     If JCoef[Ci]^[Z] <> 0 Then RefineNZ(Z)
+     Else Begin
+      If R = 0 Then Break;
+      Dec(R);
+     End;
+     Inc(K);
+    End;
+    If (V <> 0) And (K <= JSe) Then JCoef[Ci]^[Base + JZig[K]] := V;
+    Inc(K);
+   End;
+  End;
+  If (JEobrun > 0) And Not JErr Then Begin
+   While K <= JSe Do Begin
+    Z := Base + JZig[K];
+    If JCoef[Ci]^[Z] <> 0 Then RefineNZ(Z);
+    Inc(K);
+   End;
+   Dec(JEobrun);
+  End;
+ End;
+End;
+
+Procedure JBlockAny(Ci: Integer; Bx, By: LongInt);
+Begin
+ If JProg Then JBlockP(Ci, Bx, By) Else JBlock(Ci, Bx, By);
+End;
+
+{ Quantification inverse + IDCT de tous les blocs (JPEG progressif) }
+Procedure JFinishProg;
+Var
+ Ci, K: Integer;
+ Bx, By, Base: LongInt;
+ Blk: TJBlk;
+Begin
+ For Ci := 0 To JNC - 1 Do
+  If (JCoef[Ci] <> Nil) And (JC[Ci].Plane <> Nil) Then
+   For By := 0 To JC[Ci].BH - 1 Do
+    For Bx := 0 To JC[Ci].BW - 1 Do Begin
+     Base := (By * JC[Ci].BW + Bx) * 64;
+     For K := 0 To 63 Do
+      Blk[JZig[K]] := JCoef[Ci]^[Base + JZig[K]] * JQ[JC[Ci].Tq, K];
+     JIdct(Blk, Ci, Bx, By);
+    End;
+End;
+
 Procedure JRestart;
 Var
  I: Integer;
@@ -1462,6 +1586,7 @@ Begin
        (JD^[JPos + 1] >= $D0) And (JD^[JPos + 1] <= $D7)) Do Inc(JPos);
  If JPos < JSize - 1 Then Inc(JPos, 2) Else JErr := True;
  For I := 0 To 3 Do JC[I].Pred := 0;
+ JEobrun := 0;
 End;
 
 Procedure JReadScan;
@@ -1481,8 +1606,20 @@ Begin
   JC[Idx[I]].Td := (JD^[JPos + 4 + I * 2] Shr 4) And 3;
   JC[Idx[I]].Ta := JD^[JPos + 4 + I * 2] And 3;
  End;
+ JSs := JD^[JPos + 3 + Ns * 2];
+ JSe := JD^[JPos + 4 + Ns * 2];
+ JAh := JD^[JPos + 5 + Ns * 2] Shr 4;
+ JAl := JD^[JPos + 5 + Ns * 2] And 15;
+ If JProg Then Begin
+  If (JSe > 63) Or (JSs > JSe) Or (JAl > 13) Or ((JSs = 0) And (JSe <> 0)) Or
+     ((JSs > 0) And (Ns <> 1)) Then Begin
+   JErr := True;
+   Exit;
+  End;
+ End;
  Inc(JPos, Len);
  JCnt := 0;
+ JEobrun := 0;
  For I := 0 To 3 Do JC[I].Pred := 0;
  If Ns = 1 Then Begin
   Ci := Idx[0];
@@ -1493,7 +1630,7 @@ Begin
   N := 0;
   While (N < Total) And Not JErr Do Begin
    If (JRst > 0) And (N > 0) And (N Mod JRst = 0) Then JRestart;
-   JBlock(Ci, N Mod BX_, N Div BX_);
+   JBlockAny(Ci, N Mod BX_, N Div BX_);
    Inc(N);
   End;
  End
@@ -1510,7 +1647,7 @@ Begin
     Ci := Idx[I];
     For V := 0 To JC[Ci].V - 1 Do
      For H := 0 To JC[Ci].H - 1 Do
-      If Not JErr Then JBlock(Ci, Mx_ * JC[Ci].H + H, My_ * JC[Ci].V + V);
+      If Not JErr Then JBlockAny(Ci, Mx_ * JC[Ci].H + H, My_ * JC[Ci].V + V);
    End;
    Inc(N);
   End;
@@ -1552,6 +1689,11 @@ Begin
   JC[I].Plane := PByteArr(MemAlloc(JC[I].BW * 8 * JC[I].BH * 8));
   If JC[I].Plane = Nil Then Begin JErr := True; Exit; End;
   FillChar(JC[I].Plane^, JC[I].BW * 8 * JC[I].BH * 8, 128);
+  If JProg Then Begin
+   JCoef[I] := PSIArr(MemAlloc(JC[I].BW * JC[I].BH * 128));
+   If JCoef[I] = Nil Then Begin JErr := True; Exit; End;
+   FillChar(JCoef[I]^, JC[I].BW * JC[I].BH * 128, 0);
+  End;
  End;
  JFrame := True;
 End;
@@ -1673,7 +1815,9 @@ Begin
  JRst := 0;
  JOrient := 1;
  JNC := 0;
- For I := 0 To 3 Do JC[I].Plane := Nil;
+ JProg := False;
+ JEobrun := 0;
+ For I := 0 To 3 Do Begin JC[I].Plane := Nil; JCoef[I] := Nil; End;
  FillChar(JHf, SizeOf(JHf), 0);
  FillChar(JQ, SizeOf(JQ), 0);
  If Not JCosOk Then JInitCos;
@@ -1693,16 +1837,7 @@ Begin
   NextP := JPos + Len;
   Case M Of
    $C0, $C1: JReadSOF;
-   $C2: Begin
-    Err := L5('JPEG progressif non pris en charge (convertir en JPEG '+
-              'de base ou BMP)',
-              'Progressive JPEG not supported (convert to baseline '+
-              'JPEG or BMP)',
-              'Progressives JPEG nicht unterstuetzt',
-              'JPEG progresivo no admitido', 'JPEG progressivo non '+
-              'supportato');
-    JErr := True;
-   End;
+   $C2: Begin JProg := True; JReadSOF; End;
    $C3, $C5..$C7, $C9..$CB, $CD..$CF: Begin
     Err := 'JPEG ?';
     JErr := True;
@@ -1716,6 +1851,7 @@ Begin
    JPos := NextP;
   End;
  End;
+ If JFrame And JProg And (Err = '') Then JFinishProg;
  If JFrame And (Err = '') Then Begin
   If SinkBegin(JW, JHt, Img) Then Begin
    Row := PByteArr(MemAlloc(JW * 3 + 8));
@@ -1761,6 +1897,11 @@ Begin
   If JC[I].Plane <> Nil Then Begin
    FreeMem(JC[I].Plane, JC[I].BW * 8 * JC[I].BH * 8);
    JC[I].Plane := Nil;
+  End;
+ For I := 0 To 3 Do
+  If JCoef[I] <> Nil Then Begin
+   FreeMem(JCoef[I], JC[I].BW * JC[I].BH * 128);
+   JCoef[I] := Nil;
   End;
 End;
 
@@ -2464,7 +2605,7 @@ Function RawToFrame(Raw: PByteArr; RawLen, SW, SH: LongInt; Fmt: Integer;
                     BottomUp: Boolean; Var Fr: TImg): Boolean;
 Var
  X, Y, KX, KY, IX, IY, SX, SY, P, N, SR, SG, SB: LongInt;
- Stride: LongInt;
+ Stride, CW, CH, OX, OY: LongInt;
  Tmp: TImg;
  Err: String;
  Mjpg: Boolean;
@@ -2537,15 +2678,28 @@ Begin
   If RawLen < Stride * SH - 4 Then Exit;
  End;
  { nombre d'echantillons par pixel de la trame, par axe (1 a 3) }
- KX := IMax(1, IMin(3, SW Div FW));
- KY := IMax(1, IMin(3, SH Div FH));
+ { recadrage centre pour conserver les proportions de la trame }
+ CW := SW;
+ CH := SH;
+ OX := 0;
+ OY := 0;
+ If SW * FH > SH * FW Then Begin
+  CW := SH * FW Div FH;
+  OX := (SW - CW) Div 2;
+ End
+ Else If SW * FH < SH * FW Then Begin
+  CH := SW * FH Div FW;
+  OY := (SH - CH) Div 2;
+ End;
+ KX := IMax(1, IMin(3, CW Div FW));
+ KY := IMax(1, IMin(3, CH Div FH));
  For Y := 0 To FH - 1 Do
   For X := 0 To FW - 1 Do Begin
    SR := 0; SG := 0; SB := 0; N := 0;
    For IY := 0 To KY - 1 Do
     For IX := 0 To KX - 1 Do Begin
-     SX := (X * SW + ((2 * IX + 1) * SW) Div (2 * KX)) Div FW;
-     SY := (Y * SH + ((2 * IY + 1) * SH) Div (2 * KY)) Div FH;
+     SX := OX + (X * CW + ((2 * IX + 1) * CW) Div (2 * KX)) Div FW;
+     SY := OY + (Y * CH + ((2 * IY + 1) * CH) Div (2 * KY)) Div FH;
      If SX >= SW Then SX := SW - 1;
      If SY >= SH Then SY := SH - 1;
      Pix(SX, SY, R, G, B);
@@ -2654,7 +2808,8 @@ Begin
 End;
 
 {$IFDEF WINDOWS}
-{ ---- Windows : Video for Windows (avicap32.dll) ---- }
+{ ---- Windows : DirectShow (cameras reelles et virtuelles) puis Video for
+  Windows (avicap32.dll) en secours ---- }
 Const
  WM_CAP_START = $0400;
  WM_CAP_DRIVER_CONNECT = WM_CAP_START + 10;
@@ -2730,7 +2885,7 @@ Begin
  CamCBOk := True;
 End;
 
-Procedure CamEnumerate;
+Procedure VfwEnumerate;
 Var
  I: Integer;
  NameBuf, VerBuf: Array[0..127] Of Char;
@@ -2746,12 +2901,12 @@ Begin
    End;
 End;
 
-Function CamOpen(Idx: Integer): Boolean;
+Function VfwOpen(Idx: Integer): Boolean;
 Var
  Bih: TBmpInfoHdr;
  R: PtrInt;
 Begin
- CamOpen := False;
+ VfwOpen := False;
  CapWnd := capCreateCaptureWindowA('TMF', WS_POPUP, 0, 0, FW, FH, 0, 0);
  If CapWnd = 0 Then Exit;
  If SendMessageA(CapWnd, WM_CAP_DRIVER_CONNECT, Idx, 0) = 0 Then Begin
@@ -2798,10 +2953,10 @@ Begin
   CapWnd := 0;
   Exit;
  End;
- CamOpen := True;
+ VfwOpen := True;
 End;
 
-Procedure CamClose;
+Procedure VfwClose;
 Begin
  If CapWnd <> 0 Then Begin
   SendMessageA(CapWnd, WM_CAP_SET_CALLBACK_FRAME, 0, 0);
@@ -2814,15 +2969,439 @@ Begin
  CamRawCap := 0;
 End;
 
-Function CamGrabReal(Var Fr: TImg): Boolean;
+Function VfwGrab(Var Fr: TImg): Boolean;
 Begin
- CamGrabReal := False;
+ VfwGrab := False;
  If CapWnd = 0 Then Exit;
  CamCBOk := False;
  SendMessageA(CapWnd, WM_CAP_GRAB_FRAME_NOSTOP, 0, 0);
  If CamCBOk Then
-  CamGrabReal := RawToFrame(CamRaw, CamRawLen, CamW, CamH, CamFmt,
-                            CamBottomUp, Fr);
+  VfwGrab := RawToFrame(CamRaw, CamRawLen, CamW, CamH, CamFmt,
+                        CamBottomUp, Fr);
+End;
+
+{ ---- DirectShow par appels COM directs (tables virtuelles) ---- }
+Const
+ CLSID_SystemDeviceEnum: TGUID = (D1: $62BE5D10; D2: $60EB; D3: $11D0;
+  D4: ($BD, $3B, $00, $A0, $C9, $11, $CE, $86));
+ CLSID_VideoInputDeviceCategory: TGUID = (D1: $860BB310; D2: $5D01; D3: $11D0;
+  D4: ($BD, $3B, $00, $A0, $C9, $11, $CE, $86));
+ IID_ICreateDevEnum: TGUID = (D1: $29840822; D2: $5B84; D3: $11D0;
+  D4: ($BD, $3B, $00, $A0, $C9, $11, $CE, $86));
+ IID_IPropertyBag: TGUID = (D1: $55272A00; D2: $42CB; D3: $11CE;
+  D4: ($81, $35, $00, $AA, $00, $4B, $3F, $73));
+ IID_IBaseFilter: TGUID = (D1: $56A86895; D2: $0AD4; D3: $11CE;
+  D4: ($B0, $3A, $00, $20, $AF, $0B, $A7, $70));
+ CLSID_FilterGraph: TGUID = (D1: $E436EBB3; D2: $524F; D3: $11CE;
+  D4: ($9F, $53, $00, $20, $AF, $0B, $A7, $70));
+ IID_IGraphBuilder: TGUID = (D1: $56A868A9; D2: $0AD4; D3: $11CE;
+  D4: ($B0, $3A, $00, $20, $AF, $0B, $A7, $70));
+ IID_IMediaControl: TGUID = (D1: $56A868B1; D2: $0AD4; D3: $11CE;
+  D4: ($B0, $3A, $00, $20, $AF, $0B, $A7, $70));
+ CLSID_CaptureGraphBuilder2: TGUID = (D1: $BF87B6E1; D2: $8C27; D3: $11D0;
+  D4: ($B3, $F0, $00, $AA, $00, $37, $61, $C5));
+ IID_ICaptureGraphBuilder2: TGUID = (D1: $93E5A4E0; D2: $2D50; D3: $11D2;
+  D4: ($AB, $FA, $00, $A0, $C9, $C6, $E3, $8D));
+ CLSID_SampleGrabber: TGUID = (D1: $C1F400A0; D2: $3F08; D3: $11D3;
+  D4: ($9F, $0B, $00, $60, $08, $03, $9E, $37));
+ CLSID_NullRenderer: TGUID = (D1: $C1F400A4; D2: $3F08; D3: $11D3;
+  D4: ($9F, $0B, $00, $60, $08, $03, $9E, $37));
+ IID_ISampleGrabber: TGUID = (D1: $6B652FFF; D2: $11FE; D3: $4FCE;
+  D4: ($92, $AD, $02, $66, $B5, $D7, $C7, $8F));
+ PIN_CATEGORY_CAPTURE: TGUID = (D1: $FB6C4281; D2: $0353; D3: $11D1;
+  D4: ($90, $5F, $00, $00, $C0, $CC, $16, $BA));
+ PIN_CATEGORY_PREVIEW: TGUID = (D1: $FB6C4282; D2: $0353; D3: $11D1;
+  D4: ($90, $5F, $00, $00, $C0, $CC, $16, $BA));
+ MEDIATYPE_Video: TGUID = (D1: $73646976; D2: $0000; D3: $0010;
+  D4: ($80, $00, $00, $AA, $00, $38, $9B, $71));
+ MEDIASUBTYPE_RGB24: TGUID = (D1: $E436EB7D; D2: $524F; D3: $11CE;
+  D4: ($9F, $53, $00, $20, $AF, $0B, $A7, $70));
+ FORMAT_VideoInfo2_D1 = $F72A76A0;
+
+Type
+ TDsVT = Array[0..63] Of Pointer;
+ PDsVT = ^TDsVT;
+ PPDsVT = ^PDsVT;
+ TDsF0 = Function(S: Pointer): LongInt; stdcall;
+ TDsF1 = Function(S: Pointer; A: PtrUInt): LongInt; stdcall;
+ TDsF2 = Function(S: Pointer; A, B: PtrUInt): LongInt; stdcall;
+ TDsF3 = Function(S: Pointer; A, B, C: PtrUInt): LongInt; stdcall;
+ TDsF4 = Function(S: Pointer; A, B, C, D: PtrUInt): LongInt; stdcall;
+ TDsF5 = Function(S: Pointer; A, B, C, D, E: PtrUInt): LongInt; stdcall;
+ TDsVariant = Record
+  Vt: Word;
+  R1, R2, R3: Word;
+  P: Pointer;
+  P2: Pointer;
+ End;
+ TDsMediaType = Record
+  Major, Sub: TGUID;
+  FixedSize, TemporalComp: LongInt;
+  SampleSize: LongWord;
+  FormatType: TGUID;
+  Unk: Pointer;
+  CbFormat: LongWord;
+  PbFormat: Pointer;
+ End;
+
+Function CoInitialize(Res: Pointer): LongInt; stdcall;
+  external 'ole32.dll' name 'CoInitialize';
+Function CoCreateInstance(Clsid: Pointer; Outer: Pointer; Ctx: LongWord;
+  Iid: Pointer; Obj: Pointer): LongInt; stdcall;
+  external 'ole32.dll' name 'CoCreateInstance';
+Procedure CoTaskMemFree(P: Pointer); stdcall;
+  external 'ole32.dll' name 'CoTaskMemFree';
+Function CreateBindCtx(Res: LongWord; Var Ctx: Pointer): LongInt; stdcall;
+  external 'ole32.dll' name 'CreateBindCtx';
+Function RegOpenKeyExA(Root: PtrUInt; Sub: PChar; Opt, Sam: LongWord;
+  Var Res: PtrUInt): LongInt; stdcall;
+  external 'advapi32.dll' name 'RegOpenKeyExA';
+Function RegQueryValueExA(Key: PtrUInt; Name: PChar; Res: Pointer;
+  Typ: Pointer; Data: Pointer; Size: Pointer): LongInt; stdcall;
+  external 'advapi32.dll' name 'RegQueryValueExA';
+Function RegCloseKey(Key: PtrUInt): LongInt; stdcall;
+  external 'advapi32.dll' name 'RegCloseKey';
+Procedure SysFreeString(P: Pointer); stdcall;
+  external 'oleaut32.dll' name 'SysFreeString';
+
+Var
+ DsGraph, DsCgb, DsSrc, DsGrabF, DsNullF, DsGrab, DsCtl: Pointer;
+ DsComOk: Boolean;
+ DsNum: Integer;
+
+Function DsM(O: Pointer; N: Integer): Pointer;
+Begin
+ DsM := PPDsVT(O)^^[N];
+End;
+
+Procedure DsRel(Var O: Pointer);
+Begin
+ If O <> Nil Then TDsF0(DsM(O, 2))(O);
+ O := Nil;
+End;
+
+Function DsMake(Const Clsid, Iid: TGUID; Var Obj: Pointer): Boolean;
+Begin
+ Obj := Nil;
+ DsMake := CoCreateInstance(@Clsid, Nil, 1, @Iid, @Obj) = 0;
+ If Not DsMake Then Obj := Nil;
+End;
+
+Procedure DsComInit;
+Begin
+ If Not DsComOk Then Begin
+  CoInitialize(Nil);
+  DsComOk := True;
+ End;
+End;
+
+{ Valeur texte de HKEY_LOCAL_MACHINE\Sub\Name (chaine vide si absente) }
+Function DsRegStr(Const Sub, Name: String): String;
+Var
+ H: PtrUInt;
+ Buf: Array[0..255] Of Char;
+ Sz: LongWord;
+ P: Integer;
+ R, ZS, ZN: String;
+Begin
+ DsRegStr := '';
+ ZS := Sub + #0;
+ ZN := Name + #0;
+ If RegOpenKeyExA($80000002, PChar(@ZS[1]), 0, $20019, H) <> 0 Then Exit;
+ FillChar(Buf, SizeOf(Buf), 0);
+ Sz := 255;
+ R := '';
+ If RegQueryValueExA(H, PChar(@ZN[1]), Nil, Nil, @Buf, @Sz) = 0 Then
+  R := PCharToStr(@Buf);
+ RegCloseKey(H);
+ { "@oem12.inf,%desc%;Nom reel" : on garde ce qui suit le dernier ';' }
+ If (Length(R) > 0) And (R[1] = '@') Then Begin
+  P := Length(R);
+  While (P > 0) And (R[P] <> ';') Do Dec(P);
+  If P > 0 Then R := Copy(R, P + 1, 255);
+ End;
+ DsRegStr := R;
+End;
+
+{ Nom convivial d'un peripherique a partir de son nom d'affichage :
+  '@device:sw:{categorie}\{guid}'  -> HKLM\...\CLSID\{categorie}\Instance
+  '@device:pnp:\?\bus#materiel#instance#{...}' -> HKLM\...\Enum }
+Function DsDisplayToName(Const D: String): String;
+Var
+ P, Q: Integer;
+ Sub, Bus, Hw, Inst, R: String;
+Begin
+ DsDisplayToName := '';
+ If Pos('@device:sw:', D) = 1 Then Begin
+  P := Pos('\', D);
+  If P = 0 Then Exit;
+  Sub := 'SOFTWARE\Classes\CLSID\' + Copy(D, 12, P - 12) + '\Instance\' +
+         Copy(D, P + 1, 80);
+  DsDisplayToName := DsRegStr(Sub, 'FriendlyName');
+ End
+ Else If Pos('@device:pnp:', D) = 1 Then Begin
+  P := Pos('?\', D);
+  If P = 0 Then Exit;
+  R := Copy(D, P + 2, 250);
+  Q := Pos('#', R);
+  If Q = 0 Then Exit;
+  Bus := Copy(R, 1, Q - 1);
+  Delete(R, 1, Q);
+  Q := Pos('#', R);
+  If Q = 0 Then Exit;
+  Hw := Copy(R, 1, Q - 1);
+  Delete(R, 1, Q);
+  Q := Pos('#', R);
+  If Q = 0 Then Exit;
+  Inst := Copy(R, 1, Q - 1);
+  Sub := 'SYSTEM\CurrentControlSet\Enum\' + Bus + '\' + Hw + '\' + Inst;
+  R := DsRegStr(Sub, 'FriendlyName');
+  If R = '' Then R := DsRegStr(Sub, 'DeviceDesc');
+  DsDisplayToName := R;
+ End;
+End;
+
+{ Enumere les peripheriques video DirectShow. Si Want >= 0, retourne le filtre
+  (IBaseFilter) du peripherique numero Want dans Flt ; sinon ajoute les noms
+  a la liste des cameras (Kind = SRC_DSHOW, Idx = numero). }
+Procedure DsScan(Want: Integer; Var Flt: Pointer);
+Var
+ DevEnum, EnumM, Mon, Bag, Bind, Disp: Pointer;
+ V: TDsVariant;
+ N: Integer;
+ Nm: String;
+ Wn: WideString;
+ Got: Boolean;
+Begin
+ Flt := Nil;
+ DsComInit;
+ DevEnum := Nil;
+ EnumM := Nil;
+ If Not DsMake(CLSID_SystemDeviceEnum, IID_ICreateDevEnum, DevEnum) Then Exit;
+ { CreateClassEnumerator : S_FALSE (1) et EnumM = Nil s'il n'y a aucun
+   peripherique }
+ If TDsF3(DsM(DevEnum, 3))(DevEnum, PtrUInt(@CLSID_VideoInputDeviceCategory),
+                           PtrUInt(@EnumM), 0) = 0 Then Begin
+  If EnumM <> Nil Then Begin
+   N := 0;
+   Mon := Nil;
+   While (N < 32) And (TDsF3(DsM(EnumM, 3))(EnumM, 1, PtrUInt(@Mon), 0) = 0)
+         And (Mon <> Nil) Do Begin
+    If Want >= 0 Then Begin
+     If N = Want Then Begin
+      { BindToObject (methode 8) }
+      If TDsF4(DsM(Mon, 8))(Mon, 0, 0, PtrUInt(@IID_IBaseFilter),
+                            PtrUInt(@Flt)) <> 0 Then Flt := Nil;
+     End;
+    End
+    Else If NCams < MAX_CAMS - 1 Then Begin
+     Bag := Nil;
+     Nm := '';
+     { BindToStorage (methode 9) vers IPropertyBag }
+     If TDsF4(DsM(Mon, 9))(Mon, 0, 0, PtrUInt(@IID_IPropertyBag),
+                           PtrUInt(@Bag)) = 0 Then Begin
+      FillChar(V, SizeOf(V), 0);
+      V.Vt := 8;  { VT_BSTR }
+      Wn := 'FriendlyName';
+      Got := TDsF3(DsM(Bag, 3))(Bag, PtrUInt(PWideChar(Wn)), PtrUInt(@V),
+                                0) = 0;
+      If Got And (V.Vt = 8) And (V.P <> Nil) Then Begin
+       Nm := String(WideString(PWideChar(V.P)));
+       SysFreeString(V.P);
+      End;
+      DsRel(Bag);
+     End;
+     If Nm = '' Then Begin
+      { le sac de proprietes n'est pas toujours disponible : on passe par le
+        nom d'affichage du moniker (GetDisplayName, methode 20) }
+      Bind := Nil;
+      CreateBindCtx(0, Bind);
+      Disp := Nil;
+      If Bind <> Nil Then Begin
+       If TDsF3(DsM(Mon, 20))(Mon, PtrUInt(Bind), 0, PtrUInt(@Disp)) = 0 Then
+        If Disp <> Nil Then Begin
+         Nm := DsDisplayToName(String(WideString(PWideChar(Disp))));
+         CoTaskMemFree(Disp);
+        End;
+       DsRel(Bind);
+      End;
+     End;
+     If Nm = '' Then Nm := 'Camera ' + IStr(N + 1);
+     Cams[NCams].Kind := SRC_DSHOW;
+     Cams[NCams].Idx := N;
+     Cams[NCams].Name := Nm;
+     Inc(NCams);
+    End;
+    DsRel(Mon);
+    If (Want >= 0) And (Flt <> Nil) Then Break;
+    Inc(N);
+    Mon := Nil;
+   End;
+   DsRel(Mon);
+   DsRel(EnumM);
+  End;
+ End;
+ DsRel(DevEnum);
+End;
+
+Procedure DsClose;
+Begin
+ If DsCtl <> Nil Then TDsF0(DsM(DsCtl, 9))(DsCtl);  { Stop }
+ DsRel(DsCtl);
+ DsRel(DsGrab);
+ DsRel(DsGrabF);
+ DsRel(DsNullF);
+ DsRel(DsSrc);
+ DsRel(DsCgb);
+ DsRel(DsGraph);
+ If CamRaw <> Nil Then FreeMem(CamRaw, CamRawCap);
+ CamRaw := Nil;
+ CamRawCap := 0;
+End;
+
+{ Copie l'image courante du Sample Grabber (RVB 24 bits) dans CamRaw }
+Function DsFetch(Var Sz: LongInt): Boolean;
+Begin
+ DsFetch := False;
+ If DsGrab = Nil Then Exit;
+ Sz := 0;
+ { GetCurrentBuffer (methode 7) : taille puis donnees }
+ If TDsF2(DsM(DsGrab, 7))(DsGrab, PtrUInt(@Sz), 0) <> 0 Then Exit;
+ If Sz <= 0 Then Exit;
+ If (CamRaw = Nil) Or (CamRawCap < Sz) Then Begin
+  If CamRaw <> Nil Then FreeMem(CamRaw, CamRawCap);
+  CamRawCap := Sz + 4096;
+  CamRaw := PByteArr(MemAlloc(CamRawCap));
+  If CamRaw = Nil Then Begin CamRawCap := 0; Exit; End;
+ End;
+ DsFetch := TDsF2(DsM(DsGrab, 7))(DsGrab, PtrUInt(@Sz),
+                                  PtrUInt(CamRaw)) = 0;
+End;
+
+Function DsOpen(Idx: Integer): Boolean;
+Var
+ Mt: TDsMediaType;
+ Hr, Sz, T0, Off: LongInt;
+ Bh: PByteArr;
+ Ok: Boolean;
+Begin
+ DsOpen := False;
+ DsGraph := Nil; DsCgb := Nil; DsSrc := Nil; DsGrabF := Nil; DsNullF := Nil;
+ DsGrab := Nil; DsCtl := Nil;
+ DsComInit;
+ DsScan(Idx, DsSrc);
+ If DsSrc = Nil Then Exit;
+ Ok := DsMake(CLSID_FilterGraph, IID_IGraphBuilder, DsGraph) And
+       DsMake(CLSID_CaptureGraphBuilder2, IID_ICaptureGraphBuilder2, DsCgb) And
+       DsMake(CLSID_SampleGrabber, IID_IBaseFilter, DsGrabF) And
+       DsMake(CLSID_NullRenderer, IID_IBaseFilter, DsNullF);
+ If Ok Then Begin
+  { SetFiltergraph (3) ; AddFilter (3) du graphe }
+  TDsF1(DsM(DsCgb, 3))(DsCgb, PtrUInt(DsGraph));
+  Ok := TDsF2(DsM(DsGraph, 3))(DsGraph, PtrUInt(DsSrc),
+                               PtrUInt(PWideChar(WideString('Camera')))) >= 0;
+ End;
+ If Ok Then Begin
+  { QueryInterface (0) de ISampleGrabber }
+  Ok := TDsF2(DsM(DsGrabF, 0))(DsGrabF, PtrUInt(@IID_ISampleGrabber),
+                               PtrUInt(@DsGrab)) = 0;
+ End;
+ If Ok Then Begin
+  FillChar(Mt, SizeOf(Mt), 0);
+  Mt.Major := MEDIATYPE_Video;
+  Mt.Sub := MEDIASUBTYPE_RGB24;
+  { SetMediaType (4) ; SetBufferSamples (6) }
+  TDsF1(DsM(DsGrab, 4))(DsGrab, PtrUInt(@Mt));
+  TDsF1(DsM(DsGrab, 6))(DsGrab, 1);
+  TDsF2(DsM(DsGraph, 3))(DsGraph, PtrUInt(DsGrabF),
+                         PtrUInt(PWideChar(WideString('Grabber'))));
+  TDsF2(DsM(DsGraph, 3))(DsGraph, PtrUInt(DsNullF),
+                         PtrUInt(PWideChar(WideString('Null'))));
+  { RenderStream (7) : capture, puis apercu, puis sans categorie }
+  Hr := TDsF5(DsM(DsCgb, 7))(DsCgb, PtrUInt(@PIN_CATEGORY_CAPTURE),
+         PtrUInt(@MEDIATYPE_Video), PtrUInt(DsSrc), PtrUInt(DsGrabF),
+         PtrUInt(DsNullF));
+  If Hr < 0 Then
+   Hr := TDsF5(DsM(DsCgb, 7))(DsCgb, PtrUInt(@PIN_CATEGORY_PREVIEW),
+          PtrUInt(@MEDIATYPE_Video), PtrUInt(DsSrc), PtrUInt(DsGrabF),
+          PtrUInt(DsNullF));
+  If Hr < 0 Then
+   Hr := TDsF5(DsM(DsCgb, 7))(DsCgb, 0, PtrUInt(@MEDIATYPE_Video),
+          PtrUInt(DsSrc), PtrUInt(DsGrabF), PtrUInt(DsNullF));
+  Ok := Hr >= 0;
+ End;
+ If Ok Then Begin
+  { format reellement negocie : GetConnectedMediaType (5) }
+  FillChar(Mt, SizeOf(Mt), 0);
+  Ok := TDsF1(DsM(DsGrab, 5))(DsGrab, PtrUInt(@Mt)) = 0;
+  If Ok Then Begin
+   If Mt.FormatType.D1 = FORMAT_VideoInfo2_D1 Then Off := 72 Else Off := 48;
+   Ok := (Mt.PbFormat <> Nil) And (LongInt(Mt.CbFormat) >= Off + 40);
+   If Ok Then Begin
+    Bh := PByteArr(Mt.PbFormat);
+    CamW := PLongInt(@Bh^[Off + 4])^;
+    CamH := PLongInt(@Bh^[Off + 8])^;
+    CamBottomUp := CamH > 0;
+    If CamH < 0 Then CamH := -CamH;
+    Ok := (CamW > 0) And (CamH > 0);
+   End;
+   If Mt.PbFormat <> Nil Then CoTaskMemFree(Mt.PbFormat);
+   If Mt.Unk <> Nil Then DsRel(Mt.Unk);
+  End;
+ End;
+ If Ok Then Begin
+  { IMediaControl : QueryInterface (0), Run (7) }
+  Ok := TDsF2(DsM(DsGraph, 0))(DsGraph, PtrUInt(@IID_IMediaControl),
+                               PtrUInt(@DsCtl)) = 0;
+  If Ok Then Ok := TDsF0(DsM(DsCtl, 7))(DsCtl) >= 0;
+ End;
+ If Ok Then Begin
+  { attend la premiere image (3 s au maximum) }
+  T0 := NowMs;
+  Ok := False;
+  Repeat
+   If DsFetch(Sz) Then Ok := True
+   Else Delay(40);
+  Until Ok Or (Abs(NowMs - T0) > 3000);
+ End;
+ If Not Ok Then DsClose;
+ DsOpen := Ok;
+End;
+
+Function DsGrabFrame(Var Fr: TImg): Boolean;
+Var
+ Sz: LongInt;
+Begin
+ DsGrabFrame := False;
+ If DsFetch(Sz) Then
+  DsGrabFrame := RawToFrame(CamRaw, Sz, CamW, CamH, FMT_BGR24, CamBottomUp,
+                            Fr);
+End;
+
+Procedure CamEnumerate;
+Var
+ Dummy: Pointer;
+Begin
+ NCams := 0;
+ DsScan(-1, Dummy);
+ If NCams = 0 Then VfwEnumerate;
+End;
+
+Function CamOpen(Idx: Integer): Boolean;
+Begin
+ If CamKind = SRC_DSHOW Then CamOpen := DsOpen(Idx)
+ Else CamOpen := VfwOpen(Idx);
+End;
+
+Procedure CamClose;
+Begin
+ If CamKind = SRC_DSHOW Then DsClose Else VfwClose;
+End;
+
+Function CamGrabReal(Var Fr: TImg): Boolean;
+Begin
+ If CamKind = SRC_DSHOW Then CamGrabReal := DsGrabFrame(Fr)
+ Else CamGrabReal := VfwGrab(Fr);
 End;
 {$ENDIF}
 
@@ -5199,11 +5778,11 @@ Begin
   AddWid(X0, 196 + I * 20, X0 + 260, 212 + I * 20, Tg[I]);
  End;
  DrawButton(X0, 326, X0 + 134, 348,
-   L5('Démarrer', 'Start', 'Start', 'Iniciar', 'Avvia'), TargetOk);
+   L5('Démarrer', 'Start', 'Start', 'Iniciar', 'Avvia'), True);
  AddWid(X0, 326, X0 + 134, 348, CM_START);
  DrawButton(X0 + 154, 326, X0 + 288, 348,
    L5('Aperçu', 'Preview', 'Vorschau', 'Vista previa', 'Anteprima'),
-   TargetOk);
+   True);
  AddWid(X0 + 154, 326, X0 + 288, 348, CM_PREVIEW);
  If Live Then
   LiveCap := L5('Arrêter', 'Stop', 'Stopp', 'Detener', 'Ferma')
@@ -5923,9 +6502,52 @@ End;
 
 { Liste de choix : les cameras }
 Function CamDlg(Var Sel: Integer): Boolean;
+Const
+ PVW = 192;
+ PVH = 144;
 Var
- W, H, I, K, BY: Integer;
- Done, Ok: Boolean;
+ W, H, I, K, BY, Orig, PrevSel, PX, PY: Integer;
+ Done, Ok, WasOpen, PrevOk, Shown: Boolean;
+ SelT, LastT, T: LongInt;
+ Th: TImg;
+ Procedure PvBox(Const Msg: String);
+ Begin
+  HideMouse;
+  SetFillStyle(SolidFill, Black);
+  Bar(PX, PY, PX + PVW - 1, PY + PVH - 1);
+  SetColor(LightGray);
+  DS(PX + 10, PY + PVH Div 2 - 4, Msg);
+  ShowMouse;
+ End;
+ Procedure PvFrame;
+ Begin
+  If Not CamGrab(Cur) Then Exit;
+  MakeThumb(Cur, Th, PVW, PVH);
+  If Th.D = Nil Then Exit;
+  HideMouse;
+  If (Th.W < PVW) Or (Th.H < PVH) Then Begin
+   SetFillStyle(SolidFill, Black);
+   Bar(PX, PY, PX + PVW - 1, PY + PVH - 1);
+  End;
+  BlitImg(Th, PX + (PVW - Th.W) Div 2, PY + (PVH - Th.H) Div 2);
+  ShowMouse;
+  Shown := True;
+ End;
+ Procedure PvStart;
+ Begin
+  CamStop;
+  Shown := False;
+  PvBox(L5('Ouverture de la camera...', 'Opening camera...',
+           'Kamera wird geoeffnet...', 'Abriendo la camara...',
+           'Apertura fotocamera...'));
+  PrevOk := CamStart(Sel);
+  PrevSel := Sel;
+  LastT := NowMs;
+  If Not PrevOk Then
+   PvBox(L5('Camera indisponible.', 'Camera unavailable.',
+            'Kamera nicht verfuegbar.', 'Camara no disponible.',
+            'Fotocamera non disponibile.'));
+ End;
  Procedure DrawL;
  Var
   R: Integer;
@@ -5946,7 +6568,16 @@ Var
  End;
 Begin
  W := 520;
- H := 100 + NCams * 14;
+ H := 100 + NCams * 14 + PVH + 12;
+ Orig := Sel;
+ WasOpen := CamOpened;
+ If WasOpen Then CamStop;
+ PrevSel := -1;
+ PrevOk := False;
+ Th.D := Nil;
+ Th.A := Nil;
+ Th.W := 0;
+ Th.H := 0;
  HideMouse;
  DlgFrame(W, H, L5('Choisir la caméra', 'Select camera', 'Kamera wählen',
                    'Elegir cámara', 'Scegli fotocamera'));
@@ -5956,21 +6587,39 @@ Begin
            L5('Annuler', 'Cancel', 'Abbruch', 'Cancelar', 'Annulla'));
  ShowMouse;
  DrawL;
+ PX := DlgX1 + 14;
+ PY := DlgY1 + 30 + NCams * 14 + 10;
+ SelT := NowMs;
+ PvBox('');
  Done := False;
  Ok := False;
  WaitMouseUp;
  Repeat
   PollMouse;
   K := GetKeyEx;
+  { apercu : ouverture apres un court delai de stabilite de la selection,
+    puis rafraichissement environ 10 fois par seconde }
+  T := NowMs;
+  If PrevSel <> Sel Then Begin
+   If Abs(T - SelT) > 250 Then PvStart;
+  End
+  Else If PrevOk And (Abs(T - LastT) >= 90) Then Begin
+   PvFrame;
+   LastT := NowMs;
+  End;
   If K = K_ESC Then Done := True
   Else If K = K_ENTER Then Begin Done := True; Ok := True; End
-  Else If (K = K_UP) And (Sel > 0) Then Begin Dec(Sel); DrawL; End
-  Else If (K = K_DOWN) And (Sel < NCams - 1) Then Begin Inc(Sel); DrawL; End;
+  Else If (K = K_UP) And (Sel > 0) Then Begin Dec(Sel); DrawL; SelT := NowMs; End
+  Else If (K = K_DOWN) And (Sel < NCams - 1) Then Begin
+   Inc(Sel); DrawL; SelT := NowMs;
+  End;
   If MouseClicked Then Begin
    If InBox(DlgX1 + 12, DlgY1 + 32, DlgX2 - 12, DlgY1 + 32 + NCams * 14) Then
    Begin
     I := (MY_ - DlgY1 - 32) Div 14;
-    If (I >= 0) And (I < NCams) Then Begin Sel := I; DrawL; End;
+    If (I >= 0) And (I < NCams) And (I <> Sel) Then Begin
+     Sel := I; DrawL; SelT := NowMs;
+    End;
    End
    Else If InBox(DlgX1 + W Div 2 - 100, BY, DlgX1 + W Div 2 - 10, BY + 22)
    Then Begin Done := True; Ok := True; End
@@ -5980,6 +6629,10 @@ Begin
   Delay(10);
  Until Done;
  WaitMouseUp;
+ CamStop;
+ ImgFree(Th);
+ { la camera du direct (si elle tournait) est rouverte telle qu'elle etait }
+ If WasOpen Then CamStart(Orig);
  CamDlg := Ok;
 End;
 
@@ -6301,15 +6954,42 @@ End;
   trame }
 Function ProcessTarget: Boolean;
 Var
- Work: TImg;
- Mir: Boolean;
+ Work, Snap: TImg;
+ SrcP: ^TImg;
+ Mir, HaveSnap, SnapOk: Boolean;
+ I: Integer;
 Begin
  ProcessTarget := False;
- If Not TargetOk Then Begin
-  Info(L5('Choisissez d''abord une cible.', 'Select a target first.',
-          'Zuerst ein Ziel wählen.', 'Elija primero un objetivo.',
-          'Scegli prima un bersaglio.'));
-  Exit;
+ HaveSnap := False;
+ If TargetOk Then SrcP := @TargetImg
+ Else Begin
+  { pas d'image cible : on traite une image prise avec la camera choisie }
+  Snap.D := Nil; Snap.A := Nil; Snap.W := 0; Snap.H := 0;
+  SnapOk := False;
+  If ImgNew(Snap, FW, FH, False) Then Begin
+   Info(L5('Capture d''une image de la caméra...',
+           'Capturing a camera image...', 'Kamerabild wird aufgenommen...',
+           'Capturando una imagen de la cámara...',
+           'Acquisizione di un''immagine dalla fotocamera...'));
+   If CamStart(CurCam) Then Begin
+    For I := 1 To 8 Do Begin
+     SnapOk := CamGrab(Snap);
+     If Not SnapOk Then Delay(60);
+    End;
+    CamStop;
+   End;
+  End;
+  If Not SnapOk Then Begin
+   ImgFree(Snap);
+   Info(L5('Choisissez une cible ou une caméra disponible.',
+           'Select a target or an available camera.',
+           'Ziel oder verfügbare Kamera wählen.',
+           'Elija un objetivo o una cámara disponible.',
+           'Scegli un bersaglio o una fotocamera disponibile.'));
+   Exit;
+  End;
+  SrcP := @Snap;
+  HaveSnap := True;
  End;
  If Not Slots[CurSlot].Ok Then
   Info(L5('Aucun visage source : l''image reste inchangée.',
@@ -6317,15 +6997,17 @@ Begin
           'Kein Quellgesicht: Bild bleibt unverändert.',
           'Sin rostro de origen: la imagen no cambia.',
           'Nessun volto di origine: immagine invariata.'));
- If Not ImgNew(Work, TargetImg.W, TargetImg.H, False) Then Begin
+ If Not ImgNew(Work, SrcP^.W, SrcP^.H, False) Then Begin
+  If HaveSnap Then ImgFree(Snap);
   Info('Memoire / Memory');
   Exit;
  End;
- ImgCopy(TargetImg, Work);
+ ImgCopy(SrcP^, Work);
+ If HaveSnap Then ImgFree(Snap);
  TrackReset;
  SkinReset;
  Mir := OptMirror;
- OptMirror := False;
+ If Not HaveSnap Then OptMirror := False;
  ProcessFrame(Work);
  OptMirror := Mir;
  If FaceCount = 0 Then
@@ -7057,7 +7739,7 @@ End;
 Var
  I: Integer;
  Arg: String;
- Dummy: LongInt;
+ Dummy: Boolean;
 
 BEGIN
  DetectLanguage;
