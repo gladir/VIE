@@ -28,6 +28,10 @@ Voici la liste des différents fichiers proposés dans VIE :
      <td>Cette commande permet de demander une classification d'un texte.</td>
   </tr>
   <tr>
+     <td><b>CROSSGEN.PAS</b></td>
+     <td>Cette commande permet de générer une grille de mots croisés à partir d'un fichier de mots (<code>MOT;indice</code>), avec de nombreuses options (taille, longueur des mots, graine, sortie TXT, HTML ou CSV, grille solution,...).</td>
+  </tr>
+  <tr>
      <td><b>DETECLNG.PAS</b></td>
      <td>Cette commande permet de détecter le langage humain (français, anglais,...) dans lequel un  texte est écrit.</td>
   </tr>
