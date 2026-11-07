@@ -51,34 +51,33 @@ Uses {$IFDEF FPC}
 Const
  VERSION_STR = '1.00';
 
- { Taille de la trame de travail (la camera et la cible y sont ramenees) }
- {$IFDEF FPC}
- FW = 320;
- FH = 240;
- T_IPD = 64;      { ecart entre les yeux dans le gabarit }
- {$ELSE}
+ { Taille de la trame de travail (la camera et la cible y sont ramenees).
+   Sous Free Pascal ces valeurs sont des variables (voir SetFrameSize) :
+   320 x 240 sur un ecran 640 x 480, 640 x 480 sur un grand ecran
+   (-maxscreen). Sous Turbo Pascal, ce sont des constantes. }
+ {$IFNDEF FPC}
  FW = 160;
  FH = 120;
- T_IPD = 32;
- {$ENDIF}
- AMAX = 160;            { cote maximal de la grille de detection }
-
- { Gabarit canonique du visage source }
+ T_IPD = 32;           { ecart entre les yeux dans le gabarit }
  T_CX = T_IPD * 7 Div 4;   { milieu des yeux dans le gabarit }
  T_CY = T_IPD * 3 Div 2;
  T_W = T_IPD * 7 Div 2;
  T_H = T_IPD * 4;
-
- { Disposition de l'ecran (640 x 480) }
- PREV_X = 8;
- PREV_Y = 28;
- PREV_W = 320;
+ PREV_W = 320;         { zone d'apercu a l'ecran }
  PREV_H = 240;
- MENU_H = 20;
- STATUS_H = 18;
  PANEL_X = 336;
  UI_W = 640;
  UI_H = 480;
+ CamReqW = 640;        { definition demandee a la camera }
+ CamReqH = 480;
+ {$ENDIF}
+ AMAX = 160;            { cote maximal de la grille de detection }
+
+ { Disposition de l'ecran }
+ PREV_X = 8;
+ PREV_Y = 28;
+ MENU_H = 20;
+ STATUS_H = 18;
 
  MAX_FACES = 4;
  N_SLOTS = 4;
@@ -198,8 +197,21 @@ Type
  {$ELSE}
  TShadowEl = Integer;
  {$ENDIF}
+ {$IFDEF FPC}
+ TShadowArr = Array[0..16777215] Of TShadowEl;
+ {$ELSE}
  TShadowArr = Array[0..FW * FH - 1] Of TShadowEl;
+ {$ENDIF}
  PShadowArr = ^TShadowArr;
+
+{$IFDEF FPC}
+Var
+ FW, FH: LongInt;                    { trame de travail }
+ PREV_W, PREV_H: LongInt;            { zone d'apercu }
+ PANEL_X, UI_W, UI_H: LongInt;       { disposition de l'interface }
+ T_IPD, T_CX, T_CY, T_W, T_H: LongInt;  { gabarit du visage source }
+ CamReqW, CamReqH: LongInt;          { definition demandee a la camera }
+{$ENDIF}
 
 Var
  Lang: Integer;               { 0=FR 1=EN 2=DE 3=ES 4=IT }
@@ -383,6 +395,37 @@ End;
 
 { Les seize couleurs de l'interface restent identiques dans le mode 256
   couleurs ; les indices 16..231 forment un cube 6 x 6 x 6 pour la video. }
+{ Choisit la definition de la trame de travail et de l'apercu selon la
+  taille de l'ecran : plus l'ecran est grand, plus l'image de la camera est
+  definie (640 x 480 au lieu de 320 x 240). }
+Procedure SetFrameSize;
+Begin
+ {$IFDEF FPC}
+ FW := 320;
+ FH := 240;
+ T_IPD := 64;
+ If (GetMaxX + 1 >= 960) And (GetMaxY + 1 >= 704) Then Begin
+  FW := 640;
+  FH := 480;
+  T_IPD := 128;
+ End;
+ T_CX := T_IPD * 7 Div 4;
+ T_CY := T_IPD * 3 Div 2;
+ T_W := T_IPD * 7 Div 2;
+ T_H := T_IPD * 4;
+ PREV_W := FW;
+ PREV_H := FH;
+ PANEL_X := PREV_X + PREV_W + 8;
+ UI_W := PANEL_X + 304;
+ UI_H := PREV_Y + PREV_H + 196;
+ If UI_H < 480 Then UI_H := 480;
+ CamReqW := 640;
+ CamReqH := 480;
+ If FW > CamReqW Then CamReqW := FW;
+ If FH > CamReqH Then CamReqH := FH;
+ {$ENDIF}
+End;
+
 Procedure InitializeScreenPalette;
 Var
  I: Integer;
@@ -2413,79 +2456,106 @@ Begin
  Rnd := (Seed Shr 8) Mod N;
 End;
 
-{ Convertit une trame brute de la camera en image FW x FH (RVB) }
+{ Convertit une trame brute de la camera en image FW x FH (RVB).
+  Si la camera est plus definie que la trame de travail, chaque pixel est
+  la moyenne de plusieurs echantillons (et non un simple sous-echantillon). }
 Function RawToFrame(Raw: PByteArr; RawLen, SW, SH: LongInt; Fmt: Integer;
                     BottomUp: Boolean; Var Fr: TImg): Boolean;
 Var
- X, Y, SX, SY, P, Y0, U, V, R, G, B, Stride, YY, Off: LongInt;
+ X, Y, KX, KY, IX, IY, SX, SY, P, N, SR, SG, SB: LongInt;
+ Stride: LongInt;
  Tmp: TImg;
  Err: String;
+ Mjpg: Boolean;
+ R, G, B: LongInt;
+
+ { Couleur du pixel (X, Y) de la trame brute }
+ Procedure Pix(PX, PY: LongInt; Var R, G, B: LongInt);
+ Var
+  Y0, U, V, YY, Off, Q: LongInt;
+ Begin
+  If Mjpg Then Begin
+   Q := (PY * Tmp.W + PX) * 3;
+   R := Tmp.D^[Q]; G := Tmp.D^[Q + 1]; B := Tmp.D^[Q + 2];
+   Exit;
+  End;
+  If BottomUp Then YY := SH - 1 - PY Else YY := PY;
+  Case Fmt Of
+   FMT_BGR24: Begin
+    Q := YY * Stride + PX * 3;
+    B := Raw^[Q]; G := Raw^[Q + 1]; R := Raw^[Q + 2];
+   End;
+   FMT_RGB24: Begin
+    Q := YY * Stride + PX * 3;
+    R := Raw^[Q]; G := Raw^[Q + 1]; B := Raw^[Q + 2];
+   End;
+   FMT_BGRA32: Begin
+    Q := YY * Stride + PX * 4;
+    B := Raw^[Q]; G := Raw^[Q + 1]; R := Raw^[Q + 2];
+   End;
+  Else Begin
+   Off := YY * Stride + (PX And (Not 1)) * 2;
+   If Fmt = FMT_YUYV Then Begin
+    If (PX And 1) = 0 Then Y0 := Raw^[Off] Else Y0 := Raw^[Off + 2];
+    U := Raw^[Off + 1];
+    V := Raw^[Off + 3];
+   End
+   Else Begin
+    If (PX And 1) = 0 Then Y0 := Raw^[Off + 1] Else Y0 := Raw^[Off + 3];
+    U := Raw^[Off];
+    V := Raw^[Off + 2];
+   End;
+   R := Y0 + (359 * (V - 128)) Div 256;
+   G := Y0 - (88 * (U - 128) + 183 * (V - 128)) Div 256;
+   B := Y0 + (454 * (U - 128)) Div 256;
+  End;
+  End;
+ End;
+
 Begin
  RawToFrame := False;
  If (Raw = Nil) Or (Fr.D = Nil) Or (SW < 1) Or (SH < 1) Then Exit;
- If Fmt = FMT_MJPEG Then Begin
+ Mjpg := Fmt = FMT_MJPEG;
+ Tmp.D := Nil;
+ Tmp.A := Nil;
+ If Mjpg Then Begin
   {$IFDEF FPC}
-  Tmp.D := Nil;
-  Tmp.A := Nil;
   If Not JpegDecodeMem(Raw, RawLen, Tmp, Err) Then Exit;
-  For Y := 0 To FH - 1 Do
-   For X := 0 To FW - 1 Do Begin
-    SX := X * Tmp.W Div FW;
-    SY := Y * Tmp.H Div FH;
-    Move(Tmp.D^[(SY * Tmp.W + SX) * 3], Fr.D^[(Y * FW + X) * 3], 3);
-   End;
-  ImgFree(Tmp);
-  RawToFrame := True;
-  {$ENDIF}
+  SW := Tmp.W;
+  SH := Tmp.H;
+  {$ELSE}
   Exit;
- End;
- Case Fmt Of
-  FMT_RGB24, FMT_BGR24: Stride := ((SW * 3 + 3) Div 4) * 4;
-  FMT_BGRA32: Stride := SW * 4;
- Else Stride := SW * 2;
- End;
- If RawLen < Stride * SH - 4 Then Exit;
- For Y := 0 To FH - 1 Do Begin
-  SY := Y * SH Div FH;
-  If BottomUp Then YY := SH - 1 - SY Else YY := SY;
-  For X := 0 To FW - 1 Do Begin
-   SX := X * SW Div FW;
-   Case Fmt Of
-    FMT_BGR24: Begin
-     P := YY * Stride + SX * 3;
-     B := Raw^[P]; G := Raw^[P + 1]; R := Raw^[P + 2];
-    End;
-    FMT_RGB24: Begin
-     P := YY * Stride + SX * 3;
-     R := Raw^[P]; G := Raw^[P + 1]; B := Raw^[P + 2];
-    End;
-    FMT_BGRA32: Begin
-     P := YY * Stride + SX * 4;
-     B := Raw^[P]; G := Raw^[P + 1]; R := Raw^[P + 2];
-    End;
-   Else Begin
-    Off := YY * Stride + (SX And (Not 1)) * 2;
-    If Fmt = FMT_YUYV Then Begin
-     If (SX And 1) = 0 Then Y0 := Raw^[Off] Else Y0 := Raw^[Off + 2];
-     U := Raw^[Off + 1];
-     V := Raw^[Off + 3];
-    End
-    Else Begin
-     If (SX And 1) = 0 Then Y0 := Raw^[Off + 1] Else Y0 := Raw^[Off + 3];
-     U := Raw^[Off];
-     V := Raw^[Off + 2];
-    End;
-    R := Y0 + (359 * (V - 128)) Div 256;
-    G := Y0 - (88 * (U - 128) + 183 * (V - 128)) Div 256;
-    B := Y0 + (454 * (U - 128)) Div 256;
-   End;
-   End;
-   P := (Y * FW + X) * 3;
-   Fr.D^[P] := Clip8(R);
-   Fr.D^[P + 1] := Clip8(G);
-   Fr.D^[P + 2] := Clip8(B);
+  {$ENDIF}
+ End
+ Else Begin
+  Case Fmt Of
+   FMT_RGB24, FMT_BGR24: Stride := ((SW * 3 + 3) Div 4) * 4;
+   FMT_BGRA32: Stride := SW * 4;
+  Else Stride := SW * 2;
   End;
+  If RawLen < Stride * SH - 4 Then Exit;
  End;
+ { nombre d'echantillons par pixel de la trame, par axe (1 a 3) }
+ KX := IMax(1, IMin(3, SW Div FW));
+ KY := IMax(1, IMin(3, SH Div FH));
+ For Y := 0 To FH - 1 Do
+  For X := 0 To FW - 1 Do Begin
+   SR := 0; SG := 0; SB := 0; N := 0;
+   For IY := 0 To KY - 1 Do
+    For IX := 0 To KX - 1 Do Begin
+     SX := (X * SW + ((2 * IX + 1) * SW) Div (2 * KX)) Div FW;
+     SY := (Y * SH + ((2 * IY + 1) * SH) Div (2 * KY)) Div FH;
+     If SX >= SW Then SX := SW - 1;
+     If SY >= SH Then SY := SH - 1;
+     Pix(SX, SY, R, G, B);
+     Inc(SR, R); Inc(SG, G); Inc(SB, B); Inc(N);
+    End;
+   P := (Y * FW + X) * 3;
+   Fr.D^[P] := Clip8(SR Div N);
+   Fr.D^[P + 1] := Clip8(SG Div N);
+   Fr.D^[P + 2] := Clip8(SB Div N);
+  End;
+ If Mjpg Then ImgFree(Tmp);
  RawToFrame := True;
 End;
 
@@ -2694,11 +2764,11 @@ Begin
  { on demande du RVB 24 bits a la taille de la trame }
  FillChar(Bih, SizeOf(Bih), 0);
  Bih.biSize := 40;
- Bih.biWidth := FW;
- Bih.biHeight := FH;
+ Bih.biWidth := CamReqW;
+ Bih.biHeight := CamReqH;
  Bih.biPlanes := 1;
  Bih.biBitCount := 24;
- Bih.biSizeImage := FW * FH * 3;
+ Bih.biSizeImage := CamReqW * CamReqH * 3;
  SendMessageA(CapWnd, WM_CAP_SET_VIDEOFORMAT, 40, PtrInt(@Bih));
  FillChar(Bih, SizeOf(Bih), 0);
  R := SendMessageA(CapWnd, WM_CAP_GET_VIDEOFORMAT, SizeOf(Bih),
@@ -2912,14 +2982,14 @@ Begin
  If VFd < 0 Then Exit;
  FillChar(Fmt, SizeOf(Fmt), 0);
  Fmt.FmtType := V4L2_BUF_TYPE_VIDEO_CAPTURE;
- Fmt.Width := FW;
- Fmt.Height := FH;
+ Fmt.Width := CamReqW;
+ Fmt.Height := CamReqH;
  Fmt.PixFmt := V4L2_PIX_FMT_YUYV;
  If lc_ioctl(VFd, VIoc(3, 5, SizeOf(Fmt)), @Fmt) <> 0 Then Begin
   FillChar(Fmt, SizeOf(Fmt), 0);
   Fmt.FmtType := V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  Fmt.Width := FW;
-  Fmt.Height := FH;
+  Fmt.Width := CamReqW;
+  Fmt.Height := CamReqH;
   Fmt.PixFmt := V4L2_PIX_FMT_MJPEG;
   If lc_ioctl(VFd, VIoc(3, 5, SizeOf(Fmt)), @Fmt) <> 0 Then Begin
    CamClose;
@@ -4780,7 +4850,7 @@ Begin
  X0 := PANEL_X + 4;
  NWids := 0;
  SetFillStyle(SolidFill, Black);
- Bar(PANEL_X, MENU_H + 1, 639, 458);
+ Bar(PANEL_X, MENU_H + 1, UI_W - 1, UI_H - STATUS_H - 1);
  SetColor(LightCyan);
  DS(X0, 30, 'Time Motion Transfer');
  SetColor(DarkGray);
@@ -4846,10 +4916,10 @@ Begin
  SetFillStyle(SolidFill, Black);
  Bar(PREV_X, PREV_Y, PREV_X + PREV_W - 1, PREV_Y + PREV_H - 1);
  SetColor(DarkGray);
- DSC(PREV_X, PREV_Y + 100, PREV_W,
+ DSC(PREV_X, PREV_Y + PREV_H Div 2 - 20, PREV_W,
      L5('Aucune image', 'No image', 'Kein Bild', 'Sin imagen',
         'Nessuna immagine'));
- DSC(PREV_X, PREV_Y + 116, PREV_W,
+ DSC(PREV_X, PREV_Y + PREV_H Div 2 - 4, PREV_W,
      L5('F7 : lancer la caméra', 'F7: start the camera',
         'F7: Kamera starten', 'F7: iniciar la cámara',
         'F7: avvia la fotocamera'));
@@ -4862,7 +4932,7 @@ Var
  S: String;
 Begin
  SetFillStyle(SolidFill, Black);
- Bar(PREV_X - 2, PREV_Y + PREV_H + 4, PANEL_X - 6, 400);
+ Bar(PREV_X - 2, PREV_Y + PREV_H + 4, PANEL_X - 6, UI_H - 82);
  SetColor(LightGray);
  Y := PREV_Y + PREV_H + 8;
  If Slots[CurSlot].Ok Then S := Slots[CurSlot].Name
@@ -4894,11 +4964,11 @@ Begin
     IStr(GetMaxY + 1) + S, 40));
  { journal }
  SetFillStyle(SolidFill, Black);
- Bar(0, 404, 639, 458);
+ Bar(0, UI_H - 76, UI_W - 1, UI_H - STATUS_H - 1);
  SetColor(DarkGray);
- Line(0, 407, 639, 407);
+ Line(0, UI_H - 73, UI_W - 1, UI_H - 73);
  SetColor(LightGray);
- For I := 0 To LOG_N - 1 Do DS(8, 412 + I * 11, Trunc_(LogTxt[I], 78));
+ For I := 0 To LOG_N - 1 Do DS(8, UI_H - 68 + I * 11, Trunc_(LogTxt[I], 78));
 End;
 
 Procedure DrawStatus;
@@ -6669,6 +6739,7 @@ BEGIN
  {$ENDIF}
  InitVars;
  InitializeGraphics;
+ SetFrameSize;
  InitializeScreenPalette;
  ApplyUiPalette;
  {$IFDEF FPC}
