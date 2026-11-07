@@ -204,7 +204,9 @@ Type
 Var
  Lang: Integer;               { 0=FR 1=EN 2=DE 3=ES 4=IT }
  TrueMode: Boolean;
- ForceVga: Boolean;
+ OptMaxColors, OptMaxScreen: Boolean;   { options de ligne de commande }
+ Pal256: Boolean;                       { palette indexee de 256 couleurs }
+ ScrOX, ScrOY: Integer;                 { decalage de l'interface 640 x 480 }
  UiRgbTab: Array[0..15] Of LongInt;
  MX_, MY_, MB_, OMX, OMY, OMB: LongInt;
 
@@ -298,6 +300,9 @@ Begin
  {$ENDIF}
 End;
 
+{ Choix du mode : par defaut 640 x 480 en 16 couleurs. Avec -maxcolors,
+  les couleurs vraies (24 bits) ; avec -maxscreen, la definition maximale.
+  Si le mode demande est impossible, on revient au 640 x 480 x 16. }
 Procedure InitializeGraphics;
 Var
  Driver, Mode: Integer;
@@ -306,12 +311,14 @@ Var
  M, Best: PModeInfo;
  BestArea, Area: LongInt;
  Done: Boolean;
+ Lo, Hi: Integer;
  {$ENDIF}
 Begin
  {$IFDEF FPC}
   Done := False;
-  If Not ForceVga Then Begin
-   { Couleurs vraies : la plus petite resolution d'au moins 640 x 480 }
+  If OptMaxColors Then Begin
+   { couleurs vraies : la plus petite definition d'au moins 640 x 480,
+     ou la plus grande avec -maxscreen }
    M := QueryAdapterInfo;
    Best := Nil;
    BestArea := 0;
@@ -319,7 +326,13 @@ Begin
     If M^.DirectColor And (M^.MaxColor >= 16777216) And
        (M^.MaxX + 1 >= 640) And (M^.MaxY + 1 >= 480) Then Begin
      Area := LongInt(M^.MaxX + 1) * (M^.MaxY + 1);
-     If (Best = Nil) Or (Area < BestArea) Then Begin
+     If OptMaxScreen Then Begin
+      If (Best = Nil) Or (Area > BestArea) Then Begin
+       Best := M;
+       BestArea := Area;
+      End;
+     End
+     Else If (Best = Nil) Or (Area < BestArea) Then Begin
       Best := M;
       BestArea := Area;
      End;
@@ -331,6 +344,19 @@ Begin
     Mode := Best^.ModeNumber;
     InitGraph(Driver, Mode, '');
     If GraphResult = grOk Then Done := True;
+   End;
+  End;
+  If (Not Done) And OptMaxScreen Then Begin
+   { definition maximale en 256 couleurs }
+   Driver := D8bit;
+   GetModeRange(Driver, Lo, Hi);
+   If Hi >= Lo Then Begin
+    Mode := Hi;
+    InitGraph(Driver, Mode, '');
+    If GraphResult = grOk Then Begin
+     If (GetMaxX + 1 >= 640) And (GetMaxY + 1 >= 480) Then Done := True
+                                                      Else CloseGraph;
+    End;
    End;
   End;
   If Not Done Then Begin
@@ -355,17 +381,35 @@ Begin
  End;
 End;
 
+{ Les seize couleurs de l'interface restent identiques dans le mode 256
+  couleurs ; les indices 16..231 forment un cube 6 x 6 x 6 pour la video. }
 Procedure InitializeScreenPalette;
 Var
  I: Integer;
 Begin
  TrueMode := False;
+ Pal256 := False;
  For I := 0 To 15 Do
   UiRgbTab[I] := (LongInt(ScrVga[I, 0]) Shl 16) Or
                  (LongInt(ScrVga[I, 1]) Shl 8) Or ScrVga[I, 2];
  {$IFDEF FPC}
- If GetMaxColor > 255 Then TrueMode := True;
+ If GetMaxColor > 255 Then TrueMode := True
+ Else If GetMaxColor > 15 Then Begin
+  For I := 0 To 15 Do
+   SetRGBPalette(I, ScrVga[I, 0], ScrVga[I, 1], ScrVga[I, 2]);
+  If GetMaxColor >= 255 Then Begin
+   For I := 16 To 231 Do
+    SetRGBPalette(I, ((I - 16) Div 36) * 51, (((I - 16) Div 6) Mod 6) * 51,
+                  ((I - 16) Mod 6) * 51);
+   Pal256 := True;
+  End;
+ End;
  {$ENDIF}
+ { l'interface 640 x 480 est centree sur les ecrans plus grands }
+ ScrOX := 0;
+ ScrOY := 0;
+ If GetMaxX + 1 > UI_W Then ScrOX := (GetMaxX + 1 - UI_W) Div 2;
+ If GetMaxY + 1 > UI_H Then ScrOY := (GetMaxY + 1 - UI_H) Div 2;
 End;
 
 {$IFNDEF FPC}
@@ -4232,6 +4276,17 @@ Begin
  {$ENDIF}
 End;
 
+{ Indice du cube 6 x 6 x 6 (mode 256 couleurs), avec tramage leger }
+Function Pal6(R, G, B, X, Y: LongInt): LongInt;
+Var
+ O: LongInt;
+Begin
+ O := Bayer4[((Y And 3) Shl 2) + (X And 3)] * 2 Div 3;
+ Pal6 := 16 + 36 * ((Clip8(R + O) * 5 + 127) Div 255) +
+         6 * ((Clip8(G + O) * 5 + 127) Div 255) +
+         ((Clip8(B + O) * 5 + 127) Div 255);
+End;
+
 Function PixCol(Var I: TImg; X, Y: LongInt): LongInt;
 Var
  P: LongInt;
@@ -4240,6 +4295,8 @@ Begin
  If TrueMode Then
   PixCol := (LongInt(I.D^[P]) Shl 16) Or (LongInt(I.D^[P + 1]) Shl 8) Or
             I.D^[P + 2]
+ Else If Pal256 Then
+  PixCol := Pal6(I.D^[P], I.D^[P + 1], I.D^[P + 2], X, Y)
  Else PixCol := Dither16(I.D^[P], I.D^[P + 1], I.D^[P + 2], X, Y);
 End;
 
@@ -4452,7 +4509,14 @@ Begin
  End;
 End;
 
+{ Zone de l'interface (640 x 480, centree sur l'ecran) }
 Procedure SetFullView;
+Begin
+ SetViewPort(ScrOX, ScrOY, ScrOX + UI_W - 1, ScrOY + UI_H - 1, True);
+End;
+
+{ Ecran complet (pour l'effacer) }
+Procedure SetScreenView;
 Begin
  SetViewPort(0, 0, GetMaxX, GetMaxY, True);
 End;
@@ -4822,13 +4886,12 @@ Begin
     'Immagine: ') + IStr(FW) + 'x' + IStr(FH) + '  ' + L5('Peau ', 'Skin ',
     'Haut ', 'Piel ', 'Pelle ') + IStr(SkinCb) + '/' + IStr(SkinCr), 40));
  Inc(Y, 13);
- If TrueMode Then
-  DS(PREV_X, Y, L5('Affichage : couleurs vraies', 'Display: true color',
-     'Anzeige: Echtfarben', 'Pantalla: color real', 'Schermo: true color'))
- Else
-  DS(PREV_X, Y, L5('Affichage : 16 couleurs (tramage)',
-     'Display: 16 colors (dithered)', 'Anzeige: 16 Farben (Raster)',
-     'Pantalla: 16 colores (tramado)', 'Schermo: 16 colori (retino)'));
+ If TrueMode Then S := 'x24'
+ Else If Pal256 Then S := 'x256'
+ Else S := 'x16';
+ DS(PREV_X, Y, Trunc_(L5('Affichage : ', 'Display: ', 'Anzeige: ',
+    'Pantalla: ', 'Schermo: ') + IStr(GetMaxX + 1) + 'x' +
+    IStr(GetMaxY + 1) + S, 40));
  { journal }
  SetFillStyle(SolidFill, Black);
  Bar(0, 404, 639, 458);
@@ -4866,9 +4929,10 @@ End;
 Procedure RedrawAll;
 Begin
  HideMouse;
- SetFullView;
+ SetScreenView;
  SetFillStyle(SolidFill, Black);
  Bar(0, 0, GetMaxX, GetMaxY);
+ SetFullView;
  DrawPanel;
  DrawInfo;
  RedrawPreview;
@@ -4931,6 +4995,8 @@ Begin
  OMY := MY_;
  OMB := MB_;
  GetMouseState(MX_, MY_, MB_);
+ MX_ := MX_ - ScrOX;
+ MY_ := MY_ - ScrOY;
 End;
 
 Function MouseClicked: Boolean;
@@ -6531,20 +6597,43 @@ End;
 Procedure ShowHelpLine;
 Begin
  WriteLn('TMF (Time Motion Transfer) ', VERSION_STR);
- WriteLn(L5('Syntaxe : TMF [-16] [/? | -h | --help]',
-            'Syntax: TMF [-16] [/? | -h | --help]',
-            'Syntax: TMF [-16] [/? | -h | --help]',
-            'Sintaxis: TMF [-16] [/? | -h | --help]',
-            'Sintassi: TMF [-16] [/? | -h | --help]'));
+ WriteLn(L5(
+  'Syntaxe : TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
+  'Syntax: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
+  'Syntax: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
+  'Sintaxis: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
+  'Sintassi: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]'));
  WriteLn;
- WriteLn(L5('  -16     Force l''affichage en 16 couleurs (tramage).',
-            '  -16     Force the 16-color display (dithered).',
-            '  -16     Erzwingt die 16-Farben-Anzeige (Raster).',
-            '  -16     Fuerza la pantalla de 16 colores (tramado).',
-            '  -16     Forza lo schermo a 16 colori (retino).'));
- WriteLn(L5('  /?      Affiche cette aide.',
-            '  /?      Shows this help.', '  /?      Zeigt diese Hilfe.',
-            '  /?      Muestra esta ayuda.', '  /?      Mostra questo aiuto.'));
+ WriteLn(L5('  Sans option  Affichage 640x480 en 16 couleurs (tramage).',
+            '  No option    640x480 display in 16 colors (dithered).',
+            '  Ohne Option  Anzeige 640x480 mit 16 Farben (Raster).',
+            '  Sin opcion   Pantalla 640x480 de 16 colores (tramado).',
+            '  Senza opz.   Schermo 640x480 a 16 colori (retino).'));
+ WriteLn(L5('  -maxcolors   Utilise le maximum de couleurs (24 bits) ; si',
+            '  -maxcolors   Uses the maximum number of colors (24-bit); if',
+            '  -maxcolors   Maximale Farbtiefe (24 Bit); falls unmoeglich:',
+            '  -maxcolors   Usa el maximo de colores (24 bits); si no es',
+            '  -maxcolors   Usa il massimo dei colori (24 bit); se non e'));
+ WriteLn(L5('               impossible, revient au 640x480x16.',
+            '               not possible, falls back to 640x480x16.',
+            '               zurueck zu 640x480x16.',
+            '               posible, vuelve a 640x480x16.',
+            '               possibile, torna a 640x480x16.'));
+ WriteLn(L5('  -maxscreen   Utilise la definition maximale de l''ecran',
+            '  -maxscreen   Uses the maximum screen resolution (256 colors,',
+            '  -maxscreen   Maximale Aufloesung (256 Farben, oder mit',
+            '  -maxscreen   Usa la resolucion maxima (256 colores, o con',
+            '  -maxscreen   Usa la massima risoluzione (256 colori, o con'));
+ WriteLn(L5('               (256 couleurs, ou 24 bits avec -maxcolors).',
+            '               or 24-bit with -maxcolors).',
+            '               -maxcolors 24 Bit).',
+            '               -maxcolors 24 bits).',
+            '               -maxcolors 24 bit).'));
+ WriteLn(L5('  /?           Affiche cette aide.',
+            '  /?           Shows this help.',
+            '  /?           Zeigt diese Hilfe.',
+            '  /?           Muestra esta ayuda.',
+            '  /?           Mostra questo aiuto.'));
  WriteLn;
  WriteLn(L5(
   'Langue : variable LANGUAGE (EN, GR, SP, IT ; francais par defaut).',
@@ -6552,6 +6641,11 @@ Begin
   'Sprache: Variable LANGUAGE (EN, GR, SP, IT; Standard Franzoesisch).',
   'Idioma: variable LANGUAGE (EN, GR, SP, IT; frances por defecto).',
   'Lingua: variabile LANGUAGE (EN, GR, SP, IT; francese di default).'));
+ WriteLn(L5('Les options d''affichage sont ignorees sous Turbo Pascal.',
+            'Display options are ignored under Turbo Pascal.',
+            'Anzeigeoptionen werden unter Turbo Pascal ignoriert.',
+            'Las opciones de pantalla se ignoran en Turbo Pascal.',
+            'Le opzioni dello schermo sono ignorate in Turbo Pascal.'));
 End;
 
 Var
@@ -6567,7 +6661,8 @@ BEGIN
    ShowHelpLine;
    Halt;
   End
-  Else If Arg = '-16' Then ForceVga := True;
+  Else If Arg = '-MAXCOLORS' Then OptMaxColors := True
+  Else If Arg = '-MAXSCREEN' Then OptMaxScreen := True;
  End;
  {$IFDEF FPC}
  ReturnNilIfGrowHeapFails := True;
