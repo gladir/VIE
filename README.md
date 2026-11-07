@@ -84,6 +84,10 @@ Voici la liste des différents fichiers proposés dans VIE :
 			<td>Cette commande permet de lancer la reconnaissance de caracteres d'une image.</td>
 		</tr>	
   <tr>
+     <td><b>TMF.PAS</b></td>
+     <td>Cette commande permet de lancer <i>Time Motion Transfer</i>, un clone de Deep-Live-Cam en mode graphique (menus d&eacute;roulants) : remplacement d'un visage en direct (webcam via Video for Windows ou Video4Linux2, ou mire de test) ou sur une image, &agrave; partir d'une photographie (BMP, PPM, JPEG, PNG). Options : masque de la bouche, garder les FPS, garder les images, am&eacute;lioration du visage, cartographie des visages, plusieurs visages. Interface en fran&ccedil;ais, ou en anglais (<code>LANGUAGE=EN</code>), allemand (<code>LANGUAGE=GR</code>), espagnol (<code>LANGUAGE=SP</code>) et italien (<code>LANGUAGE=IT</code>). Utilise des techniques classiques (peau YCbCr, rep&egrave;res, alignement, fusion) et non des r&eacute;seaux de neurones.</td>
+  </tr>
+  <tr>
       <td><b>TRANSLAT.PAS</b></td>
       <td>Cette commande permet de traduire du texte anglais en français.</td>
    </tr>
