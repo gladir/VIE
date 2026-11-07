@@ -251,6 +251,7 @@ Var
  PreviewMode: Boolean;
  OptMouth, OptKeepFps, OptKeepFrames, OptEnhance, OptMap, OptMany: Boolean;
  OptMirror, OptMarks, OptShowFps, OptFast: Boolean;
+ OptNoGpu: Boolean;                     { -nogpu : pas de Direct3D }
  FaceCount: Integer;
  Faces: TFaceList;
  SrcDetected: Boolean;
@@ -4370,9 +4371,297 @@ Begin
  Else PixCol := Dither16(I.D^[P], I.D^[P + 1], I.D^[P + 2], X, Y);
 End;
 
+{ ---------------------------------------------------------------------- }
+{ Acceleration Direct3D 9 (WINDOWS) : l'image est envoyee au GPU comme      }
+{ texture et affichee par un quadrilatere filtre, dans une fenetre fille    }
+{ posee sur la zone d'apercu. Aucune unite : d3d9.dll est chargee           }
+{ dynamiquement et ses interfaces COM sont appelees par leur table de       }
+{ fonctions. Si la carte n'est pas une vraie carte graphique (pilote        }
+{ logiciel Microsoft, WARP, peu de memoire) ou si une etape echoue, on      }
+{ garde l'affichage logiciel.                                               }
+{ ---------------------------------------------------------------------- }
+
+{$IFDEF WINDOWS}
+Const
+ D3D_SDK_VERSION = 32;
+ GWL_STYLE = -16;
+ WS_CHILD_ = $40000000;
+ WS_CLIPSIBLINGS_ = $04000000;
+ WS_CLIPCHILDREN_ = $02000000;
+ GPU_MIN_MEM = 200;      { Mo de memoire video minimale }
+
+Type
+ TGpuVtx = Record
+  X, Y, Z, Rhw: Single;
+  Col: LongWord;
+  U, V: Single;
+ End;
+ TLockedRect = Record
+  Pitch: LongInt;
+  Bits: Pointer;
+ End;
+ TD3DPP = Record
+  BackBufferWidth, BackBufferHeight: LongWord;
+  BackBufferFormat, BackBufferCount: LongWord;
+  MultiSampleType, MultiSampleQuality, SwapEffect: LongWord;
+  hDeviceWindow: PtrUInt;
+  Windowed, EnableAutoDepthStencil, AutoDepthStencilFormat, Flags: LongWord;
+  RefreshRate, PresentationInterval: LongWord;
+ End;
+ TVTable = Array[0..127] Of Pointer;
+ PVTable = ^TVTable;
+ PPVTable = ^PVTable;
+ TFnCreate9 = Function(Ver: LongWord): Pointer; stdcall;
+ TFnRelease = Function(Self: Pointer): LongWord; stdcall;
+ TFnAdId = Function(Self: Pointer; Adapter, Flags: LongWord;
+                    Ident: Pointer): LongInt; stdcall;
+ TFnCreateDev = Function(Self: Pointer; Adapter, DevType: LongWord;
+                         Wnd: PtrUInt; BehFlags: LongWord; PP: Pointer;
+                         Dev: Pointer): LongInt; stdcall;
+ TFnAvail = Function(Self: Pointer): LongWord; stdcall;
+ TFnCreateTex = Function(Self: Pointer; W, H, Levels, Usage: LongWord;
+                         Fmt, Pool: LongWord; Tex: Pointer;
+                         Shared: Pointer): LongInt; stdcall;
+ TFnLock = Function(Self: Pointer; Level: LongWord; Lr: Pointer; Rc: Pointer;
+                    Flags: LongWord): LongInt; stdcall;
+ TFnUnlock = Function(Self: Pointer; Level: LongWord): LongInt; stdcall;
+ TFnClear = Function(Self: Pointer; Count: LongWord; Rects: Pointer;
+                     Flags, Color: LongWord; Z: Single;
+                     Stencil: LongWord): LongInt; stdcall;
+ TFnVoid = Function(Self: Pointer): LongInt; stdcall;
+ TFnSet1 = Function(Self: Pointer; A: LongWord): LongInt; stdcall;
+ TFnSet2 = Function(Self: Pointer; A, B: LongWord): LongInt; stdcall;
+ TFnSet3 = Function(Self: Pointer; A, B, C: LongWord): LongInt; stdcall;
+ TFnSetTex = Function(Self: Pointer; Stage: LongWord;
+                      Tex: Pointer): LongInt; stdcall;
+ TFnDrawUP = Function(Self: Pointer; PrimType, PrimCount: LongWord;
+                      Data: Pointer; Stride: LongWord): LongInt; stdcall;
+ TFnPresent = Function(Self: Pointer; A, B: Pointer; Wnd: PtrUInt;
+                       C: Pointer): LongInt; stdcall;
+
+Function LoadLibraryA(Name: PChar): PtrUInt; stdcall;
+  external 'kernel32.dll' name 'LoadLibraryA';
+Function GetProcAddress(Lib: PtrUInt; Name: PChar): Pointer; stdcall;
+  external 'kernel32.dll' name 'GetProcAddress';
+Function GetActiveWindow: PtrUInt; stdcall;
+  external 'user32.dll' name 'GetActiveWindow';
+Function GetForegroundWindow: PtrUInt; stdcall;
+  external 'user32.dll' name 'GetForegroundWindow';
+Function CreateWindowExA(ExStyle: LongWord; ClassName, WindowName: PChar;
+  Style: LongWord; X, Y, W, H: LongInt; Parent, Menu, Inst: PtrUInt;
+  Param: Pointer): PtrUInt; stdcall;
+  external 'user32.dll' name 'CreateWindowExA';
+Function ShowWindow(Wnd: PtrUInt; Cmd: LongInt): LongBool; stdcall;
+  external 'user32.dll' name 'ShowWindow';
+Function GetWindowLongA(Wnd: PtrUInt; Idx: LongInt): LongInt; stdcall;
+  external 'user32.dll' name 'GetWindowLongA';
+Function SetWindowLongA(Wnd: PtrUInt; Idx: LongInt;
+  Value: LongInt): LongInt; stdcall;
+  external 'user32.dll' name 'SetWindowLongA';
+
+Var
+ GpuOn, GpuVisible: Boolean;
+ GpuWnd: PtrUInt;
+ GpuD3D, GpuDev, GpuTex: Pointer;
+ GpuTexW, GpuTexH: LongInt;
+ GpuName: String[60];
+
+{ Methode numero N de l'interface COM I }
+Function VT(I: Pointer; N: Integer): Pointer;
+Begin
+ VT := PPVTable(I)^^[N];
+End;
+
+Procedure GpuRelease(Var I: Pointer);
+Begin
+ If I <> Nil Then TFnRelease(VT(I, 2))(I);
+ I := Nil;
+End;
+
+Procedure GpuShutdown;
+Begin
+ GpuRelease(GpuTex);
+ GpuRelease(GpuDev);
+ GpuRelease(GpuD3D);
+ If GpuWnd <> 0 Then DestroyWindow(GpuWnd);
+ GpuWnd := 0;
+ GpuOn := False;
+ GpuVisible := False;
+End;
+
+{ Carte reellement exploitable ? (pas de pilote logiciel Microsoft) }
+Function GpuSignificant(Var Name: String): Boolean;
+Var
+ Id: Array[0..1199] Of Byte;
+ D: String;
+ Vendor: LongInt;
+ I: Integer;
+Begin
+ GpuSignificant := False;
+ FillChar(Id, SizeOf(Id), 0);
+ If TFnAdId(VT(GpuD3D, 5))(GpuD3D, 0, 0, @Id) < 0 Then Exit;
+ D := '';
+ For I := 512 To 700 Do Begin
+  If Id[I] = 0 Then Break;
+  D := D + Chr(Id[I]);
+ End;
+ Name := Copy(D, 1, 60);
+ Vendor := Id[1064] + Id[1065] * 256;
+ D := UpStr(D);
+ If Vendor = $1414 Then Exit;
+ If (Pos('MICROSOFT', D) > 0) Or (Pos('BASIC', D) > 0) Or
+    (Pos('SOFTWARE', D) > 0) Or (Pos('GDI', D) > 0) Or
+    (Pos('WARP', D) > 0) Or (Pos('REFERENCE', D) > 0) Then Exit;
+ GpuSignificant := True;
+End;
+
+Function GpuInit: Boolean;
+Var
+ Lib: PtrUInt;
+ P: Pointer;
+ Parent: PtrUInt;
+ PP: TD3DPP;
+ Style: LongInt;
+ Nm: String;
+ Mem: LongWord;
+Begin
+ GpuInit := False;
+ GpuOn := False;
+ GpuVisible := False;
+ GpuD3D := Nil; GpuDev := Nil; GpuTex := Nil; GpuWnd := 0;
+ Lib := LoadLibraryA('d3d9.dll');
+ If Lib = 0 Then Exit;
+ P := GetProcAddress(Lib, 'Direct3DCreate9');
+ If P = Nil Then Exit;
+ GpuD3D := TFnCreate9(P)(D3D_SDK_VERSION);
+ If GpuD3D = Nil Then Exit;
+ Nm := '';
+ If Not GpuSignificant(Nm) Then Begin
+  GpuShutdown;
+  Exit;
+ End;
+ { fenetre fille posee sur l'apercu (classe predefinie STATIC : elle laisse
+   passer la souris vers la fenetre graphique) }
+ Parent := GetActiveWindow;
+ If Parent = 0 Then Parent := GetForegroundWindow;
+ If Parent = 0 Then Begin GpuShutdown; Exit; End;
+ Style := GetWindowLongA(Parent, GWL_STYLE);
+ SetWindowLongA(Parent, GWL_STYLE, Style Or LongInt(WS_CLIPCHILDREN_));
+ GpuWnd := CreateWindowExA(0, 'STATIC', Nil, WS_CHILD_ Or WS_CLIPSIBLINGS_,
+             ScrOX + PREV_X, ScrOY + PREV_Y, PREV_W, PREV_H, Parent, 0, 0,
+             Nil);
+ If GpuWnd = 0 Then Begin GpuShutdown; Exit; End;
+ FillChar(PP, SizeOf(PP), 0);
+ PP.BackBufferCount := 1;
+ PP.SwapEffect := 1;                  { D3DSWAPEFFECT_DISCARD }
+ PP.hDeviceWindow := GpuWnd;
+ PP.Windowed := 1;
+ PP.PresentationInterval := $80000000;  { sans attente du retour vertical }
+ If TFnCreateDev(VT(GpuD3D, 16))(GpuD3D, 0, 1, GpuWnd, $20, @PP,
+                                 @GpuDev) < 0 Then
+  If TFnCreateDev(VT(GpuD3D, 16))(GpuD3D, 0, 1, GpuWnd, $40, @PP,
+                                  @GpuDev) < 0 Then Begin
+   GpuShutdown;
+   Exit;
+  End;
+ Mem := TFnAvail(VT(GpuDev, 4))(GpuDev);
+ If Mem < LongWord(GPU_MIN_MEM) * 1024 * 1024 Then Begin
+  GpuShutdown;
+  Exit;
+ End;
+ { texture (puissances de deux), format X8R8G8B8, memoire geree }
+ GpuTexW := 1;
+ While GpuTexW < FW Do GpuTexW := GpuTexW * 2;
+ GpuTexH := 1;
+ While GpuTexH < FH Do GpuTexH := GpuTexH * 2;
+ If TFnCreateTex(VT(GpuDev, 23))(GpuDev, GpuTexW, GpuTexH, 1, 0, 22, 1,
+                                 @GpuTex, Nil) < 0 Then Begin
+  GpuShutdown;
+  Exit;
+ End;
+ { etats fixes : pas d'eclairage, pas d'elimination, filtrage lineaire }
+ TFnSet2(VT(GpuDev, 57))(GpuDev, 137, 0);    { LIGHTING }
+ TFnSet2(VT(GpuDev, 57))(GpuDev, 22, 1);     { CULLMODE = NONE }
+ TFnSet2(VT(GpuDev, 57))(GpuDev, 7, 0);      { ZENABLE }
+ TFnSet3(VT(GpuDev, 69))(GpuDev, 0, 5, 2);   { MAGFILTER = LINEAR }
+ TFnSet3(VT(GpuDev, 69))(GpuDev, 0, 6, 2);   { MINFILTER = LINEAR }
+ TFnSet3(VT(GpuDev, 69))(GpuDev, 0, 1, 3);   { ADDRESSU = CLAMP }
+ TFnSet3(VT(GpuDev, 69))(GpuDev, 0, 2, 3);   { ADDRESSV = CLAMP }
+ GpuName := Nm;
+ GpuOn := True;
+ GpuInit := True;
+End;
+
+Procedure GpuHide;
+Begin
+ If GpuOn And GpuVisible Then Begin
+  ShowWindow(GpuWnd, 0);
+  GpuVisible := False;
+ End;
+End;
+
+{ Envoie la trame au GPU et l'affiche ; en cas d'erreur, le GPU est
+  abandonne et l'affichage logiciel prend le relais. }
+Procedure GpuPresent(Var Fr: TImg);
+Var
+ Lr: TLockedRect;
+ X, Y, P: LongInt;
+ Row: PByteArr;
+ V: Array[0..3] Of TGpuVtx;
+ U1, V1: Single;
+ I: Integer;
+Begin
+ If (Not GpuOn) Or (Fr.D = Nil) Or (Fr.W <> FW) Or (Fr.H <> FH) Then Exit;
+ If Not GpuVisible Then Begin
+  ShowWindow(GpuWnd, 8);             { SW_SHOWNA }
+  GpuVisible := True;
+ End;
+ FillChar(Lr, SizeOf(Lr), 0);
+ If TFnLock(VT(GpuTex, 19))(GpuTex, 0, @Lr, Nil, 0) < 0 Then Begin
+  GpuShutdown;
+  Exit;
+ End;
+ For Y := 0 To FH - 1 Do Begin
+  Row := PByteArr(PtrUInt(Lr.Bits) + PtrUInt(Y * Lr.Pitch));
+  P := Y * FW * 3;
+  For X := 0 To FW - 1 Do Begin
+   Row^[X * 4] := Fr.D^[P + 2];
+   Row^[X * 4 + 1] := Fr.D^[P + 1];
+   Row^[X * 4 + 2] := Fr.D^[P];
+   Row^[X * 4 + 3] := 255;
+   Inc(P, 3);
+  End;
+ End;
+ TFnUnlock(VT(GpuTex, 20))(GpuTex, 0);
+ U1 := FW / GpuTexW;
+ V1 := FH / GpuTexH;
+ For I := 0 To 3 Do Begin
+  V[I].Z := 0;
+  V[I].Rhw := 1;
+  V[I].Col := $FFFFFFFF;
+ End;
+ V[0].X := -0.5;          V[0].Y := -0.5;          V[0].U := 0;  V[0].V := 0;
+ V[1].X := PREV_W - 0.5;  V[1].Y := -0.5;          V[1].U := U1; V[1].V := 0;
+ V[2].X := -0.5;          V[2].Y := PREV_H - 0.5;  V[2].U := 0;  V[2].V := V1;
+ V[3].X := PREV_W - 0.5;  V[3].Y := PREV_H - 0.5;  V[3].U := U1; V[3].V := V1;
+ TFnClear(VT(GpuDev, 43))(GpuDev, 0, Nil, 1, $FF000000, 1.0, 0);
+ If TFnVoid(VT(GpuDev, 41))(GpuDev) >= 0 Then Begin
+  TFnSetTex(VT(GpuDev, 65))(GpuDev, 0, GpuTex);
+  TFnSet1(VT(GpuDev, 89))(GpuDev, $144);        { SetFVF : RHW+DIFFUSE+TEX1 }
+  TFnDrawUP(VT(GpuDev, 83))(GpuDev, 5, 2, @V, SizeOf(TGpuVtx));
+  TFnVoid(VT(GpuDev, 42))(GpuDev);
+ End;
+ { Present : un echec (peripherique perdu) ramene a l'affichage logiciel }
+ If TFnPresent(VT(GpuDev, 17))(GpuDev, Nil, Nil, 0, Nil) < 0 Then Begin
+  GpuShutdown;
+  ShadowOk := False;
+ End;
+End;
+{$ENDIF}
+
 { Affiche une trame FW x FH dans la zone d'apercu (seuls les pixels
   modifies sont redessines) }
-Procedure ShowFrame(Var Fr: TImg);
+Procedure ShowFrameSoft(Var Fr: TImg);
 Var
  X, Y, Z, Step, C, Idx: LongInt;
 Begin
@@ -4401,6 +4690,19 @@ Begin
   Inc(Y, Step);
  End;
  ShadowOk := True;
+End;
+
+{ Affichage de la video : par le GPU (Direct3D) si disponible, sinon par
+  l'affichage logiciel }
+Procedure ShowFrame(Var Fr: TImg);
+Begin
+ {$IFDEF WINDOWS}
+ If GpuOn And (Not MenuActive) Then Begin
+  GpuPresent(Fr);
+  If GpuOn Then Exit;
+ End;
+ {$ENDIF}
+ ShowFrameSoft(Fr);
 End;
 
 { Dessine une image a l'ecran en (X0, Y0), a l'echelle 1:1 }
@@ -4591,6 +4893,21 @@ Begin
  SetViewPort(0, 0, GetMaxX, GetMaxY, True);
 End;
 
+{ Avant un menu ou un dialogue : la fenetre Direct3D (placee au-dessus de
+  l'apercu) est masquee et la derniere image est redessinee par le logiciel,
+  pour que le menu ou le dialogue puisse etre dessine par-dessus. }
+Procedure GpuSuspend;
+Begin
+ {$IFDEF WINDOWS}
+ If GpuOn And GpuVisible Then Begin
+  GpuHide;
+  SetFullView;
+  ShadowOk := False;
+  If PreviewHasImage And (Res.D <> Nil) Then ShowFrameSoft(Res);
+ End;
+ {$ENDIF}
+End;
+
 Procedure DrawMenuBar;
 Var
  I, X: Integer;
@@ -4733,6 +5050,7 @@ Begin
  ActiveMenu := M;
  ActiveItem := -1;
  HideMouse;
+ GpuSuspend;
  DrawMenuBar;
  SaveUnder(M);
  DrawDropdown(M);
@@ -4748,6 +5066,9 @@ Begin
  ActiveItem := -1;
  DrawMenuBar;
  ShowMouse;
+ {$IFDEF WINDOWS}
+ If GpuOn And PreviewHasImage And (Res.D <> Nil) Then ShowFrame(Res);
+ {$ENDIF}
 End;
 
 { ---------------------------------------------------------------------- }
@@ -4913,6 +5234,9 @@ End;
 
 Procedure DrawPreviewPlaceholder;
 Begin
+ {$IFDEF WINDOWS}
+ GpuHide;
+ {$ENDIF}
  SetFillStyle(SolidFill, Black);
  Bar(PREV_X, PREV_Y, PREV_X + PREV_W - 1, PREV_Y + PREV_H - 1);
  SetColor(DarkGray);
@@ -5118,6 +5442,7 @@ End;
 
 Procedure DlgFrame(W, H: Integer; Const Title: String);
 Begin
+ GpuSuspend;
  SetFullView;
  DlgX1 := (UI_W - W) Div 2;
  DlgY1 := (UI_H - H) Div 2;
@@ -6668,11 +6993,11 @@ Procedure ShowHelpLine;
 Begin
  WriteLn('TMF (Time Motion Transfer) ', VERSION_STR);
  WriteLn(L5(
-  'Syntaxe : TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
-  'Syntax: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
-  'Syntax: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
-  'Sintaxis: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]',
-  'Sintassi: TMF [-maxcolors] [-maxscreen] [/? | -h | --help]'));
+  'Syntaxe : TMF [-maxcolors] [-maxscreen] [-nogpu] [/? | -h | --help]',
+  'Syntax: TMF [-maxcolors] [-maxscreen] [-nogpu] [/? | -h | --help]',
+  'Syntax: TMF [-maxcolors] [-maxscreen] [-nogpu] [/? | -h | --help]',
+  'Sintaxis: TMF [-maxcolors] [-maxscreen] [-nogpu] [/? | -h | --help]',
+  'Sintassi: TMF [-maxcolors] [-maxscreen] [-nogpu] [/? | -h | --help]'));
  WriteLn;
  WriteLn(L5('  Sans option  Affichage 640x480 en 16 couleurs (tramage).',
             '  No option    640x480 display in 16 colors (dithered).',
@@ -6699,6 +7024,11 @@ Begin
             '               -maxcolors 24 Bit).',
             '               -maxcolors 24 bits).',
             '               -maxcolors 24 bit).'));
+ WriteLn(L5('  -nogpu       Windows : sans acceleration Direct3D (GPU).',
+            '  -nogpu       Windows: no Direct3D (GPU) acceleration.',
+            '  -nogpu       Windows: ohne Direct3D-(GPU-)Beschleunigung.',
+            '  -nogpu       Windows: sin aceleracion Direct3D (GPU).',
+            '  -nogpu       Windows: senza accelerazione Direct3D (GPU).'));
  WriteLn(L5('  /?           Affiche cette aide.',
             '  /?           Shows this help.',
             '  /?           Zeigt diese Hilfe.',
@@ -6711,6 +7041,12 @@ Begin
   'Sprache: Variable LANGUAGE (EN, GR, SP, IT; Standard Franzoesisch).',
   'Idioma: variable LANGUAGE (EN, GR, SP, IT; frances por defecto).',
   'Lingua: variabile LANGUAGE (EN, GR, SP, IT; francese di default).'));
+ WriteLn(L5(
+  'Windows : Direct3D est utilise seul avec une vraie carte graphique.',
+  'Windows: Direct3D is used by itself with a real graphics card.',
+  'Windows: Direct3D wird mit einer echten Grafikkarte automatisch genutzt.',
+  'Windows: Direct3D se usa solo con una tarjeta grafica real.',
+  'Windows: Direct3D e usato da solo con una vera scheda grafica.'));
  WriteLn(L5('Les options d''affichage sont ignorees sous Turbo Pascal.',
             'Display options are ignored under Turbo Pascal.',
             'Anzeigeoptionen werden unter Turbo Pascal ignoriert.',
@@ -6732,7 +7068,8 @@ BEGIN
    Halt;
   End
   Else If Arg = '-MAXCOLORS' Then OptMaxColors := True
-  Else If Arg = '-MAXSCREEN' Then OptMaxScreen := True;
+  Else If Arg = '-MAXSCREEN' Then OptMaxScreen := True
+  Else If Arg = '-NOGPU' Then OptNoGpu := True;
  End;
  {$IFDEF FPC}
  ReturnNilIfGrowHeapFails := True;
@@ -6766,6 +7103,21 @@ BEGIN
  TrackReset;
  CamListBuild;
  InitMenus;
+ {$IFDEF WINDOWS}
+ If Not OptNoGpu Then Begin
+  If GpuInit Then LogAdd('Direct3D : ' + GpuName)
+  Else LogAdd(L5('Direct3D non utilisé (pas de carte significative) :'+
+                 ' affichage logiciel.',
+                 'Direct3D not used (no significant graphics card): '+
+                 'software display.',
+                 'Direct3D nicht genutzt (keine geeignete Karte): '+
+                 'Softwareanzeige.',
+                 'Direct3D no usado (sin tarjeta adecuada): '+
+                 'pantalla por software.',
+                 'Direct3D non usato (nessuna scheda adatta): '+
+                 'schermo software.'));
+ End;
+ {$ENDIF}
  Info(L5(
   'Bienvenue. Choisissez un visage source (Ctrl+F) puis lancez le direct (F7).',
   'Welcome. Select a source face (Ctrl+F), then start live (F7).',
@@ -6779,6 +7131,9 @@ BEGIN
  MainLoop;
  StopLive;
  CamStop;
+ {$IFDEF WINDOWS}
+ If GpuOn Then GpuShutdown;
+ {$ENDIF}
  HideMouse;
  CloseGraph;
 END.
