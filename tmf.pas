@@ -7498,6 +7498,12 @@ Var
  Key: Array[0..MAX_FACES - 1] Of Real;
  T: TFace;
  TK, Pcx, Pcy: Real;
+ PL: Array[0..MAX_FACES - 1, 0..5] Of Real;
+ PW: Array[0..MAX_FACES - 1] Of Real;
+ Wr, Ry: LongInt;
+ Est: Array[0..5] Of Real;
+ TP: Array[0..5] Of Real;
+ TPW: Real;
 Begin
  HaarDetect := 0;
  For I := 0 To MAX_FACES - 1 Do L[I].Ok := False;
@@ -7539,16 +7545,25 @@ Begin
   If (SW * R) Div Cnt < Fr.W Div 10 Then Continue;
   { cadre de la tete (pleine resolution) : la fenetre de la cascade va des
     sourcils au menton }
-  Wf := (SW * R * 95) Div (Cnt * 100);
+  Wf := (SW * R * 120) Div (Cnt * 100);
   Cx := (SX * 2 * R + SW * R) Div (2 * Cnt);
   Hh := (Wf * 128) Div 100;
   FillChar(T, SizeOf(T), 0);
   T.Ok := True;
   T.X1 := Cx - Wf Div 2;
   T.X2 := T.X1 + Wf - 1;
-  T.Y1 := (SY * R) Div Cnt - (Wf * 6) Div 100;
+  T.Y1 := (SY * R) Div Cnt - (Wf * 10) Div 100;
   T.Y2 := T.Y1 + Hh - 1;
   T.Area := Wf * Hh * 6 Div 10;
+  { reperes theoriques a partir du cadre de la cascade (yeux a ~34 % de la
+    hauteur, bouche a ~84 %) : l'analyse de l'image n'est retenue que si elle
+    est proche, sinon elle est ecartee (ombres, cheveux, lunettes) }
+  Wr := (SW * R * 105) Div (Cnt * 100);
+  Ry := (SY * R) Div Cnt - (Wr * 5) Div 100;
+  PL[NF, 0] := Cx - 0.205 * Wr;  PL[NF, 1] := Ry + 0.345 * Wr;
+  PL[NF, 2] := Cx + 0.205 * Wr;  PL[NF, 3] := Ry + 0.345 * Wr;
+  PL[NF, 4] := Cx;               PL[NF, 5] := Ry + 0.84 * Wr;
+  PW[NF] := Wr;
   Cand[NF] := T;
   Key[NF] := BestN * Wf;
   If PrevOk Then Begin
@@ -7564,11 +7579,23 @@ Begin
    If Key[J] > Key[I] Then Begin
     T := Cand[I]; Cand[I] := Cand[J]; Cand[J] := T;
     TK := Key[I]; Key[I] := Key[J]; Key[J] := TK;
+    TP := PL[I]; PL[I] := PL[J]; PL[J] := TP;
+    TPW := PW[I]; PW[I] := PW[J]; PW[J] := TPW;
    End;
  If NF > MaxN Then NF := MaxN;
  K := 0;
  For I := 0 To NF - 1 Do Begin
   FindLandmarks(Fr, Cand[I]);
+  Est[0] := Cand[I].ELx; Est[1] := Cand[I].ELy;
+  Est[2] := Cand[I].ERx; Est[3] := Cand[I].ERy;
+  Est[4] := Cand[I].Mx;  Est[5] := Cand[I].My;
+  For J := 0 To 5 Do
+   If Abs(Est[J] - PL[I, J]) < 0.07 * PW[I] Then
+    Est[J] := (Est[J] + PL[I, J]) / 2
+   Else Est[J] := PL[I, J];
+  Cand[I].ELx := Est[0]; Cand[I].ELy := Est[1];
+  Cand[I].ERx := Est[2]; Cand[I].ERy := Est[3];
+  Cand[I].Mx := Est[4];  Cand[I].My := Est[5];
   L[K] := Cand[I];
   Inc(K);
  End;
@@ -8814,7 +8841,6 @@ Begin
  Case Cmd Of
   CM_ADJUST, CM_AUTODET, CM_CLEARFACE: CmdEnabled := Slots[CurSlot].Ok;
   CM_SWAPST: CmdEnabled := Slots[CurSlot].Ok And TargetOk;
-  CM_PREVIEW, CM_START: CmdEnabled := TargetOk;
   CM_STOP: CmdEnabled := Live;
   CM_SAVE, CM_CAPTURE: CmdEnabled := Res.D <> Nil;
  Else CmdEnabled := True;
@@ -11018,7 +11044,9 @@ Begin
   K_F5: ExecCmd(CM_START);
   K_F6: ExecCmd(CM_PREVIEW);
   K_F7: ExecCmd(CM_LIVE);
-  K_F8, K_ESC: ExecCmd(CM_STOP);
+  K_F8: ExecCmd(CM_STOP);
+  { Echap : arrete le direct ; hors direct, quitte le programme }
+  K_ESC: If Live Then ExecCmd(CM_STOP) Else ExecCmd(CM_QUIT);
   K_F9: ExecCmd(CM_CAPTURE);
   K_F10: OpenMenu(0);
  End;
